@@ -1,0 +1,25 @@
+emulator,android,guest_graphics_api,preset,round,order_within_session,package_abi,frames,duration_ms,fps,main_loop_p95_ms
+RustEmuDroid,16,OpenGL ES,Original,1,1,x86_64,2287,38262,59.7721,19.044
+RustEmuDroid,16,OpenGL ES,High,1,2,x86_64,2107,38130,55.2583,22.903
+RustEmuDroid,16,OpenGL ES,High,2,3,x86_64,2132,38138,55.9022,22.02
+RustEmuDroid,16,OpenGL ES,Original,2,4,x86_64,2288,38127,60.01,18.84
+RustEmuDroid,16,OpenGL ES,Original,3,5,x86_64,2288,38133,60.0005,18.955
+RustEmuDroid,16,OpenGL ES,High,3,6,x86_64,2109,38135,55.3035,22.641
+Kemu,16,OpenGL ES,Original,1,1,x86_64,2287,38144,59.957,18.937
+Kemu,16,OpenGL ES,High,1,2,x86_64,2275,38129,59.6659,18.781
+Kemu,16,OpenGL ES,High,2,3,x86_64,2286,38116,59.9748,18.428
+Kemu,16,OpenGL ES,Original,2,4,x86_64,2288,38128,60.0084,18.76
+Kemu,16,OpenGL ES,Original,3,5,x86_64,2288,38131,60.0037,19.027
+Kemu,16,OpenGL ES,High,3,6,x86_64,2287,38129,59.9806,18.429
+BlueStacks,9,OpenGL ES,Original,1,1,armeabi-v7a,2287,38138,59.9664,18.127
+BlueStacks,9,OpenGL ES,High,1,2,armeabi-v7a,2287,38121,59.9932,17.5
+BlueStacks,9,OpenGL ES,High,2,3,armeabi-v7a,2288,38122,60.0178,17.44
+BlueStacks,9,OpenGL ES,Original,2,4,armeabi-v7a,2288,38120,60.021,18.101
+BlueStacks,9,OpenGL ES,Original,3,5,armeabi-v7a,2288,38120,60.021,18.043
+BlueStacks,9,OpenGL ES,High,3,6,armeabi-v7a,2286,38121,59.9669,17.405
+RustEmuDroid,17,Vulkan,Original,1,1,x86_64,2283,38131,59.8725,19.155
+RustEmuDroid,17,Vulkan,High,1,2,x86_64,2271,38080,59.6376,19.284
+RustEmuDroid,17,Vulkan,High,2,3,x86_64,2279,38082,59.8445,19.065
+RustEmuDroid,17,Vulkan,Original,2,4,x86_64,2281,38079,59.9018,19.14
+RustEmuDroid,17,Vulkan,Original,3,5,x86_64,2287,38083,60.053,18.938
+RustEmuDroid,17,Vulkan,High,3,6,x86_64,2271,38081,59.636,19.447

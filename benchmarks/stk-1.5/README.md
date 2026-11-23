@@ -1,5 +1,7 @@
 # SuperTuxKart 1.5 no Windows
 
+[Radeon 780M integrated graphics benchmark (English)](radeon-780m/README.md)
+
 ## Home do Android e imagem Google Play
 
 Em 23/11/2026, o painel integrado executou o replay Black Forest na RTX 5070 Ti a 1600 × 900, escala de 100%, 4 vCPUs, 8 GiB e limite de 60 FPS. A tabela mostra a média de duas corridas por célula. O P95 usa os tempos positivos da coluna `Main loop` das duas corridas no perfil alto.

@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 PACKAGE = "org.supertuxkart.stk"
 DIRECTORY = f"/sdcard/Android/data/{PACKAGE}/files/supertuxkart/home/supertuxkart/config-0.10"
 REPORT = f"{DIRECTORY}/stdout.log.perf-report-black_forest.csv"
+TIMINGS = f"{DIRECTORY}/stdout.log.profile-black_forest-cpu-0.csv"
 CONFIG = f"{DIRECTORY}/config.xml"
 
 VIDEO = dict(width="1600", height="900", real_width="1600", real_height="900",
@@ -61,7 +62,12 @@ def replay(args, name, serial, preset, dest):
     tree.write(config, encoding="utf-8", xml_declaration=True)
     try:
         run(args, serial, "push", str(config), CONFIG)
-        before = run(args, serial, "shell", "stat", "-c", "%Y", REPORT, check=False)
+        def stamp(path):
+            return run(args, serial, "shell", "stat", "-c", "%s:%Y", path, check=False).strip()
+
+        before = stamp(REPORT)
+        before_timings = stamp(TIMINGS)
+        last_read = "waiting for fresh profiler files"
         start = time.time()
         activity = f"{PACKAGE}/.SuperTuxKartActivity"
         run(args, serial, "shell", "am", "start", "-a", "android.intent.action.MAIN", "-c",
@@ -69,8 +75,9 @@ def replay(args, name, serial, preset, dest):
         deadline = time.monotonic() + 150
         while time.monotonic() < deadline:
             time.sleep(2)
-            stamp = run(args, serial, "shell", "stat", "-c", "%Y", REPORT, check=False)
-            if stamp and stamp != before:
+            summary = stamp(REPORT)
+            timing_stamp = stamp(TIMINGS)
+            if summary and summary != before and timing_stamp and timing_stamp != before_timings:
                 data = run(args, serial, "exec-out", "cat", REPORT)
                 rows = list(csv.reader(io.StringIO(data.decode())))
                 if len(rows) < 65:
@@ -85,15 +92,17 @@ def replay(args, name, serial, preset, dest):
                 if preset in ("vulkan", "high-vulkan") and not any("Vulkan" in line for line in driver):
                     raise ValueError(f"The game did not confirm its Vulkan renderer on {name}")
                 (dest / "renderer.txt").write_text("\n".join(driver) + "\n", encoding="utf-8")
-                timings = run(args, serial, "exec-out", "cat", DIRECTORY + "/stdout.log.profile-black_forest-cpu-0.csv")
+                timings = run(args, serial, "exec-out", "cat", TIMINGS)
                 if not timings.startswith(b"#") or abs(len(timings.splitlines()) - 1 - frames) > 2:
-                    raise ValueError(f"Incomplete per-frame profiler output on {name}")
+                    # The game may still be flushing per-frame records after writing the summary.
+                    last_read = f"{len(timings.splitlines()) - 1} timing rows for {frames} frames"
+                    continue
                 (dest / "quadros.csv").write_bytes(timings)
                 (dest / "report.csv").write_bytes(data)
                 return dict(engine=name, abi=abi, preset=preset, start=start, end=time.time(),
                             frames=frames, duration_ms=duration, fps=frames*1000/duration,
                             mostly_stable=int(rows[4][1]), settings=settings)
-        raise TimeoutError(f"No new complete performance report on {name}")
+        raise TimeoutError(f"No new complete performance report on {name}: {last_read}")
     finally:
         run(args, serial, "shell", "am", "force-stop", PACKAGE)
         run(args, serial, "push", str(original), CONFIG)
@@ -107,17 +116,17 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--adb", default="adb")
     p.add_argument("--kemu", help="ADB serial of an optional Kemu reference")
-    p.add_argument("--rust", required=True, help="ADB serial of the integrated RustEmuDroid")
+    p.add_argument("--rust", help="ADB serial of the integrated RustEmuDroid")
     p.add_argument("--bluestacks", help="Local ADB serial of the BlueStacks App Player")
     p.add_argument("--rounds", type=int, default=3)
     p.add_argument("--presets", nargs="+", choices=["original", "high", "vulkan", "high-vulkan"], default=["original", "high"])
     p.add_argument("--output", type=Path, required=True)
     args = p.parse_args()
-    engines = [("RustEmuDroid", args.rust)]
-    if args.kemu:
-        engines.insert(0, ("Kemu", args.kemu))
-    if args.bluestacks:
-        engines.append(("BlueStacks", args.bluestacks))
+    engines = [(name, serial) for name, serial in
+               [("Kemu", args.kemu), ("RustEmuDroid", args.rust), ("BlueStacks", args.bluestacks)]
+               if serial]
+    if not engines:
+        p.error("Select at least one emulator with --rust, --kemu or --bluestacks")
     if args.rounds < 1 or len({serial for _, serial in engines}) != len(engines):
         p.error("Use distinct emulators and at least one round")
     args.output.mkdir(parents=True, exist_ok=False)

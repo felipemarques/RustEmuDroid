@@ -106,6 +106,8 @@ Use o mesmo `--state-dir` em `init`, `boot` e `ui`. O padrão é `.rustemudroid/
 
 ## Desempenho e solução de problemas
 
+O [benchmark da Radeon 780M, em inglês](benchmarks/stk-1.5/radeon-780m/README.md), compara a GPU integrada no RustEmuDroid, Kemu e BlueStacks. O relatório inclui os dados de cada corrida e a confirmação da GPU física.
+
 - **FPS do painel.** A barra conta os quadros novos enviados para desenho no painel. Uma Home parada pode exibir um número baixo. Para comparar jogos, use o contador do próprio jogo ou o relatório de quadros do replay.
 - **Exemplo medido.** No replay Black Forest do SuperTuxKart 1.5, o RustEmuDroid atingiu média de 59,93 FPS na qualidade original e 28,90 FPS na alta com Windows, RTX 5070 Ti, Android 16 e OpenGL ES. O relatório traz os parâmetros, os tempos por quadro e os resultados do Kemu e BlueStacks. [Método e medições](benchmarks/stk-1.5/README.md)
 - **Tela preta ou vídeo lento.** Execute `doctor`, confira a placa Vulkan e teste GPU do computador ou Automática. Software/SwiftShader ajuda a isolar problemas de driver. No Linux, o motor do SDK usa um caminho de compatibilidade GLES para a imagem do Kemu.
