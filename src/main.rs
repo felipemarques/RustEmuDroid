@@ -1,5 +1,7 @@
 mod android;
 #[cfg(feature = "ui")]
+mod display;
+#[cfg(feature = "ui")]
 mod ui;
 
 use std::{
@@ -33,7 +35,14 @@ struct Cli {
 enum Action {
     /// Abre o painel do RustEmuDroid.
     #[cfg(feature = "ui")]
-    Ui,
+    Ui {
+        /// Inicia a sessão integrada assim que o painel abre.
+        #[arg(long)]
+        play: bool,
+        /// Modo de renderização inicial do painel.
+        #[arg(long, value_enum)]
+        gpu: Option<Gpu>,
+    },
 
     /// Localiza as ferramentas e verifica o hipervisor.
     Doctor,
@@ -63,10 +72,20 @@ enum Action {
         #[arg(long, value_enum, default_value_t = Gpu::Auto)]
         gpu: Gpu,
 
+        /// Motor da VM. Auto usa o motor correspondente à imagem do Kemu no Windows.
+        #[arg(long, value_enum, default_value_t = Engine::Auto)]
+        engine: Engine,
+
         /// Tempo máximo de espera pelo Android.
         #[arg(long, default_value_t = 180, value_parser = clap::value_parser!(u64).range(1..))]
         timeout: u64,
     },
+}
+
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum Engine {
+    Auto,
+    Sdk,
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
@@ -96,8 +115,8 @@ fn run() -> Result<()> {
         .unwrap_or_else(|| PathBuf::from(".rustemudroid").join(std::env::consts::OS));
     let state = absolute(state)?;
     #[cfg(feature = "ui")]
-    if matches!(&cli.command, Action::Ui) {
-        return ui::run(cli.sdk, state);
+    if let Action::Ui { play, gpu } = &cli.command {
+        return ui::run(cli.sdk, state, *play, *gpu);
     }
 
     let sdk = Sdk::find(cli.sdk)?;
@@ -105,7 +124,7 @@ fn run() -> Result<()> {
 
     match cli.command {
         #[cfg(feature = "ui")]
-        Action::Ui => unreachable!(),
+        Action::Ui { .. } => unreachable!(),
         Action::Doctor => {
             println!("SDK: {}", sdk.root.display());
             println!("ADB: {}", sdk.adb.display());
@@ -128,14 +147,21 @@ fn run() -> Result<()> {
             headless,
             check,
             gpu,
+            engine,
             timeout,
         } => android::boot(
             &sdk,
             &profile,
-            gpu.as_str(),
-            headless,
-            check,
-            Duration::from_secs(timeout),
+            android::BootOptions {
+                gpu,
+                engine,
+                headless,
+                check,
+                embedded: false,
+                timeout: Duration::from_secs(timeout),
+            },
+            &std::sync::atomic::AtomicBool::new(false),
+            |event| println!("{event}"),
         )?,
     }
 

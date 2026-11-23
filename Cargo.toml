@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-ui = ["dep:eframe"]
+ui = ["dep:eframe", "dep:tonic", "dep:prost", "dep:tokio", "dep:bytemuck"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 eframe = { version = "0.33", optional = true, default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+tonic = { version = "0.12", optional = true, default-features = false, features = ["transport", "prost", "codegen"] }
+prost = { version = "0.13", optional = true }
+tokio = { version = "1", optional = true, features = ["rt", "time", "sync", "macros"] }
+bytemuck = { version = "1", optional = true }

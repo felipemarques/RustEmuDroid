@@ -1,6 +1,16 @@
 # RustEmuDroid
 
-Protótipo de launcher em Rust para iniciar uma VM Android isolada. Usa o executável Android Emulator do SDK e confirma a inicialização pelo ADB com `sys.boot_completed=1`.
+Interface em Rust para jogar Android em uma janela no Windows e no Linux. O painel inicia a VM, exibe a tela do Android e encaminha mouse e teclado. No Windows, a instalação do Kemu pode fornecer a imagem Android 16 e o motor QEMU/gfxstream com aceleração Vulkan. O Android Emulator do SDK também é suportado.
+
+## Abrir para jogar
+
+No Windows, dê dois cliques em [Abrir RustEmuDroid.cmd](Abrir%20RustEmuDroid.cmd). O atalho compila a versão de lançamento e abre a sessão integrada. Também é possível abrir o painel pela linha de comando nas duas plataformas.
+
+```text
+cargo run --locked --release --features ui -- ui --play
+```
+
+Clique e arraste sobre o Android para tocar e deslizar. O painel tem controles para voltar, ir à tela inicial e abrir apps recentes. O contador mostra quantos quadros novos a interface recebeu e enviou para desenho por segundo. O botão **Encerrar Android** encerra a VM e volta ao painel.
 
 ## Pré-requisitos
 
@@ -28,7 +38,9 @@ cargo run -- boot --headless --check --gpu swiftshader
 
 No WSL, use o SDK Linux e uma conta com acesso de leitura e escrita a /dev/kvm. Se o SDK estiver fora do diretório padrão, informe --sdk ou ANDROID_HOME.
 
-A imagem testada é o Android 16 (API 36) do Kemu, build BP4A.251205.006, com a ABI de sistema x86-64. Para essa imagem, o launcher seleciona o driver OpenGL ES que já vem no Android e ajusta persist.graphics.egl por ADB no disco do protótipo. Essa configuração permite inicializar o compositor com o motor do SDK. O perfil de uma imagem instalada via SDK usa a configuração gráfica padrão do Android Emulator.
+A imagem testada é o Android 16 (API 36), build BP4A.251205.006, x86-64. No Windows, com GPU automática ou do host, o launcher encontra o motor ao lado da pasta `system-img`. A interface em Rust inicia diretamente o QEMU dessa instalação. O Android usa ANGLE e Vulkan com as filas de memória compartilhada implementadas pelo motor. A VM de jogos usa 4 vCPUs, 8 GiB e 1600 × 900 a 60 Hz. O disco gravável fica em `<perfil>/gaming` e precisa de sua própria instalação dos jogos.
+
+Para uma instalação do Kemu fora de `Program Files/Kemu`, defina `RUSTEMUDROID_KEMU_ROOT` com o diretório da instalação e selecione sua pasta `system-img`. O perfil anterior do SDK continua acessível com `boot --engine sdk`. No Linux e em instalações que usam somente o SDK, a imagem do Kemu usa o driver GLES de compatibilidade. Nesse caso, o launcher configura `persist.graphics.egl` no disco do protótipo. As imagens padrão do SDK usam o driver escolhido pelo próprio Android Emulator.
 
 ## Usar uma imagem do SDK
 
@@ -44,22 +56,22 @@ cargo run -- boot --headless --check
 
 ## Interface
 
-O painel do RustEmuDroid reúne o caminho do SDK, a imagem Android, o perfil e o modo de renderização. O botão **Abrir Android** inicia a janela do Android. **Verificar boot** faz um teste sem janela e encerra a VM ao confirmar a inicialização.
+Execute o comando abaixo para editar os caminhos do SDK, da imagem e do perfil antes de jogar. **Abrir Android** exibe o Android no mesmo painel. **Verificar boot** inicia a VM em segundo plano e encerra o processo assim que `sys.boot_completed=1`.
 
 ```text
-cargo run --locked --features ui --target-dir target/painel -- ui
+cargo run --locked --release --features ui -- ui
 ```
 
-No Windows, o painel preenche o caminho de instalação padrão do Kemu quando encontra a imagem. No Linux, informe a pasta da imagem ou deixe o campo em branco para usar o perfil existente ou a imagem padrão do SDK. O painel usa o mesmo launcher da linha de comando. A janela abriu no Windows, o executável do painel confirmou o boot e o código da interface passou na verificação de compilação no Ubuntu em WSL2.
+O painel usa egui/eframe e recebe quadros RGBA do serviço `EmulatorController.streamScreenshot` em loopback. Cada sessão usa uma porta livre e o token do seu próprio AVD. Há espaço para um quadro pendente. O painel usa o mais recente a cada atualização. Mouse e teclado seguem pelo mesmo serviço. Para validar o painel no WSL2 com renderização por software, use `ui --play --gpu swiftshader`.
 
 ## Rodar e diagnosticar
 
 - `doctor` localiza o SDK com `--sdk`, `ANDROID_HOME`, `ANDROID_SDK_ROOT` ou o caminho padrão `Android/Sdk` da plataforma. Ele verifica se o hipervisor pode ser usado.
-- `init` prepara um AVD com 4 vCPUs, 3 GiB de RAM e resolução de 1080 × 1920.
+- `init` registra a imagem e prepara o perfil do SDK com 4 vCPUs, 3 GiB e 1080 × 1920.
 - `boot` imprime o serial, o log e o tempo de inicialização. Sem `--headless`, abre a janela do Android Emulator e acompanha a VM enquanto ela estiver aberta.
 - `boot --headless --check` testa a inicialização e encerra a VM do protótipo após o Android confirmar o boot. `--timeout` ajusta a espera em segundos.
 
-Os dados graváveis e os logs ficam em `.rustemudroid/windows` ou `.rustemudroid/linux`. O launcher escolhe um par livre de portas de console e ADB e confere o nome do AVD antes de consultar o Android ou pedir o desligamento. Uma imagem do Kemu é usada como base para um disco novo no perfil do protótipo.
+Os dados graváveis e os logs ficam em `.rustemudroid/windows` ou `.rustemudroid/linux`. O launcher escolhe um par livre de portas e verifica o caminho do AVD antes de configurar o Android ou pedir o desligamento.
 
 ## Validação local
 
@@ -70,7 +82,7 @@ Os dados graváveis e os logs ficam em `.rustemudroid/windows` ou `.rustemudroid
 
 Os dois testes usaram perfis novos, executaram `boot --headless --check` e retornaram `sys.boot_completed=1` com a mesma fingerprint da imagem do Kemu. Na verificação Windows, Kemu e BlueStacks continuaram conectados nas portas anteriores. Os três testes do pacote Rust também passaram nas duas plataformas.
 
-A validação cobre a inicialização do Android. A interface própria em Rust, a compatibilidade de jogos e o desempenho de Vulkan permanecem fora deste protótipo.
+O painel integrado exibiu quadros do Android no Windows e no Ubuntu 24.04 em WSL2. No Windows, o toque abriu as configurações de rede e o botão Início devolveu o Android ao launcher. O teste de desempenho usa SuperTuxKart no Windows com a mesma imagem e a mesma placa de vídeo do Kemu.
 
 
 [Comparação em jogo com SuperTuxKart 1.5](benchmarks/stk-1.5/README.md)

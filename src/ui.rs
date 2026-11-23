@@ -1,16 +1,22 @@
 use std::{
     collections::VecDeque,
-    io::{BufRead, BufReader},
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
-    sync::mpsc::{self, Receiver, Sender},
+    path::PathBuf,
+    sync::mpsc::{self, Receiver},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     thread,
     time::Duration,
 };
 
 use eframe::egui::{self, Color32, RichText, Stroke, pos2, vec2};
 
-use crate::{Gpu, Result, android::Sdk};
+use crate::{
+    Engine, Gpu, Result,
+    android::{self, BootEvent, BootOptions, Profile, Sdk, SystemImage},
+    display::Display,
+};
 
 const BACKGROUND: Color32 = Color32::from_rgb(16, 22, 30);
 const PANEL: Color32 = Color32::from_rgb(23, 33, 43);
@@ -20,10 +26,10 @@ const MUTED: Color32 = Color32::from_rgb(164, 183, 199);
 const MINT: Color32 = Color32::from_rgb(138, 233, 192);
 const ERROR: Color32 = Color32::from_rgb(255, 157, 148);
 
-pub fn run(sdk: Option<PathBuf>, state: PathBuf) -> Result<()> {
+pub fn run(sdk: Option<PathBuf>, state: PathBuf, play: bool, gpu: Option<Gpu>) -> Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([820.0, 570.0])
+            .with_inner_size([1080.0, 680.0])
             .with_min_inner_size([610.0, 510.0]),
         renderer: eframe::Renderer::Glow,
         ..Default::default()
@@ -41,9 +47,18 @@ pub fn run(sdk: Option<PathBuf>, state: PathBuf) -> Result<()> {
             Ok(Box::new(Launcher {
                 sdk: sdk_path.map_or_else(String::new, |path| path.display().to_string()),
                 state: state.display().to_string(),
-                image: default_image(),
-                gpu: if cfg!(windows) { Gpu::Host } else { Gpu::Auto },
+                image: if state.join("avd/RustEmuDroid.ini").is_file() {
+                    String::new()
+                } else {
+                    default_image()
+                },
+                gpu: gpu.unwrap_or(if cfg!(windows) { Gpu::Host } else { Gpu::Auto }),
                 task: None,
+                worker: None,
+                stop: Arc::new(AtomicBool::new(false)),
+                display: None,
+                playing: false,
+                play,
                 status: "Aguardando início".into(),
                 failed: false,
                 output: VecDeque::new(),
@@ -54,9 +69,8 @@ pub fn run(sdk: Option<PathBuf>, state: PathBuf) -> Result<()> {
 }
 
 fn default_image() -> String {
-    std::env::var_os("ProgramFiles")
-        .map(PathBuf::from)
-        .map(|path| path.join("Kemu/system-img"))
+    android::kemu_install_root()
+        .map(|path| path.join("system-img"))
         .filter(|path| path.join("system.img").is_file())
         .map_or_else(String::new, |path| path.display().to_string())
 }
@@ -67,13 +81,18 @@ struct Launcher {
     image: String,
     gpu: Gpu,
     task: Option<Receiver<Event>>,
+    worker: Option<thread::JoinHandle<()>>,
+    stop: Arc<AtomicBool>,
+    display: Option<Display>,
+    playing: bool,
+    play: bool,
     status: String,
     failed: bool,
     output: VecDeque<String>,
 }
 
 enum Event {
-    Output(String),
+    Vm(BootEvent),
     Finished(std::result::Result<(), String>),
 }
 
@@ -92,17 +111,52 @@ impl Launcher {
         self.status = "Preparando Android…".into();
         self.output.clear();
 
-        thread::spawn(move || {
-            let result = launch(&sdk, &state, &image, gpu, check, &events);
+        self.stop = Arc::new(AtomicBool::new(false));
+        let stop = self.stop.clone();
+        self.playing = !check;
+        self.worker = Some(thread::spawn(move || {
+            let result = (|| -> Result<()> {
+                let sdk = Sdk::find((!sdk.is_empty()).then(|| PathBuf::from(sdk)))?;
+                let needs_init = !state.join("avd/RustEmuDroid.ini").is_file();
+                let profile = Profile::new(state);
+                if !image.is_empty() {
+                    profile.init(SystemImage::from_dir(PathBuf::from(image))?)?
+                } else if needs_init {
+                    profile.init(SystemImage::from_sdk(
+                        &sdk,
+                        "system-images;android-35;google_apis;x86_64",
+                    )?)?
+                }
+                android::boot(
+                    &sdk,
+                    &profile,
+                    BootOptions {
+                        gpu,
+                        engine: Engine::Auto,
+                        headless: check,
+                        check,
+                        embedded: !check,
+                        timeout: Duration::from_secs(180),
+                    },
+                    &stop,
+                    |e| {
+                        println!("{e}");
+                        let _ = events.send(Event::Vm(e));
+                    },
+                )
+            })();
             let _ = events.send(Event::Finished(result.map_err(|error| error.to_string())));
-        });
+        }));
     }
 
-    fn receive(&mut self) {
+    fn receive(&mut self, ctx: &egui::Context) {
         let Some(task) = &self.task else { return };
         for event in task.try_iter() {
             match event {
-                Event::Output(line) => {
+                Event::Vm(BootEvent::Display { console, rpc, avd }) => {
+                    self.display = Some(Display::open(console, rpc, avd, ctx));
+                }
+                Event::Vm(BootEvent::Message(line)) => {
                     if line.starts_with("Iniciando ") {
                         self.status = "Iniciando Android…".into();
                     } else if line.starts_with("Boot confirmado ") {
@@ -115,6 +169,11 @@ impl Launcher {
                 }
                 Event::Finished(result) => {
                     self.task = None;
+                    self.display = None;
+                    self.playing = false;
+                    if let Some(worker) = self.worker.take() {
+                        let _ = worker.join();
+                    }
                     match result {
                         Ok(()) => {
                             self.status = if self.status.starts_with("Boot confirmado ") {
@@ -137,18 +196,64 @@ impl Launcher {
 
 impl eframe::App for Launcher {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.receive();
+        if std::mem::take(&mut self.play) {
+            self.start(false)
+        }
+        self.receive(ctx);
         if self.task.is_some() {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
 
+        if self.playing {
+            egui::TopBottomPanel::top("session-controls").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    brand_mark(ui, 22.0);
+                    ui.strong("RustEmuDroid");
+                    ui.separator();
+                    if let Some(display) = &self.display {
+                        if ui.button("Voltar").clicked() {
+                            display.press("GoBack")
+                        }
+                        if ui.button("Início").clicked() {
+                            display.press("GoHome")
+                        }
+                        if ui.button("Recentes").clicked() {
+                            display.press("AppSwitch")
+                        }
+                        ui.label(format!("{:.0} FPS no painel", display.fps()));
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add_enabled(
+                                !self.stop.load(Ordering::Acquire),
+                                egui::Button::new("Encerrar Android"),
+                            )
+                            .clicked()
+                        {
+                            self.stop.store(true, Ordering::Release);
+                        }
+                    });
+                });
+            });
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
+                .show(ctx, |ui| {
+                    if let Some(display) = &mut self.display {
+                        display.show(ui)
+                    } else {
+                        ui.spinner();
+                        ui.label(&self.status);
+                    }
+                });
+            return;
+        }
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Frame::new()
                     .inner_margin(egui::Margin::symmetric(32, 26))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            brand_mark(ui);
+                            brand_mark(ui, 48.0);
                             ui.add_space(12.0);
                             ui.label(RichText::new("RustEmuDroid").strong().size(27.0));
                         });
@@ -259,12 +364,13 @@ fn gpu_label(gpu: Gpu) -> &'static str {
     }
 }
 
-fn brand_mark(ui: &mut egui::Ui) {
-    let (rect, _) = ui.allocate_exact_size(vec2(48.0, 48.0), egui::Sense::hover());
+fn brand_mark(ui: &mut egui::Ui, side: f32) {
+    let (rect, _) = ui.allocate_exact_size(vec2(side, side), egui::Sense::hover());
+    let scale = side / 48.0;
     let painter = ui.painter();
-    painter.rect_filled(rect, 12, MINT);
-    let point = |x, y| pos2(rect.left() + x, rect.top() + y);
-    let stroke = Stroke::new(3.0_f32, BACKGROUND);
+    painter.rect_filled(rect, side / 4.0, MINT);
+    let point = |x, y| pos2(rect.left() + x * scale, rect.top() + y * scale);
+    let stroke = Stroke::new(3.0 * scale, BACKGROUND);
     painter.add(egui::Shape::line(
         vec![
             point(15.0, 35.0),
@@ -279,75 +385,12 @@ fn brand_mark(ui: &mut egui::Ui) {
     painter.line_segment([point(24.0, 25.0), point(34.0, 35.0)], stroke);
 }
 
-fn launch(
-    sdk: &str,
-    state: &Path,
-    image: &str,
-    gpu: Gpu,
-    check: bool,
-    events: &Sender<Event>,
-) -> Result<()> {
-    let executable = std::env::current_exe()?;
-    let command = || {
-        let mut command = Command::new(&executable);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(0x08000000); // Hide the launcher console.
+impl Drop for Launcher {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        self.display.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
         }
-        command.arg("--state-dir").arg(state);
-        if !sdk.is_empty() {
-            command.arg("--sdk").arg(sdk);
-        }
-        command
-    };
-
-    if !image.is_empty() || !state.join("avd/RustEmuDroid.ini").is_file() {
-        let mut init = command();
-        init.arg("init");
-        if !image.is_empty() {
-            init.arg("--system-dir").arg(image);
-        }
-        run_command(init, events)?;
     }
-
-    let mut boot = command();
-    boot.args(["boot", "--gpu", gpu.as_str()]);
-    if check {
-        boot.args(["--headless", "--check"]);
-    }
-    run_command(boot, events)
-}
-
-fn run_command(mut command: Command, events: &Sender<Event>) -> Result<()> {
-    let mut child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    let stderr = child.stderr.take().expect("stderr piped");
-    let sender = events.clone();
-    let read_errors = thread::spawn(move || stream_output(stderr, &sender));
-    stream_output(child.stdout.take().expect("stdout piped"), events);
-    let status = child.wait()?;
-    let error = read_errors.join().ok().flatten().unwrap_or_default();
-    if !status.success() {
-        return Err(if error.is_empty() {
-            format!("O launcher encerrou com {status}.").into()
-        } else {
-            error.into()
-        });
-    }
-    Ok(())
-}
-
-fn stream_output(input: impl std::io::Read, events: &Sender<Event>) -> Option<String> {
-    let mut last = None;
-    for line in BufReader::new(input)
-        .lines()
-        .map_while(std::result::Result::ok)
-    {
-        last = Some(line.clone());
-        let _ = events.send(Event::Output(line));
-    }
-    last
 }

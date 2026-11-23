@@ -6,11 +6,12 @@ use std::{
     net::{Ipv4Addr, TcpListener},
     path::{Path, PathBuf, absolute},
     process::{Child, Command, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
     thread::sleep,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use crate::Result;
+use crate::{Engine, Gpu, Result};
 
 const AVD: &str = "RustEmuDroid";
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -63,6 +64,12 @@ fn default_sdk_path() -> Option<PathBuf> {
     }
 }
 
+pub fn kemu_install_root() -> Option<PathBuf> {
+    env::var_os("RUSTEMUDROID_KEMU_ROOT")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("ProgramFiles").map(|p| PathBuf::from(p).join("Kemu")))
+}
+
 pub struct Profile {
     pub root: PathBuf,
     avd_home: PathBuf,
@@ -79,6 +86,10 @@ impl Profile {
     }
 
     pub fn init(&self, image: SystemImage) -> Result<()> {
+        self.init_disk(image, false)
+    }
+
+    fn init_disk(&self, image: SystemImage, gaming: bool) -> Result<()> {
         let SystemImage { api, tag, location } = image;
         let directory = self.avd_home.join(format!("{AVD}.avd"));
         let entry = self.avd_home.join(format!("{AVD}.ini"));
@@ -89,11 +100,16 @@ impl Profile {
 
         fs::create_dir_all(&directory)?;
         fs::create_dir_all(&self.user_home)?;
+        let hardware = if gaming {
+            "hw.ramSize=8192\nhw.lcd.width=1600\nhw.lcd.height=900\nhw.lcd.density=320\n\
+             hw.initialOrientation=landscape\nhw.lcd.vsync=60\nuserdata.useQcow2=no\n\
+             skin.dynamic=no\nskin.name=1600x900\nskin.path=1600x900\ndisk.dataPartition.size=32G"
+        } else {
+            "hw.ramSize=3072\nhw.lcd.width=1080\nhw.lcd.height=1920\nhw.lcd.density=420\ndisk.dataPartition.size=4G"
+        };
         let config = format!(
             "AvdId={AVD}\nabi.type=x86_64\nhw.cpu.arch=x86_64\nhw.cpu.ncore=4\n\
-             hw.ramSize=3072\nhw.gpu.enabled=yes\nhw.gpu.mode=auto\nhw.keyboard=yes\n\
-             hw.lcd.width=1080\nhw.lcd.height=1920\nhw.lcd.density=420\n\
-             disk.dataPartition.size=4G\nPlayStore.enabled=false\n\
+             {hardware}\nhw.gpu.enabled=yes\nhw.gpu.mode=auto\nhw.keyboard=yes\nPlayStore.enabled=false\n\
              image.sysdir.1={location}\ntag.id={tag}\n"
         );
         write_once(
@@ -239,15 +255,81 @@ fn free_port_pair() -> Result<(u16, TcpListener, TcpListener)> {
     Err("Nenhum par de portas livres para console e ADB entre 5554 e 5585.".into())
 }
 
+pub struct BootOptions {
+    pub gpu: Gpu,
+    pub engine: Engine,
+    pub headless: bool,
+    pub check: bool,
+    pub embedded: bool,
+    pub timeout: Duration,
+}
+
+pub enum BootEvent {
+    Message(String),
+    Display {
+        console: u16,
+        rpc: u16,
+        avd: PathBuf,
+    },
+}
+
+impl std::fmt::Display for BootEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Message(message) => f.write_str(message),
+            Self::Display { console, rpc, avd } => write!(
+                f,
+                "Tela integrada em emulator-{console} (RPC {rpc}, {}).",
+                avd.display()
+            ),
+        }
+    }
+}
+
 pub fn boot(
     sdk: &Sdk,
     profile: &Profile,
-    gpu: &str,
-    headless: bool,
-    check: bool,
-    timeout: Duration,
+    options: BootOptions,
+    stop: &AtomicBool,
+    mut notify: impl FnMut(BootEvent),
 ) -> Result<()> {
+    let BootOptions {
+        gpu,
+        engine,
+        headless,
+        check,
+        embedded,
+        timeout,
+    } = options;
     let system_dir = profile.system_dir(sdk)?;
+    let kemu_image = fs::read_to_string(system_dir.join("build.prop")).is_ok_and(|props| {
+        property(&props, "ro.system.build.fingerprint").is_some_and(|v| v.starts_with("Kemu/"))
+    });
+    // This guest Vulkan HAL uses the shared RX/TX extensions of the matching goldfish pipe.
+    let installed = kemu_install_root();
+    let runtime = installed.as_deref().filter(|root| {
+        cfg!(windows)
+            && kemu_image
+            && engine == Engine::Auto
+            && matches!(gpu, Gpu::Host | Gpu::Auto)
+            && root
+                .join("qemu/windows-x86_64/qemu-system-x86_64.exe")
+                .is_file()
+            && fs::canonicalize(root.join("system-img"))
+                .is_ok_and(|image| fs::canonicalize(&system_dir).ok().as_ref() == Some(&image))
+    });
+    let gaming;
+    let profile = if runtime.is_some() {
+        gaming = Profile::new(profile.root.join("gaming"));
+        gaming.init_disk(SystemImage::from_dir(system_dir.clone())?, true)?;
+        &gaming
+    } else {
+        profile
+    };
+    let compat_egl = kemu_image && runtime.is_none();
+    // The WHPX user APIC and guest XSAVE workaround were needed on AMD hosts here.
+    let amd_whpx = runtime.is_some()
+        && env::var("PROCESSOR_IDENTIFIER").is_ok_and(|id| id.contains("AuthenticAMD"));
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
     let log_path = profile
         .root
@@ -256,10 +338,47 @@ pub fn boot(
         .write(true)
         .create_new(true)
         .open(&log_path)?;
-    let mut command = Command::new(&sdk.emulator);
+    let mut command = if let Some(root) = runtime {
+        let mut cmd = Command::new(root.join("qemu/windows-x86_64/qemu-system-x86_64.exe"));
+        let mut paths: Vec<_> = [
+            "lib64/qt/lib",
+            "lib64",
+            "lib64/gles_swiftshader",
+            "lib64/vulkan",
+            "",
+        ]
+        .iter()
+        .map(|p| root.join(p))
+        .collect();
+        if let Some(path) = env::var_os("PATH") {
+            paths.extend(env::split_paths(&path));
+        }
+        cmd.current_dir(root)
+            .env("PATH", env::join_paths(paths)?)
+            .env_remove("KEMU_UI")
+            .env_remove("KEMU_INSTANCE_HANDLE")
+            .env_remove("KEMU_INSTANCE")
+            .env("ANDROID_EMULATOR_LAUNCHER_DIR", root)
+            .env("QT_PLUGIN_PATH", root.join("lib64/qt/plugins"))
+            .env("QT_QPA_PLATFORM_PLUGIN_PATH", root.join("lib64/qt/plugins"))
+            .args([
+                "-no-boot-anim",
+                "-crash-report-mode",
+                "disabled",
+                "-feature",
+                "GuestAngle,VulkanBatchedDescriptorSetUpdate,-MultiDisplay",
+            ]);
+        if amd_whpx && env::var_os("KEMU_WHPX_APIC").is_none() {
+            cmd.env("KEMU_WHPX_APIC", "user");
+        }
+        cmd
+    } else {
+        Command::new(&sdk.emulator)
+    };
+    let sdk_root = runtime.unwrap_or(&sdk.root);
     command
-        .env("ANDROID_HOME", &sdk.root)
-        .env("ANDROID_SDK_ROOT", &sdk.root)
+        .env("ANDROID_HOME", sdk_root)
+        .env("ANDROID_SDK_ROOT", sdk_root)
         .env("ANDROID_AVD_HOME", &profile.avd_home)
         .env("ANDROID_EMULATOR_HOME", &profile.user_home)
         .env("ANDROID_USER_HOME", &profile.user_home)
@@ -269,19 +388,16 @@ pub fn boot(
             "-accel",
             "on",
             "-gpu",
-            gpu,
+            gpu.as_str(),
             "-no-snapshot",
             "-no-metrics",
         ])
         .arg("-sysdir")
         .arg(&system_dir)
+        .stdin(Stdio::null())
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log));
-    let kemu_image = fs::read_to_string(system_dir.join("build.prop")).is_ok_and(|props| {
-        property(&props, "ro.system.build.fingerprint")
-            .is_some_and(|fingerprint| fingerprint.starts_with("Kemu/"))
-    });
-    if kemu_image {
+    if compat_egl {
         // The stock SDK renderer boots this image through its bundled GLES driver.
         command.args(["-feature", "-GuestAngle,-Vulkan,-MultiDisplay"]);
     }
@@ -292,16 +408,51 @@ pub fn boot(
     let (port, console, adb_port) = free_port_pair()?;
     let serial = format!("emulator-{port}");
     command.arg("-port").arg(port.to_string());
-    if kemu_image {
+    let rpc_socket = if embedded {
+        let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+        let rpc = socket.local_addr()?.port();
+        let display_mode = if cfg!(target_os = "linux") {
+            "-no-window"
+        } else {
+            "-qt-hide-window"
+        };
+        command
+            .args([display_mode, "-grpc-use-token", "-grpc"])
+            .arg(rpc.to_string());
+        // Linux reads ANDROID_EMULATOR_DISCOVERY_DIR, Windows uses LOCALAPPDATA/Temp.
+        command.env("ANDROID_EMULATOR_DISCOVERY_DIR", &profile.user_home);
+        Some((socket, rpc))
+    } else {
+        None
+    };
+    if compat_egl {
         command.args(["-qemu", "-append", "androidboot.hardwareegl=emulation"]);
+    } else if amd_whpx {
+        command.args(["-qemu", "-append", "noxsaves"]);
     }
+    let rpc = rpc_socket.map(|(_, rpc)| rpc);
     drop((console, adb_port));
     let mut vm = RunningProcess(command.spawn()?);
 
-    println!("Iniciando {AVD} em {serial}. Log: {}", log_path.display());
+    notify(BootEvent::Message(format!(
+        "Iniciando {AVD} em {serial}. Motor: {}. Log: {}",
+        command.get_program().to_string_lossy(),
+        log_path.display()
+    )));
+    if let Some(rpc) = rpc {
+        notify(BootEvent::Display {
+            console: port,
+            rpc,
+            avd: profile.avd_home.join(format!("{AVD}.avd")),
+        });
+    }
     let start = Instant::now();
-    let mut guest_graphics_ready = !kemu_image;
+    let mut guest_graphics_ready = !compat_egl;
+    let expected_avd = profile.avd_home.join(format!("{AVD}.avd"));
     while start.elapsed() < timeout {
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
         if let Some(status) = vm.0.try_wait()? {
             return Err(format!(
                 "Emulador encerrou antes do boot: {status}. Veja {}",
@@ -309,7 +460,7 @@ pub fn boot(
             )
             .into());
         }
-        if avd_name(sdk, &serial).as_deref() != Some(AVD) {
+        if !owns_console(sdk, &serial, &expected_avd) {
             sleep(POLL_INTERVAL);
             continue;
         }
@@ -339,35 +490,57 @@ pub fn boot(
                 ["shell", "getprop", "ro.build.version.release"],
             )
             .unwrap_or_else(|| "?".into());
-            println!(
+            notify(BootEvent::Message(format!(
                 "Boot confirmado em {:.1}s ({serial}, Android {}, sys.boot_completed=1).",
                 start.elapsed().as_secs_f64(),
                 version.trim()
-            );
+            )));
             if let Some(fingerprint) =
                 adb_output(sdk, &serial, ["shell", "getprop", "ro.build.fingerprint"])
             {
-                println!("Imagem Android: {}", fingerprint.trim());
+                notify(BootEvent::Message(format!(
+                    "Imagem Android: {}",
+                    fingerprint.trim()
+                )));
             }
 
-            if check {
-                if adb_output(sdk, &serial, ["emu", "kill"]).is_none() {
-                    return Err("Falha ao pedir o encerramento normal da VM.".into());
+            if !check {
+                loop {
+                    if let Some(status) = vm.0.try_wait()? {
+                        if status.success() {
+                            return Ok(());
+                        }
+                        return Err(format!(
+                            "Motor encerrou com {status}. Veja {}",
+                            log_path.display()
+                        )
+                        .into());
+                    }
+                    if stop.load(Ordering::Acquire) {
+                        break;
+                    }
+                    sleep(POLL_INTERVAL);
                 }
-                if !wait_for_exit(&mut vm.0, Duration::from_secs(15))? {
-                    return Err("A VM não encerrou após o pedido de desligamento.".into());
-                }
-            } else {
-                vm.0.wait()?;
+            }
+            if !owns_console(sdk, &serial, &expected_avd)
+                || adb_output(sdk, &serial, ["emu", "kill"]).is_none()
+            {
+                return Err("Falha ao pedir o encerramento normal da VM.".into());
+            }
+            if !wait_for_exit(&mut vm.0, Duration::from_secs(15))? {
+                return Err("A VM não encerrou após o pedido de desligamento.".into());
             }
             return Ok(());
         }
         sleep(POLL_INTERVAL);
     }
 
-    if avd_name(sdk, &serial).as_deref() == Some(AVD) {
+    if owns_console(sdk, &serial, &expected_avd) {
         let _ = adb_output(sdk, &serial, ["emu", "kill"]);
         let _ = wait_for_exit(&mut vm.0, Duration::from_secs(10));
+    }
+    if stop.load(Ordering::Acquire) {
+        return Ok(());
     }
     Err(format!(
         "Tempo limite de boot excedido em {serial}. Veja {}",
@@ -376,9 +549,9 @@ pub fn boot(
     .into())
 }
 
-fn avd_name(sdk: &Sdk, serial: &str) -> Option<String> {
-    adb_output(sdk, serial, ["emu", "avd", "name"])
-        .and_then(|output| output.lines().next().map(str::trim).map(str::to_owned))
+fn owns_console(sdk: &Sdk, serial: &str, expected: &Path) -> bool {
+    adb_output(sdk, serial, ["emu", "avd", "path"])
+        .is_some_and(|output| output.lines().next().map(str::trim).map(Path::new) == Some(expected))
 }
 
 fn adb_output(
