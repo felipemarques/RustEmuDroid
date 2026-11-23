@@ -1,4 +1,5 @@
 //! Android Emulator's EmulatorController protocol (the subset used by this view).
+mod mapping;
 use eframe::egui::{self, ColorImage, Key, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use prost::Message;
 use std::{
@@ -48,6 +49,8 @@ struct Touch {
     x: i32,
     #[prost(int32, tag = "2")]
     y: i32,
+    #[prost(int32, tag = "3")]
+    identifier: i32,
     #[prost(int32, tag = "4")]
     pressure: i32,
 }
@@ -237,6 +240,7 @@ async fn stream(
 }
 
 pub struct Display {
+    pub(crate) mapping: mapping::Mapping,
     state: Arc<Mutex<Shared>>,
     input: mpsc::UnboundedSender<Input>,
     texture: Option<TextureHandle>,
@@ -254,6 +258,7 @@ impl Display {
         let state = Arc::new(Mutex::new(Shared::default()));
         let shared = state.clone();
         let ctx = ctx.clone();
+        let mappings = avd.join("touch-maps.json");
         std::thread::spawn(move || {
             let result = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -267,10 +272,13 @@ impl Display {
                 ctx.request_repaint();
             }
         });
-        Self::new(state, input)
+        let mut display = Self::new(state, input);
+        display.mapping.load(mappings);
+        display
     }
     fn new(state: Arc<Mutex<Shared>>, input: mpsc::UnboundedSender<Input>) -> Self {
         Self {
+            mapping: mapping::Mapping::default(),
             state,
             input,
             texture: None,
@@ -300,13 +308,40 @@ impl Display {
         }));
     }
     fn touch(&self, xy: (i32, i32), pressure: i32) {
+        self.touch_id(0, xy, pressure);
+    }
+    fn touch_id(&self, identifier: i32, xy: (i32, i32), pressure: i32) {
         let _ = self.input.send(Input::Touch(Touch {
             x: xy.0,
             y: xy.1,
+            identifier,
             pressure,
         }));
     }
-    fn release(&mut self) {
+    fn mapped(&self, contacts: Vec<mapping::Contact>) {
+        let unit = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+        for contact in contacts {
+            let pos = Pos2::new(contact.pos[0], contact.pos[1]);
+            self.touch_id(
+                contact.id,
+                self.coordinates(pos, unit),
+                if contact.down { 1024 } else { 0 },
+            );
+        }
+    }
+    pub fn set_package(&mut self, package: Option<&str>) {
+        if self.mapping.package_changed(package) {
+            self.release();
+            self.mapping.select(package);
+        }
+    }
+    pub fn toggle_mapping(&mut self) {
+        self.release();
+        self.mapping.toggle();
+    }
+    pub(crate) fn release(&mut self) {
+        let released = self.mapping.release();
+        self.mapped(released);
         if let Some(pos) = self.contact.take() {
             self.touch(pos, 0)
         }
@@ -324,8 +359,12 @@ impl Display {
             return;
         }
         let same_size = self.size == size;
+        let rotation = format.rotation.unwrap_or_default().value;
+        if !same_size || self.rotation != rotation {
+            self.release();
+        }
         self.size = size;
-        self.rotation = format.rotation.unwrap_or_default().value;
+        self.rotation = rotation;
         let mut pixels = vec![egui::Color32::TRANSPARENT; size[0] * size[1]];
         bytemuck::cast_slice_mut(&mut pixels).copy_from_slice(&frame.pixels);
         let image = ColorImage::new(size, pixels);
@@ -355,7 +394,7 @@ impl Display {
             self.since = Instant::now();
         }
     }
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, interactive: bool) {
         let (frame, error) = {
             let mut shared = self.state.lock().unwrap();
             (shared.latest.take(), shared.error.clone())
@@ -382,8 +421,25 @@ impl Display {
             Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
             egui::Color32::WHITE,
         );
+        if !interactive {
+            self.release();
+            return;
+        }
         let (events, modifiers, focused) = ui.input(|i| (i.events.clone(), i.modifiers, i.focused));
-        if focused {
+        if !focused
+            || events
+                .iter()
+                .any(|e| matches!(e, egui::Event::WindowFocused(false)))
+        {
+            self.release();
+            return;
+        }
+        let changes = self.mapping.frame(ui, rect, &events);
+        self.mapped(changes);
+        if self.mapping.editing {
+            return;
+        }
+        {
             for (key, pressed) in [
                 ("Shift", modifiers.shift),
                 ("Control", modifiers.ctrl),
@@ -435,7 +491,9 @@ impl Display {
                     repeat: false,
                     ..
                 } => {
-                    if let Some(name) = key_name(key) {
+                    if !self.mapping.captures(key)
+                        && let Some(name) = key_name(key)
+                    {
                         if pressed {
                             if !self.held.contains(&name) {
                                 self.key(&name, 0);
@@ -490,6 +548,241 @@ mod tests {
     use egui::{Event, Modifiers, PointerButton, RawInput, pos2, vec2};
 
     #[test]
+    #[ignore = "requires a running selected test AVD with RustEmuDroid Home in the foreground"]
+    fn integrated_video_and_toolbar_home_key() {
+        use std::{process::Command, thread};
+        let console = std::env::var("RUSTEMUDROID_TEST_CONSOLE").unwrap();
+        let rpc = std::env::var("RUSTEMUDROID_TEST_TOUCH_RPC").unwrap();
+        let avd = PathBuf::from(std::env::var_os("RUSTEMUDROID_TEST_AVD").unwrap());
+        let adb = std::env::var_os("RUSTEMUDROID_TEST_ADB").unwrap();
+        let serial = format!("emulator-{console}");
+        let guest = |args: &[&str]| {
+            let output = Command::new(&adb)
+                .args(["-s", &serial])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            String::from_utf8(output.stdout).unwrap()
+        };
+        assert_eq!(
+            Path::new(
+                guest(&["emu", "avd", "path"])
+                    .lines()
+                    .next()
+                    .unwrap()
+                    .trim()
+            ),
+            avd
+        );
+        let foreground = || guest(&["shell", "dumpsys", "activity", "top-resumed"]);
+        assert!(foreground().contains("packageName=org.rustemudroid.home "));
+        let ctx = egui::Context::default();
+        let display = Display::open(console.parse().unwrap(), rpc.parse().unwrap(), avd, &ctx);
+        let until = Instant::now() + Duration::from_secs(20);
+        loop {
+            let state = display.state.lock().unwrap();
+            assert!(state.error.is_none(), "{:?}", state.error);
+            if state.latest.as_ref().is_some_and(|f| {
+                f.pixels
+                    .chunks_exact(4)
+                    .take(300_000)
+                    .any(|p| p[0].abs_diff(p[2]) > 30)
+            }) {
+                break;
+            }
+            drop(state);
+            assert!(Instant::now() < until, "No colored Android frame received");
+            thread::sleep(Duration::from_millis(100));
+        }
+        guest(&[
+            "shell",
+            "am",
+            "start",
+            "-W",
+            "-a",
+            "android.settings.SETTINGS",
+        ]);
+        assert!(foreground().contains("packageName=com.android.settings "));
+        display.press("GoHome");
+        let until = Instant::now() + Duration::from_secs(8);
+        while !foreground().contains("packageName=org.rustemudroid.home ") {
+            assert!(
+                Instant::now() < until,
+                "The Home button did not return to the game library"
+            );
+            thread::sleep(Duration::from_millis(120));
+        }
+    }
+
+    // Run against an existing idle test AVD or entirely in memory.
+    #[test]
+    fn saves_bindings_in_editor_and_releases_both_fingers_on_focus_loss() {
+        use std::{
+            process::{Command, Stdio},
+            thread,
+        };
+        let live = std::env::var("RUSTEMUDROID_TEST_TOUCH_RPC").ok();
+        let ctx = egui::Context::default();
+        let (sender, mut received) = mpsc::unbounded_channel();
+        let temp = tempfile::tempdir().unwrap();
+        let maps = temp.path().join("touch-maps.json");
+        let mut adb_args = None;
+        let mut display = if let Some(rpc) = live {
+            let console = std::env::var("RUSTEMUDROID_TEST_CONSOLE").unwrap();
+            let serial = format!("emulator-{console}");
+            let avd = PathBuf::from(std::env::var_os("RUSTEMUDROID_TEST_AVD").unwrap());
+            let adb = std::env::var_os("RUSTEMUDROID_TEST_ADB").unwrap();
+            let check = Command::new(&adb)
+                .args(["-s", &serial, "emu", "avd", "path"])
+                .output()
+                .unwrap();
+            assert_eq!(
+                Path::new(
+                    String::from_utf8_lossy(&check.stdout)
+                        .lines()
+                        .next()
+                        .unwrap()
+                        .trim()
+                ),
+                avd
+            );
+            adb_args = Some((adb, serial));
+            Display::open(console.parse().unwrap(), rpc.parse().unwrap(), avd, &ctx)
+        } else {
+            let d = Display::new(Arc::default(), sender);
+            d.state.lock().unwrap().latest = Some(Frame {
+                format: Some(Format {
+                    format: 1,
+                    width: 160,
+                    height: 90,
+                    rotation: None,
+                }),
+                pixels: vec![255; 160 * 90 * 4].into(),
+            });
+            d
+        };
+        display.mapping.load(maps.clone());
+        display.set_package(Some("test.game"));
+        display.toggle_mapping();
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(960., 640.));
+        let tick = |d: &mut Display, events| {
+            ctx.run(
+                RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    if d.mapping.editing {
+                        egui::TopBottomPanel::bottom("tools").show(ctx, |ui| d.mapping.toolbar(ui));
+                    }
+                    egui::CentralPanel::default().show(ctx, |ui| d.show(ui, true));
+                },
+            )
+        };
+        let until = Instant::now() + Duration::from_secs(25);
+        while display.texture.is_none() && Instant::now() < until {
+            tick(&mut display, vec![]);
+            thread::sleep(Duration::from_millis(25));
+        }
+        assert!(
+            display.texture.is_some(),
+            "Android display did not produce a frame"
+        );
+        let click = |d: &mut Display, pos| {
+            for pressed in [true, false] {
+                tick(
+                    d,
+                    vec![
+                        Event::PointerMoved(pos),
+                        Event::PointerButton {
+                            pos,
+                            button: PointerButton::Primary,
+                            pressed,
+                            modifiers: Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+        };
+        let label_pos = |d: &mut Display, wanted: &str| {
+            tick(d, vec![])
+                .shapes
+                .into_iter()
+                .find_map(|s| match s.shape {
+                    egui::Shape::Text(t) if t.galley.text() == wanted => {
+                        Some(t.visual_bounding_rect().center())
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let key = |key, pressed| Event::Key {
+            key,
+            physical_key: Some(key),
+            pressed,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        click(&mut display, pos2(490., 300.));
+        tick(&mut display, vec![key(Key::P, true), key(Key::P, false)]);
+        let stick = label_pos(&mut display, "Direcional");
+        click(&mut display, stick);
+        click(&mut display, pos2(450., 300.));
+        let save = label_pos(&mut display, "Salvar");
+        click(&mut display, save);
+        assert!(!display.mapping.editing);
+        assert!(display.mapping.captures(Key::P) && display.mapping.captures(Key::W));
+        assert!(maps.is_file());
+        let capture = adb_args.map(|(adb, serial)| {
+            let device = std::env::var("RUSTEMUDROID_TEST_TOUCH_DEVICE").unwrap();
+            assert!(
+                device
+                    .strip_prefix("/dev/input/event")
+                    .is_some_and(|n| n.parse::<u32>().is_ok())
+            );
+            Command::new(adb)
+                .args([
+                    "-s", &serial, "shell", "timeout", "3", "getevent", "-lt", &device,
+                ])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap()
+        });
+        if capture.is_some() {
+            thread::sleep(Duration::from_millis(500));
+        }
+        tick(&mut display, vec![key(Key::P, true), key(Key::W, true)]);
+        if capture.is_some() {
+            thread::sleep(Duration::from_millis(150));
+        }
+        tick(&mut display, vec![Event::WindowFocused(false)]);
+        if let Some(capture) = capture {
+            let bytes = capture.wait_with_output().unwrap().stdout;
+            let log = String::from_utf8_lossy(&bytes);
+            let ids: Vec<_> = log
+                .lines()
+                .filter(|line| line.contains("ABS_MT_TRACKING_ID"))
+                .filter_map(|line| line.split_whitespace().last())
+                .collect();
+            assert_eq!(ids.len(), 4, "{log}");
+            assert_ne!(ids[0], ids[1]);
+            assert_eq!(&ids[2..], &["ffffffff", "ffffffff"]);
+            println!("Android multitouch: {ids:?}");
+        } else {
+            let mut ids = vec![];
+            while let Ok(event) = received.try_recv() {
+                let Input::Touch(t) = event else {
+                    panic!("binding leaked a keyboard event to Android")
+                };
+                ids.push((t.identifier, t.pressure));
+            }
+            assert_eq!(ids, [(1, 1024), (9, 1024), (9, 1024), (1, 0), (9, 0)]);
+        }
+    }
+
+    #[test]
     fn displays_unaligned_wire_pixels_and_delivers_press_drag_release_and_keys() {
         // A protobuf bytes field can start at any byte offset in an HTTP/2 frame.
         let mut packet = vec![0; 1 + 4 * 16 * 9];
@@ -534,7 +827,7 @@ mod tests {
         let _ = ctx.run(raw, |ctx| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
-                .show(ctx, |ui| display.show(ui));
+                .show(ctx, |ui| display.show(ui, true));
         });
         assert_eq!(display.texture.as_ref().unwrap().size(), [16, 9]);
         for (x, y, pressure) in [(8, 4, 1024), (12, 6, 1024), (12, 6, 0)] {

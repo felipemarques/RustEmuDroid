@@ -1,94 +1,127 @@
 # RustEmuDroid
 
-Interface em Rust para jogar Android em uma janela no Windows e no Linux. O painel inicia a VM, exibe a tela do Android e encaminha mouse e teclado. No Windows, a instalação do Kemu pode fornecer a imagem Android 16 e o motor QEMU/gfxstream com aceleração Vulkan. O Android Emulator do SDK também é suportado.
+[Português brasileiro](README.pt-BR.md) · [Windows and Linux downloads](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml) · [Benchmarks](benchmarks/stk-1.5/README.md)
 
-## Abrir para jogar
+RustEmuDroid runs Android games and apps in one desktop window on x86-64 Windows and Linux. The Rust client starts the virtual machine, displays Android and handles input and window management. Inside the VM, the bundled Android Home opens to your installed games. The desktop client and Home are ad-free. The prototype’s on-screen controls are currently in Brazilian Portuguese.
 
-No Windows, dê dois cliques em [Abrir RustEmuDroid.cmd](Abrir%20RustEmuDroid.cmd). O atalho compila a versão de lançamento e abre a sessão integrada. Também é possível abrir o painel pela linha de comando nas duas plataformas.
+![RustEmuDroid with the Android game library open](docs/screenshots/games.png)
 
-```text
-cargo run --locked --release --features ui -- ui --play
+*The games in this screenshot were installed on the test profile. A new profile starts with the apps supplied by its Android image.*
+
+## Run a prebuilt version
+
+1. Open [Desktop builds](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml), select a successful run and find **Artifacts**. Sign in to GitHub to download an artifact.
+2. Download **RustEmuDroid-Windows-x86_64** or **RustEmuDroid-Linux-x86_64** and extract the ZIP into a writable directory. On Linux, also run `tar -xzf rustemudroid-linux-x86_64.tar.gz` to unpack the executable with its execute permission.
+3. Install the Android runtime described below. From the directory containing the executable, run the commands for your platform.
+
+| Task | Windows PowerShell | Linux shell |
+|---|---|---|
+| Check SDK and virtualization | `.\rustemudroid.exe doctor` | `./rustemudroid doctor` |
+| Open the desktop client | `.\rustemudroid.exe ui` | `./rustemudroid ui` |
+
+The executable embeds the RustEmuDroid Home APK. The Android SDK, system images, games and user data are separate. Rust and Cargo are only required for source builds.
+
+## Prepare the Android runtime
+
+| Requirement | Windows x86-64 | Linux x86-64 |
+|---|---|---|
+| Hardware virtualization | Enable Intel VT-x or AMD-V in firmware and **Windows Hypervisor Platform** in Windows Features. | Enable CPU virtualization and give your user read/write access to `/dev/kvm`. Check with `test -r /dev/kvm && test -w /dev/kvm`. |
+| Desktop and graphics | Install the host GPU driver. | Use an X11 or Wayland session with working OpenGL. The APK picker uses the desktop file portal. |
+| Android tools | Install Android Emulator, Platform-Tools and an x86-64 system image through Android Studio’s SDK Manager or the Android command-line tools. | Install the Linux versions of the same components, including under WSL2. |
+
+With `sdkmanager` on your PATH, install the runtime and the optional Google Play image with the following command. Accept the SDK licenses when prompted.
+
+```sh
+sdkmanager --install "emulator" "platform-tools" "system-images;android-37.0;google_apis_playstore;x86_64"
 ```
 
-Clique e arraste sobre o Android para tocar e deslizar. O painel tem controles para voltar, ir à tela inicial e abrir apps recentes. O contador mostra quantos quadros novos a interface recebeu e enviou para desenho por segundo. O botão **Encerrar Android** encerra a VM e volta ao painel.
+For a Google APIs image, another supported package is `system-images;android-35;google_apis;x86_64`. Use `sdkmanager --list` to see available packages. SDK discovery checks `--sdk`, `ANDROID_HOME`, `ANDROID_SDK_ROOT` and finally `%LOCALAPPDATA%\Android\Sdk` on Windows or `~/Android/Sdk` on Linux. [SDK Manager](https://developer.android.com/tools/sdkmanager) · [Emulator acceleration](https://developer.android.com/studio/run/emulator-acceleration)
 
-## Pré-requisitos
+## Choose a profile
 
-- Windows ou Linux x86-64, com WHPX ou KVM utilizável, respectivamente.
-- Rust com a edição 2024 e Android SDK com Android Emulator e Platform-Tools.
-- Imagem Android x86-64. Use a pasta `system-img` do Kemu ou instale uma imagem pelo SDK Manager.
+Open the gear in the title bar. Each profile has its own writable disk, installed apps, accounts and saves. **Original** is the default profile for that working directory. Its Android version depends on the chosen image.
 
-## Usar a imagem do Kemu
+| Configuration | Runtime and first use |
+|---|---|
+| Original with Kemu | On Windows, an installed Kemu can supply its Android 16 / API 36 image and matching QEMU/gfxstream engine with Host or Auto GPU. The tested setup uses ANGLE/Vulkan. Set `RUSTEMUDROID_KEMU_ROOT` for nonstandard installations. |
+| Original with the SDK | On first use, the client looks for installed Google Play API 37.0, Google APIs 36 and Google APIs 35 images, in that order. Use `init --image` to select a specific package. |
+| Android 17 with Google Play | Install the API 37.0 Google Play image, select **Android 17** in Settings and save. This SDK image includes the Play Store and Google Play services. The card indicates when the image is missing. |
 
-Execute na raiz do repositório. Estes comandos usam o caminho padrão do Kemu no Windows.
+Gaming profiles request four vCPUs, 8 GiB of guest RAM and 1600 × 900 at 60 Hz. A generic SDK profile requests four vCPUs, 3 GiB and 1080 × 1920. The Windows Kemu engine keeps a separate writable disk under `gaming/`.
 
-```powershell
-cargo run -- doctor
-cargo run -- init --system-dir 'C:/Program Files/Kemu/system-img'
-cargo run -- boot --headless --check --gpu host
+![Settings with profile selection, rendering mode, Vulkan adapter and webcam](docs/screenshots/settings.png)
+
+## Use the desktop controls
+
+| Task | How to do it |
+|---|---|
+| Find and install apps | Search under **Jogos** (Games) or **Aplicativos** (Apps). Long-press a card to change its category. The install button on the right accepts a single APK and refreshes the library. |
+| Navigate Android | The four-square button opens Apps. The title bar also contains Back, Home and Recents. Home returns to Games. Click to tap and drag to swipe. |
+| Map a keyboard or controller | Open a game and click the keyboard icon. Choose **Botão**, click a touch target, then press the physical key or controller button. For WASD or the left stick, choose **Direcional**, click the center of the virtual stick and adjust its radius. Right-click a marker to remove it. **Salvar** saves relative coordinates for that Android package. Windows gamepads use XInput. |
+| Adjust media | The right toolbar controls Android media volume, mute and screen rotation. Hold a volume button to change several levels. |
+| Use a webcam | In Settings, select a front or rear host webcam, starting with index 0. Save and restart Android to apply hardware changes. Grant camera access inside the Android app when needed. A simulated front camera is also available. |
+| Fullscreen and version | Press **F11**. Move the pointer to the top or right edge to reveal controls in fullscreen. The title bar and **?** dialog show the version. |
+
+![About dialog with the application logo and version](docs/screenshots/about.png)
+
+**Encerrar Android** stops the VM and returns to the panel. Closing the window with **X** or the system close shortcut shows **Desligando Android…**. The native window keeps responding until the VM exits, then closes automatically. This also works during boot. Closing an idle panel takes effect immediately.
+
+![Window waiting for Android to shut down](docs/screenshots/shutdown.png)
+
+## Build from source
+
+Install current stable Rust with Cargo. Windows also needs the Visual Studio C++ Desktop build tools and Windows SDK. On Ubuntu 24.04, install the native dependencies:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y build-essential pkg-config libudev-dev libwayland-dev libxkbcommon-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev
 ```
 
-No Linux, informe onde está a pasta com a mesma imagem. O exemplo usa a partição Windows montada pelo WSL2.
-
-```bash
-cargo run -- doctor
-cargo run -- init --system-dir '/mnt/c/Program Files/Kemu/system-img'
-cargo run -- boot --headless --check --gpu swiftshader
-```
-
-No WSL, use o SDK Linux e uma conta com acesso de leitura e escrita a /dev/kvm. Se o SDK estiver fora do diretório padrão, informe --sdk ou ANDROID_HOME.
-
-A imagem testada é o Android 16 (API 36), build BP4A.251205.006, x86-64. No Windows, com GPU automática ou do host, o launcher encontra o motor ao lado da pasta `system-img`. A interface em Rust inicia diretamente o QEMU dessa instalação. O Android usa ANGLE e Vulkan com as filas de memória compartilhada implementadas pelo motor. A VM de jogos usa 4 vCPUs, 8 GiB e 1600 × 900 a 60 Hz. O disco gravável fica em `<perfil>/gaming` e precisa de sua própria instalação dos jogos.
-
-Para uma instalação do Kemu fora de `Program Files/Kemu`, defina `RUSTEMUDROID_KEMU_ROOT` com o diretório da instalação e selecione sua pasta `system-img`. O perfil anterior do SDK continua acessível com `boot --engine sdk`. No Linux e em instalações que usam somente o SDK, a imagem do Kemu usa o driver GLES de compatibilidade. Nesse caso, o launcher configura `persist.graphics.egl` no disco do protótipo. As imagens padrão do SDK usam o driver escolhido pelo próprio Android Emulator.
-
-## Usar uma imagem do SDK
-
-Para usar o perfil padrão do SDK, instale os pacotes pelo SDK Manager ou execute o `sdkmanager` com as ferramentas de linha de comando do Android no `PATH`.
-
-```text
-sdkmanager --install "emulator" "platform-tools" "system-images;android-35;google_apis;x86_64"
-cargo run -- init
-cargo run -- boot --headless --check
-```
-
-`init --image` aceita outro pacote x86-64 instalado das variantes `default` ou `google_apis`. Use `--state-dir` com um diretório diferente para manter perfis com imagens diferentes.
-
-## Interface
-
-Execute o comando abaixo para editar os caminhos do SDK, da imagem e do perfil antes de jogar. **Abrir Android** exibe o Android no mesmo painel. **Verificar boot** inicia a VM em segundo plano e encerra o processo assim que `sys.boot_completed=1`.
-
-```text
+```sh
+git clone https://github.com/felipemarques/RustEmuDroid.git
+cd RustEmuDroid
+cargo build --locked --release --features ui
 cargo run --locked --release --features ui -- ui
 ```
 
-O painel usa egui/eframe e recebe quadros RGBA do serviço `EmulatorController.streamScreenshot` em loopback. Cada sessão usa uma porta livre e o token do seu próprio AVD. Há espaço para um quadro pendente. O painel usa o mais recente a cada atualização. Mouse e teclado seguem pelo mesmo serviço. Para validar o painel no WSL2 com renderização por software, use `ui --play --gpu swiftshader`.
+On Windows, [Abrir RustEmuDroid.cmd](Abrir%20RustEmuDroid.cmd) builds the release client and opens it, or focuses its existing window. Omitting `--features ui` builds the CLI.
 
-## Rodar e diagnosticar
+## CLI and storage
 
-- `doctor` localiza o SDK com `--sdk`, `ANDROID_HOME`, `ANDROID_SDK_ROOT` ou o caminho padrão `Android/Sdk` da plataforma. Ele verifica se o hipervisor pode ser usado.
-- `init` registra a imagem e prepara o perfil do SDK com 4 vCPUs, 3 GiB e 1080 × 1920.
-- `boot` imprime o serial, o log e o tempo de inicialização. Sem `--headless`, abre a janela do Android Emulator e acompanha a VM enquanto ela estiver aberta.
-- `boot --headless --check` testa a inicialização e encerra a VM do protótipo após o Android confirmar o boot. `--timeout` ajusta a espera em segundos.
+```sh
+cargo run --locked -- doctor
+cargo run --locked -- init --image "system-images;android-35;google_apis;x86_64"
+cargo run --locked -- boot --headless --check --gpu auto
+cargo run --locked -- boot --help
+```
 
-Os dados graváveis e os logs ficam em `.rustemudroid/windows` ou `.rustemudroid/linux`. O launcher escolhe um par livre de portas e verifica o caminho do AVD antes de configurar o Android ou pedir o desligamento.
+To use an installed Kemu image with a separate data directory on Windows:
 
-## Validação local
+```powershell
+cargo run --locked -- --state-dir .rustemudroid/kemu init --system-dir "C:/Program Files/Kemu/system-img"
+cargo run --locked --release --features ui -- --state-dir .rustemudroid/kemu ui
+```
 
-| Ambiente | Aceleração | Primeiro boot |
-|---|---|---:|
-| Windows 11 x86-64 | WHPX e OpenGL ES no host, com RTX 5070 Ti | 71,7 s |
-| Ubuntu 24.04 no WSL2 x86-64 | KVM e SwiftShader | 90,8 s |
+Use the same `--state-dir` for initialization, boot and UI. The default is `.rustemudroid/windows/` or `.rustemudroid/linux/` relative to the working directory. `launcher.json` holds preferences. The active profile contains the AVD and `boot-*.log`. `boot --check` waits for `sys.boot_completed=1` and stops that VM. `--timeout` sets the boot deadline in seconds and `--engine sdk` explicitly selects the SDK engine. The client selects free ports and verifies the AVD path before sending shutdown commands.
 
-Os dois testes usaram perfis novos, executaram `boot --headless --check` e retornaram `sys.boot_completed=1` com a mesma fingerprint da imagem do Kemu. Na verificação Windows, Kemu e BlueStacks continuaram conectados nas portas anteriores. Os três testes do pacote Rust também passaram nas duas plataformas.
+## Performance and troubleshooting
 
-O painel integrado exibiu quadros do Android no Windows e no Ubuntu 24.04 em WSL2. No Windows, o toque abriu as configurações de rede e o botão Início devolveu o Android ao launcher. O teste de desempenho usa SuperTuxKart no Windows com a mesma imagem e a mesma placa de vídeo do Kemu.
+- **FPS.** The title bar counts new frames sent for drawing by the desktop panel. A static Home can show a low value. Use the game’s own counter or frame report to compare game performance.
+- **Measured example.** In the SuperTuxKart 1.5 Black Forest replay, RustEmuDroid averaged 59.93 FPS at the original preset and 28.90 FPS at high quality on the tested Windows RTX 5070 Ti / Android 16 OpenGL ES setup. The report lists the driver, ABI, presets, frame times and the Kemu and BlueStacks results. [Benchmark and raw measurements](benchmarks/stk-1.5/README.md)
+- **Black screen or slow graphics.** Run `doctor`, check the selected Vulkan adapter and try Host or Auto. Software/SwiftShader can help isolate driver issues. The SDK engine uses a GLES compatibility path with the Kemu image on Linux.
+- **Several ADB devices.** Run `adb devices -l` and use `adb -s <serial>` to target the correct instance. Look up the session serial in the launcher output.
+- **PUBG hangs during startup on Kemu Android 16.** In **Compatibilidade de jogos**, enable **Tradução ARM leve para PUBG** and save. This Berberis mode affects ARM apps in that profile during the boot and may change FPS. The local test reached sign-in. Game compatibility also depends on ABI support and publisher restrictions.
+- **Missing games after switching.** Return to the profile where you installed them. A fresh clone contains neither installed games nor accounts.
 
+## Architecture and verification
 
-[Comparação em jogo com SuperTuxKart 1.5](benchmarks/stk-1.5/README.md)
+| Component | Role |
+|---|---|
+| [Desktop UI](src/ui.rs) | Rust, eframe/egui and Glow. Owns the native window, controls, settings and shutdown screen. |
+| [VM lifecycle](src/android.rs) | Discovers the SDK and images, creates AVDs, launches the selected emulator and waits for its exit. |
+| [Display and input](src/display.rs) | Receives authenticated local gRPC frames from `EmulatorController.streamScreenshot`, retains the latest pending RGBA frame and forwards touch and key input. |
+| [Android Home](android/home) | Native Android activity. Reads launcher entries through PackageManager and uses app banners or icons. The desktop client installs the embedded development APK through ADB. |
 
-## Referências
+Run `cargo test --locked --features ui` for the offline tests. [GitHub Actions](.github/workflows/build.yml) tests and builds release binaries for Windows and Ubuntu x86-64 on pushes, pull requests and manual runs. Guest tests require a local AVD. To repeat the native Windows close test, set `RUSTEMUDROID_TEST_STATE` to the absolute directory of an idle launcher profile, then run `cargo test --locked --features ui real_window_paints_until_android_exits -- --ignored --nocapture`.
 
-- [Comandos do Android Emulator](https://developer.android.com/studio/run/emulator-commandline)
-- [Aceleração no Windows e Linux](https://developer.android.com/studio/run/emulator-acceleration)
-- [Diretórios e variáveis do Android SDK](https://developer.android.com/tools/variables)
+To rebuild Android Home, install a JDK, a platform `android.jar` and Android Build-Tools. Run `python android/home/build.py <android.jar> <build-tools-dir>`. The script uses `~/.android/debug.keystore` by default and supports `--keystore` and `--alias`. To upgrade existing installations, retain the signing identity and update the version code in the manifest and [installation check](src/controls.rs).

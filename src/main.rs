@@ -1,6 +1,10 @@
 mod android;
 #[cfg(feature = "ui")]
+mod controls;
+#[cfg(feature = "ui")]
 mod display;
+#[cfg(feature = "ui")]
+mod toolbar;
 #[cfg(feature = "ui")]
 mod ui;
 
@@ -36,13 +40,16 @@ enum Action {
     /// Abre o painel do RustEmuDroid.
     #[cfg(feature = "ui")]
     Ui {
-        /// Inicia a sessão integrada assim que o painel abre.
+        /// Compatibilidade com atalhos antigos. A interface já inicia o Android ao abrir.
         #[arg(long)]
         play: bool,
         /// Modo de renderização inicial do painel.
         #[arg(long, value_enum)]
         gpu: Option<Gpu>,
     },
+    #[cfg(feature = "ui")]
+    #[command(hide = true)]
+    GpuInventory,
 
     /// Localiza as ferramentas e verifica o hipervisor.
     Doctor,
@@ -60,6 +67,8 @@ enum Action {
 
     /// Inicia o Android e confirma o boot pelo ADB.
     Boot {
+        #[command(flatten)]
+        hardware: android::Hardware,
         /// Executa sem abrir a janela do Android Emulator.
         #[arg(long)]
         headless: bool,
@@ -89,6 +98,7 @@ enum Engine {
 }
 
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
+#[cfg_attr(feature = "ui", derive(serde::Serialize, serde::Deserialize))]
 enum Gpu {
     Auto,
     Host,
@@ -110,6 +120,10 @@ impl Gpu {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    #[cfg(feature = "ui")]
+    if matches!(cli.command, Action::GpuInventory) {
+        return ui::print_gpu_inventory();
+    }
     let state = cli
         .state_dir
         .unwrap_or_else(|| PathBuf::from(".rustemudroid").join(std::env::consts::OS));
@@ -124,7 +138,7 @@ fn run() -> Result<()> {
 
     match cli.command {
         #[cfg(feature = "ui")]
-        Action::Ui { .. } => unreachable!(),
+        Action::Ui { .. } | Action::GpuInventory => unreachable!(),
         Action::Doctor => {
             println!("SDK: {}", sdk.root.display());
             println!("ADB: {}", sdk.adb.display());
@@ -134,16 +148,15 @@ fn run() -> Result<()> {
         Action::Init { image, system_dir } => {
             let image = match system_dir {
                 Some(path) => SystemImage::from_dir(path)?,
-                None => SystemImage::from_sdk(
-                    &sdk,
-                    image
-                        .as_deref()
-                        .unwrap_or("system-images;android-35;google_apis;x86_64"),
-                )?,
+                None => match image {
+                    Some(package) => SystemImage::from_sdk(&sdk, &package)?,
+                    None => SystemImage::preferred_sdk(&sdk)?,
+                },
             };
             profile.init(image)?;
         }
         Action::Boot {
+            hardware,
             headless,
             check,
             gpu,
@@ -154,6 +167,7 @@ fn run() -> Result<()> {
             &profile,
             android::BootOptions {
                 gpu,
+                hardware,
                 engine,
                 headless,
                 check,

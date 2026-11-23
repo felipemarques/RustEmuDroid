@@ -1,4 +1,4 @@
-"""Run the same SuperTuxKart 1.5 replay on two already-running emulators."""
+"""Run the same SuperTuxKart 1.5 replay on running Android emulators."""
 import argparse
 import csv
 import io
@@ -30,11 +30,18 @@ def run(args, serial, *cmd, check=True):
 
 
 def replay(args, name, serial, preset, dest):
-    if run(args, serial, "emu", "avd", "name").splitlines()[0].decode().strip().lower() != name.lower():
+    if name == "BlueStacks":
+        if not run(args, serial, "shell", "getprop", "init.svc.bstsvcmgrtest").strip():
+            raise RuntimeError(f"Expected BlueStacks on {serial}")
+    elif run(args, serial, "emu", "avd", "name").splitlines()[0].decode().strip().lower() != name.lower():
         raise RuntimeError(f"Unexpected AVD on {serial}")
-    package = run(args, serial, "shell", "dumpsys", "package", PACKAGE)
-    if b"versionName=1.5" not in package or b"primaryCpuAbi=x86_64" not in package:
-        raise ValueError(f"SuperTuxKart 1.5 x86_64 required on {serial}")
+    package = run(args, serial, "shell", "dumpsys", "package", PACKAGE).decode().splitlines()
+    props = dict(line.strip().split("=", 1) for line in package
+                 if line.strip().startswith(("versionName=", "primaryCpuAbi=")))
+    abi = props.get("primaryCpuAbi")
+    valid_abis = ("armeabi-v7a", "arm64-v8a", "x86", "x86_64") if name == "BlueStacks" else ("x86_64",)
+    if props.get("versionName") != "1.5" or abi not in valid_abis:
+        raise ValueError(f"Unexpected game version or ABI on {name}: {props.get('versionName')}, {abi}")
     dest.mkdir(parents=True)
     run(args, serial, "shell", "am", "force-stop", PACKAGE)
     original = dest / "original.xml"  # Private recovery copy, removed after restoration.
@@ -43,11 +50,11 @@ def replay(args, name, serial, preset, dest):
     video, gfx = tree.find("Video"), tree.find("GFX")
     video.attrib.update(VIDEO)
     gfx.attrib.update(GFX)
-    if preset == "high":
+    if preset in ("high", "high-vulkan"):
         video.attrib.update(enable_bloom="true", enable_glow="true", enable_light_shaft="true")
         gfx.attrib.update({"geometry-level": "4", "ssao": "true", "anisotropic": "8",
                            "shadows_resolution": "1024", "Degraded_IBL": "false"})
-    if preset == "vulkan":
+    if preset in ("vulkan", "high-vulkan"):
         video.set("render_driver", "vulkan")
     tree.find("commandline").set("value", "--benchmark")
     config = dest / "benchmark.xml"
@@ -72,15 +79,18 @@ def replay(args, name, serial, preset, dest):
                 settings = [cell.strip() for cell in rows[7][1:] if cell.strip()]
                 if settings[:3] != ["1600", "900", "1"]:
                     raise ValueError(f"Wrong resolution or scale on {name}: {settings[:3]}")
-                if preset == "vulkan":
-                    log = run(args, serial, "exec-out", "cat", DIRECTORY + "/stdout.log").decode(errors="replace")
-                    driver = [line for line in log.splitlines() if "Vulkan" in line and
-                              any(x in line.lower() for x in ("driver", "renderer", "device", "vendor"))]
-                    if not driver:
-                        raise ValueError(f"The game did not confirm its Vulkan renderer on {name}")
-                    (dest / "renderer.txt").write_text("\n".join(driver) + "\n", encoding="utf-8")
+                log = run(args, serial, "exec-out", "cat", DIRECTORY + "/stdout.log").decode(errors="replace")
+                driver = [line for line in log.splitlines() if any(x in line.lower() for x in
+                          ("renderer:", "vendor:", "opengl version", "vulkan version", "vulkan driver"))]
+                if preset in ("vulkan", "high-vulkan") and not any("Vulkan" in line for line in driver):
+                    raise ValueError(f"The game did not confirm its Vulkan renderer on {name}")
+                (dest / "renderer.txt").write_text("\n".join(driver) + "\n", encoding="utf-8")
+                timings = run(args, serial, "exec-out", "cat", DIRECTORY + "/stdout.log.profile-black_forest-cpu-0.csv")
+                if not timings.startswith(b"#") or abs(len(timings.splitlines()) - 1 - frames) > 2:
+                    raise ValueError(f"Incomplete per-frame profiler output on {name}")
+                (dest / "quadros.csv").write_bytes(timings)
                 (dest / "report.csv").write_bytes(data)
-                return dict(engine=name, preset=preset, start=start, end=time.time(),
+                return dict(engine=name, abi=abi, preset=preset, start=start, end=time.time(),
                             frames=frames, duration_ms=duration, fps=frames*1000/duration,
                             mostly_stable=int(rows[4][1]), settings=settings)
         raise TimeoutError(f"No new complete performance report on {name}")
@@ -96,21 +106,27 @@ def replay(args, name, serial, preset, dest):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--adb", default="adb")
-    p.add_argument("--kemu", required=True, help="ADB serial of the Kemu reference")
+    p.add_argument("--kemu", help="ADB serial of an optional Kemu reference")
     p.add_argument("--rust", required=True, help="ADB serial of the integrated RustEmuDroid")
+    p.add_argument("--bluestacks", help="Local ADB serial of the BlueStacks App Player")
     p.add_argument("--rounds", type=int, default=3)
-    p.add_argument("--presets", nargs="+", choices=["original", "high", "vulkan"], default=["original", "high"])
+    p.add_argument("--presets", nargs="+", choices=["original", "high", "vulkan", "high-vulkan"], default=["original", "high"])
     p.add_argument("--output", type=Path, required=True)
     args = p.parse_args()
-    if args.rounds < 1 or args.kemu == args.rust:
+    engines = [("RustEmuDroid", args.rust)]
+    if args.kemu:
+        engines.insert(0, ("Kemu", args.kemu))
+    if args.bluestacks:
+        engines.append(("BlueStacks", args.bluestacks))
+    if args.rounds < 1 or len({serial for _, serial in engines}) != len(engines):
         p.error("Use distinct emulators and at least one round")
     args.output.mkdir(parents=True, exist_ok=False)
-    engines = [("Kemu", args.kemu), ("RustEmuDroid", args.rust)]
     results = []
     for preset in args.presets:
         settings = None
         for index in range(args.rounds):
-            for engine, serial in (engines if index % 2 == 0 else reversed(engines)):
+            first = index % len(engines)
+            for engine, serial in engines[first:] + engines[:first]:
                 result = replay(args, engine, serial, preset, args.output / preset / str(index+1) / engine)
                 if settings and settings != result["settings"]:
                     raise ValueError(f"Game reported different graphics parameters for {preset}")

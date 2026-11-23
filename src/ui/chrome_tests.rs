@@ -1,0 +1,421 @@
+use super::*;
+use eframe::App;
+use egui::{
+    Event, FullOutput, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape, ViewportCommand,
+};
+
+fn button(pos: Pos2, pressed: bool) -> Event {
+    Event::PointerButton {
+        pos,
+        pressed,
+        button: PointerButton::Primary,
+        modifiers: Modifiers::NONE,
+    }
+}
+
+fn labels(out: &FullOutput, label: &str) -> Vec<Rect> {
+    out.shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            Shape::Text(text) if text.galley.text() == label => Some(text.visual_bounding_rect()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn commands(out: &FullOutput) -> &[ViewportCommand] {
+    &out.viewport_output[&egui::ViewportId::ROOT].commands
+}
+
+// The AMD crash occurred only when the process already owned a live OpenGL context.
+#[cfg(windows)]
+#[test]
+#[ignore = "opens a real Windows OpenGL window; set RUSTEMUDROID_TEST_EXE to the UI binary"]
+fn settings_gear_with_live_gl_context() {
+    use std::{cell::Cell, rc::Rc, time::Instant};
+    use winit::platform::windows::EventLoopBuilderExtWindows;
+
+    struct GearTest {
+        app: Launcher,
+        ticks: usize,
+        capture_requested: bool,
+        finished: Rc<Cell<bool>>,
+        deadline: Instant,
+    }
+    impl App for GearTest {
+        fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut RawInput) {
+            if let Some(path) = std::env::var_os("RUSTEMUDROID_TEST_PREVIEW")
+                && let Some(Event::Screenshot { image, .. }) = raw
+                    .events
+                    .iter()
+                    .find(|e| matches!(e, Event::Screenshot { .. }))
+            {
+                use std::io::Write;
+                let mut out = std::io::BufWriter::new(std::fs::File::create(path).unwrap());
+                write!(out, "P6\n{} {}\n255\n", image.width(), image.height()).unwrap();
+                for p in &image.pixels {
+                    out.write_all(&[p.r(), p.g(), p.b()]).unwrap();
+                }
+                self.finished.set(true);
+                ctx.send_viewport_cmd(ViewportCommand::Close);
+            }
+            if matches!(self.ticks, 2 | 3) {
+                let p = egui::pos2(ctx.content_rect().right() - 168., 20.);
+                raw.events
+                    .extend([Event::PointerMoved(p), button(p, self.ticks == 2)]);
+            }
+        }
+        fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+            self.app.update(ctx, frame);
+            self.ticks += 1;
+            // Keep swapping buffers with the modal open after the probe has exited.
+            if self.app.settings.is_some()
+                && !self.app.adapters.names.is_empty()
+                && self.ticks >= 60
+                && !self.finished.get()
+            {
+                if std::env::var_os("RUSTEMUDROID_TEST_PREVIEW").is_some() {
+                    if !self.capture_requested {
+                        self.capture_requested = true;
+                        ctx.send_viewport_cmd(ViewportCommand::Screenshot(
+                            egui::UserData::default(),
+                        ));
+                    }
+                } else {
+                    self.finished.set(true);
+                    ctx.send_viewport_cmd(ViewportCommand::Close);
+                }
+            }
+            if Instant::now() > self.deadline {
+                ctx.send_viewport_cmd(ViewportCommand::Close);
+            }
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
+    }
+    let done = Rc::new(Cell::new(false));
+    let finished = done.clone();
+    let temp = tempfile::tempdir().unwrap();
+    let prefs = temp.path().join("launcher.json");
+    std::fs::create_dir_all(temp.path().join("avd")).unwrap();
+    std::fs::write(
+        temp.path().join("avd/RustEmuDroid.ini"),
+        "target=android-36\n",
+    )
+    .unwrap();
+    let config = LaunchConfig::load(None, temp.path().into(), None, &prefs);
+    let options = eframe::NativeOptions {
+        renderer: eframe::Renderer::Glow,
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1080., 680.])
+            .with_decorations(false),
+        event_loop_builder: Some(Box::new(|builder| {
+            builder.with_any_thread(true);
+        })),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "Teste da engrenagem",
+        options,
+        Box::new(move |cc| {
+            assert!(cc.gl.is_some());
+            theme::install(&cc.egui_ctx);
+            let icon =
+                eframe::icon_data::from_png_bytes(include_bytes!("../../assets/rustemudroid.png"))
+                    .unwrap();
+            let texture = cc.egui_ctx.load_texture(
+                "brand",
+                egui::ColorImage::from_rgba_unmultiplied(
+                    [icon.width as usize, icon.height as usize],
+                    &icon.rgba,
+                ),
+                egui::TextureOptions::LINEAR,
+            );
+            Ok(Box::new(GearTest {
+                app: Launcher::new(texture, config, prefs, false),
+                ticks: 0,
+                capture_requested: false,
+                finished,
+                deadline: Instant::now() + Duration::from_secs(15),
+            }))
+        }),
+    )
+    .unwrap();
+    assert!(
+        done.get(),
+        "a engrenagem deveria abrir as configurações e listar as placas"
+    );
+}
+
+#[test]
+#[ignore = "boots a selected idle AVD and verifies its Android Home"]
+fn cold_start_selects_android_home() {
+    use crate::android::Camera;
+    let state = PathBuf::from(std::env::var_os("RUSTEMUDROID_TEST_STATE").unwrap());
+    let ctx = egui::Context::default();
+    let brand = ctx.load_texture(
+        "brand",
+        egui::ColorImage::filled([2, 2], INK),
+        Default::default(),
+    );
+    let prefs = state.join("launcher.json");
+    let config = LaunchConfig::load(None, state, None, &prefs);
+    let mut app = Launcher::new(brand, config, prefs, true);
+    let mut frame = eframe::Frame::_new_kittest();
+    let until = std::time::Instant::now() + Duration::from_secs(200);
+    while !app.home_ready && std::time::Instant::now() < until {
+        let _ = ctx.run(RawInput::default(), |ctx| app.update(ctx, &mut frame));
+        assert!(!app.failed, "{}", app.status);
+        if let Some(Err(error)) = app.controls.as_ref().and_then(|c| c.message.as_ref()) {
+            panic!("{error}");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(app.home_ready, "{}", app.status);
+    let controls = app.controls.as_ref().unwrap();
+    let resolved = controls
+        .guest_output(&[
+            "shell",
+            "cmd",
+            "package",
+            "resolve-activity",
+            "--brief",
+            "-a",
+            "android.intent.action.MAIN",
+            "-c",
+            "android.intent.category.HOME",
+        ])
+        .unwrap();
+    assert!(resolved.contains("org.rustemudroid.home/.HomeActivity"));
+    if app.config.hardware.camera == Camera::EmulatedFront {
+        let camera = controls
+            .guest_output(&["shell", "dumpsys", "media.camera"])
+            .unwrap();
+        assert!(
+            camera
+                .lines()
+                .any(|s| s.trim().eq_ignore_ascii_case("Facing: Front")),
+            "câmera frontal simulada ausente"
+        );
+    }
+}
+
+#[test]
+fn title_bar_layout_and_window_actions() {
+    for (playing, width) in [(false, 610.), (true, 610.), (true, 1080.)] {
+        let ctx = egui::Context::default();
+        let brand = ctx.load_texture(
+            "brand",
+            egui::ColorImage::filled([2, 2], INK),
+            Default::default(),
+        );
+        let brand_id = brand.id();
+        let config = LaunchConfig {
+            sdk: String::new(),
+            state: String::new(),
+            image: String::new(),
+            gpu: Gpu::Auto,
+            hardware: Default::default(),
+            show_fps: true,
+        };
+        let mut app = Launcher::new(brand, config, Default::default(), false);
+        app.playing = playing;
+        let mut frame = eframe::Frame::_new_kittest();
+        let mut tick = |events| {
+            ctx.run(
+                RawInput {
+                    events,
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(width, 510.))),
+                    ..Default::default()
+                },
+                |ctx| app.update(ctx, &mut frame),
+            )
+        };
+        tick(vec![]);
+        let out = tick(vec![]);
+        let name = labels(&out, "RustEmuDroid");
+        let version = labels(&out, concat!("v", env!("CARGO_PKG_VERSION")));
+        assert_eq!((name.len(), version.len()), (1, 1));
+        assert!(name[0].bottom() <= version[0].top() + 1. && version[0].bottom() <= 40.);
+        assert_eq!(
+            out.shapes
+                .iter()
+                .filter(|s| s.shape.texture_id() == brand_id
+                    && s.shape.visual_bounding_rect().bottom() <= 40.)
+                .count(),
+            1
+        );
+        let help = labels(&out, "?")[0].center();
+        tick(vec![Event::PointerMoved(help), button(help, true)]);
+        tick(vec![button(help, false)]);
+        let dialog = tick(vec![]);
+        assert_eq!(labels(&dialog, VERSION_LABEL).len(), 1);
+        let close = labels(&dialog, "Fechar")[0].center();
+        tick(vec![Event::PointerMoved(close), button(close, true)]);
+        tick(vec![button(close, false)]);
+        assert!(labels(&tick(vec![]), VERSION_LABEL).is_empty());
+        for (offset, want) in [
+            (21., ViewportCommand::Close),
+            (55., ViewportCommand::Maximized(true)),
+            (89., ViewportCommand::Minimized(true)),
+        ] {
+            let pos = egui::pos2(width - offset, 20.);
+            tick(vec![Event::PointerMoved(pos), button(pos, true)]);
+            let out = tick(vec![button(pos, false)]);
+            assert!(
+                commands(&out).contains(&want),
+                "button at {pos:?}: {:?}",
+                commands(&out)
+            );
+        }
+        let pos = name[0].center();
+        tick(vec![Event::PointerMoved(pos), button(pos, true)]);
+        let moved = pos + vec2(20., 0.);
+        assert!(
+            commands(&tick(vec![Event::PointerMoved(moved)])).contains(&ViewportCommand::StartDrag)
+        );
+        tick(vec![button(moved, false)]);
+        // Let the previous caption and window gestures expire before a new double click.
+        for _ in 0..60 {
+            tick(vec![]);
+        }
+        tick(vec![Event::PointerMoved(pos), button(pos, true)]);
+        tick(vec![button(pos, false)]);
+        tick(vec![button(pos, true)]);
+        assert!(
+            commands(&tick(vec![button(pos, false)])).contains(&ViewportCommand::Maximized(true))
+        );
+        let corner = egui::pos2(width - 1., 509.);
+        let out = tick(vec![Event::PointerMoved(corner), button(corner, true)]);
+        assert!(commands(&out).contains(&ViewportCommand::BeginResize(
+            egui::viewport::ResizeDirection::SouthEast
+        )));
+    }
+}
+
+#[test]
+fn settings_combo_and_footer_at_minimum_window_size() {
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let dir = tempfile::tempdir().unwrap();
+    let prefs = dir.path().join("launcher.json");
+    let config = LaunchConfig::load(None, dir.path().into(), Some(Gpu::Host), &prefs);
+    let brand = ctx.load_texture(
+        "brand",
+        egui::ColorImage::filled([2, 2], INK),
+        Default::default(),
+    );
+    let mut app = Launcher::new(brand, config.clone(), prefs, false);
+    app.settings = Some(config);
+    let screen = Rect::from_min_size(Pos2::ZERO, vec2(610., 510.));
+    let mut tick = |events| {
+        ctx.run(
+            RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            },
+            |ctx| app.show_settings(ctx),
+        )
+    };
+    for _ in 0..3 {
+        tick(vec![]);
+    }
+    let out = tick(vec![]);
+    let select = labels(&out, "GPU do computador")[0].center();
+    let cancel = labels(&out, "Cancelar")[0].center();
+    assert!(screen.contains(select) && screen.contains(cancel));
+    tick(vec![Event::PointerMoved(select), button(select, true)]);
+    tick(vec![button(select, false)]);
+    let software = labels(&tick(vec![]), "Software")[0].center();
+    tick(vec![Event::PointerMoved(software), button(software, true)]);
+    tick(vec![button(software, false)]);
+    assert_eq!(labels(&tick(vec![]), "Software").len(), 1);
+    tick(vec![Event::PointerMoved(cancel), button(cancel, true)]);
+    tick(vec![button(cancel, false)]);
+    assert!(app.settings.is_none());
+    assert!(matches!(app.config.gpu, Gpu::Host));
+    assert!(!app.prefs_file.is_file());
+}
+
+#[test]
+fn closing_waits_for_vm_without_blocking_frames_or_restarting() {
+    let ctx = egui::Context::default();
+    let brand = ctx.load_texture(
+        "brand",
+        egui::ColorImage::filled([2, 2], INK),
+        Default::default(),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let prefs = dir.path().join("launcher.json");
+    let config = LaunchConfig::load(None, dir.path().into(), None, &prefs);
+    let mut app = Launcher::new(brand, config, prefs, true);
+    let mut frame = eframe::Frame::_new_kittest();
+    let tick = |app: &mut Launcher, frame: &mut eframe::Frame, close| {
+        let mut input = RawInput::default();
+        if close {
+            input
+                .viewports
+                .get_mut(&egui::ViewportId::ROOT)
+                .unwrap()
+                .events
+                .push(egui::ViewportEvent::Close);
+        }
+        ctx.run(input, |ctx| app.update(ctx, frame))
+    };
+
+    // A native close arriving before the first paint must not auto-start Android.
+    let out = tick(&mut app, &mut frame, true);
+    assert!(!commands(&out).contains(&ViewportCommand::CancelClose));
+    assert!(app.task.is_none() && !app.play);
+
+    app.closing = false;
+    app.stop = Arc::new(AtomicBool::new(false));
+    app.restart = true;
+    app.playing = true;
+    let (events, receiver) = mpsc::channel();
+    let (release, gate) = mpsc::channel();
+    app.task = Some(Session {
+        events: receiver,
+        worker: thread::spawn(move || {
+            let _ = gate.recv();
+            Ok(())
+        }),
+    });
+    // Late boot notifications must not reopen controls while stopping.
+    events
+        .send(BootEvent::Display {
+            console: 5554,
+            rpc: 0,
+            avd: dir.path().into(),
+            adb: Default::default(),
+        })
+        .unwrap();
+
+    for close in [true, false, true] {
+        let out = tick(&mut app, &mut frame, close);
+        assert!(app.stop.load(Ordering::Acquire));
+        assert!(app.controls.is_none() && app.display.is_none());
+        assert!(!app.restart);
+        assert_eq!(labels(&out, "Desligando Android…").len(), 1);
+        assert_eq!(
+            commands(&out).contains(&ViewportCommand::CancelClose),
+            close
+        );
+        assert!(!commands(&out).contains(&ViewportCommand::Close));
+    }
+    release.send(()).unwrap();
+    let until = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let out = tick(&mut app, &mut frame, false);
+        if commands(&out).contains(&ViewportCommand::Close) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < until,
+            "a janela não fechou após a saída da VM"
+        );
+        thread::yield_now();
+    }
+    assert!(app.task.is_none() && !app.play);
+    assert!(!commands(&tick(&mut app, &mut frame, true)).contains(&ViewportCommand::CancelClose));
+}

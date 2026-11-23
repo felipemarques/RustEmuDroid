@@ -8,4 +8,4 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-powershell -NoProfile -Command "Start-Process -FilePath '.\target\integrado\release\rustemudroid.exe' -ArgumentList 'ui --play' -WorkingDirectory (Get-Location).Path -WindowStyle Hidden"
+powershell -NoProfile -Command "Start-Process -FilePath '.\target\integrado\release\rustemudroid.exe' -ArgumentList 'ui' -WorkingDirectory (Get-Location).Path -WindowStyle Hidden"

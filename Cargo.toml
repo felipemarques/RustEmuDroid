@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-ui = ["dep:eframe", "dep:tonic", "dep:prost", "dep:tokio", "dep:bytemuck"]
+ui = ["dep:eframe", "dep:tonic", "dep:prost", "dep:tokio", "dep:bytemuck", "dep:rfd", "dep:serde", "dep:serde_json", "dep:tempfile", "dep:ash", "dep:gilrs"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
@@ -13,3 +13,18 @@ tonic = { version = "0.12", optional = true, default-features = false, features 
 prost = { version = "0.13", optional = true }
 tokio = { version = "1", optional = true, features = ["rt", "time", "sync", "macros"] }
 bytemuck = { version = "1", optional = true }
+rfd = { version = "0.15.4", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+tempfile = { version = "3", optional = true }
+ash = { version = "0.38", optional = true, default-features = false, features = ["loaded", "std"] }
+gilrs = { version = "0.11", optional = true, default-features = false, features = ["xinput"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+winit = { version = "0.30", default-features = false }

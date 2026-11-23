@@ -86,7 +86,8 @@ impl Profile {
     }
 
     pub fn init(&self, image: SystemImage) -> Result<()> {
-        self.init_disk(image, false)
+        let gaming = image.tag.starts_with("google_apis_playstore");
+        self.init_disk(image, gaming)
     }
 
     fn init_disk(&self, image: SystemImage, gaming: bool) -> Result<()> {
@@ -107,9 +108,10 @@ impl Profile {
         } else {
             "hw.ramSize=3072\nhw.lcd.width=1080\nhw.lcd.height=1920\nhw.lcd.density=420\ndisk.dataPartition.size=4G"
         };
+        let play_store = tag.starts_with("google_apis_playstore");
         let config = format!(
             "AvdId={AVD}\nabi.type=x86_64\nhw.cpu.arch=x86_64\nhw.cpu.ncore=4\n\
-             {hardware}\nhw.gpu.enabled=yes\nhw.gpu.mode=auto\nhw.keyboard=yes\nPlayStore.enabled=false\n\
+             {hardware}\nhw.gpu.enabled=yes\nhw.gpu.mode=auto\nhw.keyboard=yes\nPlayStore.enabled={play_store}\n\
              image.sysdir.1={location}\ntag.id={tag}\n"
         );
         write_once(
@@ -126,7 +128,7 @@ impl Profile {
         Ok(())
     }
 
-    fn system_dir(&self, sdk: &Sdk) -> Result<PathBuf> {
+    pub(crate) fn system_dir(&self, sdk: &Sdk) -> Result<PathBuf> {
         let directory = self.avd_home.join(format!("{AVD}.avd"));
         let entry = self.avd_home.join(format!("{AVD}.ini"));
         let contents = fs::read_to_string(&entry)
@@ -159,6 +161,18 @@ pub struct SystemImage {
 }
 
 impl SystemImage {
+    pub fn preferred_sdk(sdk: &Sdk) -> Result<Self> {
+        for package in [
+            "system-images;android-37.0;google_apis_playstore;x86_64",
+            "system-images;android-36;google_apis;x86_64",
+            "system-images;android-35;google_apis;x86_64",
+        ] {
+            if let Ok(image) = Self::from_sdk(sdk, package) {
+                return Ok(image);
+            }
+        }
+        Err("Instale a imagem system-images;android-37.0;google_apis_playstore;x86_64 pelo SDK Manager ou informe a pasta da imagem.".into())
+    }
     pub fn from_sdk(sdk: &Sdk, package: &str) -> Result<Self> {
         let (api, tag) = parse_image(package)?;
         let location = format!("system-images/{api}/{tag}/x86_64/");
@@ -181,6 +195,8 @@ impl SystemImage {
         if !path.join("system.img").is_file() {
             return Err(format!("system.img ausente em {}", path.display()).into());
         }
+        let metadata = fs::read_to_string(path.join("source.properties")).unwrap_or_default();
+        let tag = property(&metadata, "SystemImage.TagId").unwrap_or("default");
         let props_path = path.join("build.prop");
         let props = fs::read_to_string(&props_path)
             .map_err(|error| format!("{}: {error}", props_path.display()))?;
@@ -196,7 +212,7 @@ impl SystemImage {
             .ok_or("O caminho da imagem deve ser UTF-8 sem quebras de linha.")?;
         Ok(Self {
             api: format!("android-{api}"),
-            tag: "default".into(),
+            tag: tag.into(),
             location: location.into(),
         })
     }
@@ -212,14 +228,22 @@ fn property<'a>(contents: &'a str, name: &str) -> Option<&'a str> {
 fn parse_image(package: &str) -> Result<(&str, &str)> {
     let parts: Vec<_> = package.split(';').collect();
     if let ["system-images", api, tag, "x86_64"] = parts.as_slice() {
-        let valid_api = api
-            .strip_prefix("android-")
-            .is_some_and(|suffix| !suffix.is_empty() && suffix.bytes().all(|c| c.is_ascii_digit()));
-        if valid_api && matches!(*tag, "default" | "google_apis") {
+        let valid_api = api.strip_prefix("android-").is_some_and(|suffix| {
+            suffix.split('.').count() <= 2
+                && suffix
+                    .split('.')
+                    .all(|p| !p.is_empty() && p.bytes().all(|c| c.is_ascii_digit()))
+        });
+        if valid_api
+            && matches!(
+                *tag,
+                "default" | "google_apis" | "google_apis_playstore" | "google_apis_playstore_ps16k"
+            )
+        {
             return Ok((api, tag));
         }
     }
-    Err("Use system-images;android-<API>;google_apis;x86_64 ou a variante default.".into())
+    Err("Use system-images;android-<API>;google_apis;x86_64 ou a variante google_apis_playstore/default.".into())
 }
 
 fn write_once(path: &Path, content: &str, identity_keys: &[&str]) -> Result<()> {
@@ -255,8 +279,60 @@ fn free_port_pair() -> Result<(u16, TcpListener, TcpListener)> {
     Err("Nenhum par de portas livres para console e ADB entre 5554 e 5585.".into())
 }
 
+#[derive(Default, Clone, Copy, PartialEq, clap::ValueEnum)]
+#[cfg_attr(feature = "ui", derive(serde::Serialize, serde::Deserialize))]
+pub enum Camera {
+    #[default]
+    Profile,
+    EmulatedFront,
+    WebcamFront,
+    WebcamBack,
+}
+
+#[derive(Default, Clone, PartialEq, clap::Args)]
+#[cfg_attr(feature = "ui", derive(serde::Serialize, serde::Deserialize))]
+pub struct Hardware {
+    /// Nome do dispositivo Vulkan para os modos host e auto.
+    #[arg(long = "gpu-device", default_value = "")]
+    pub adapter: String,
+    /// Origem da câmera do Android.
+    #[arg(long, value_enum, default_value_t = Camera::Profile)]
+    pub camera: Camera,
+    /// Índice da webcam do computador para webcam-front ou webcam-back.
+    #[arg(long, default_value_t = 0)]
+    pub webcam_index: u8,
+    /// Usar tradução ARM leve na imagem Kemu com Berberis (compatibilidade com PUBG).
+    #[arg(long, default_value_t = false)]
+    #[cfg_attr(feature = "ui", serde(default))]
+    pub arm_lite: bool,
+}
+
+impl Hardware {
+    fn apply(&self, command: &mut Command, gpu: Gpu) {
+        if matches!(gpu, Gpu::Auto | Gpu::Host) && !self.adapter.is_empty() {
+            command.env("ANDROID_EMU_VK_SELECT_GPU", &self.adapter);
+        }
+        match self.camera {
+            Camera::Profile => {}
+            Camera::EmulatedFront => {
+                command.args(["-camera-front", "emulated"]);
+            }
+            Camera::WebcamFront | Camera::WebcamBack => {
+                command
+                    .arg(if self.camera == Camera::WebcamFront {
+                        "-camera-front"
+                    } else {
+                        "-camera-back"
+                    })
+                    .arg(format!("webcam{}", self.webcam_index));
+            }
+        }
+    }
+}
+
 pub struct BootOptions {
     pub gpu: Gpu,
+    pub hardware: Hardware,
     pub engine: Engine,
     pub headless: bool,
     pub check: bool,
@@ -270,6 +346,8 @@ pub enum BootEvent {
         console: u16,
         rpc: u16,
         avd: PathBuf,
+        #[cfg(feature = "ui")]
+        adb: PathBuf,
     },
 }
 
@@ -277,13 +355,35 @@ impl std::fmt::Display for BootEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Message(message) => f.write_str(message),
-            Self::Display { console, rpc, avd } => write!(
+            Self::Display {
+                console, rpc, avd, ..
+            } => write!(
                 f,
                 "Tela integrada em emulator-{console} (RPC {rpc}, {}).",
                 avd.display()
             ),
         }
     }
+}
+
+pub(crate) fn is_kemu_image(system_dir: &Path) -> bool {
+    fs::read_to_string(system_dir.join("build.prop")).is_ok_and(|props| {
+        property(&props, "ro.system.build.fingerprint").is_some_and(|v| v.starts_with("Kemu/"))
+    })
+}
+
+fn kemu_runtime(system: &Path, engine: Engine, gpu: Gpu) -> Option<PathBuf> {
+    kemu_install_root().filter(|root| {
+        cfg!(windows)
+            && engine == Engine::Auto
+            && matches!(gpu, Gpu::Host | Gpu::Auto)
+            && root
+                .join("qemu/windows-x86_64/qemu-system-x86_64.exe")
+                .is_file()
+            && fs::canonicalize(root.join("system-img"))
+                .is_ok_and(|path| fs::canonicalize(system).ok().as_ref() == Some(&path))
+            && is_kemu_image(system)
+    })
 }
 
 pub fn boot(
@@ -295,29 +395,20 @@ pub fn boot(
 ) -> Result<()> {
     let BootOptions {
         gpu,
+        hardware,
         engine,
         headless,
         check,
         embedded,
         timeout,
     } = options;
+    if stop.load(Ordering::Acquire) {
+        return Ok(());
+    }
     let system_dir = profile.system_dir(sdk)?;
-    let kemu_image = fs::read_to_string(system_dir.join("build.prop")).is_ok_and(|props| {
-        property(&props, "ro.system.build.fingerprint").is_some_and(|v| v.starts_with("Kemu/"))
-    });
     // This guest Vulkan HAL uses the shared RX/TX extensions of the matching goldfish pipe.
-    let installed = kemu_install_root();
-    let runtime = installed.as_deref().filter(|root| {
-        cfg!(windows)
-            && kemu_image
-            && engine == Engine::Auto
-            && matches!(gpu, Gpu::Host | Gpu::Auto)
-            && root
-                .join("qemu/windows-x86_64/qemu-system-x86_64.exe")
-                .is_file()
-            && fs::canonicalize(root.join("system-img"))
-                .is_ok_and(|image| fs::canonicalize(&system_dir).ok().as_ref() == Some(&image))
-    });
+    let installed = kemu_runtime(&system_dir, engine, gpu);
+    let runtime = installed.as_deref();
     let gaming;
     let profile = if runtime.is_some() {
         gaming = Profile::new(profile.root.join("gaming"));
@@ -326,7 +417,21 @@ pub fn boot(
     } else {
         profile
     };
-    let compat_egl = kemu_image && runtime.is_none();
+    let compat_egl = runtime.is_none() && is_kemu_image(&system_dir);
+    // Keep this handle for the entire boot/session. The OS releases its lock on exit.
+    let lease = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(profile.root.join("vm-session.lock"))?;
+    match lease.try_lock() {
+        Ok(()) => {}
+        Err(fs::TryLockError::WouldBlock) => {
+            return Err("Este perfil já está em uso por outra sessão do RustEmuDroid.".into());
+        }
+        Err(fs::TryLockError::Error(error)) => return Err(error.into()),
+    }
     // The WHPX user APIC and guest XSAVE workaround were needed on AMD hosts here.
     let amd_whpx = runtime.is_some()
         && env::var("PROCESSOR_IDENTIFIER").is_ok_and(|id| id.contains("AuthenticAMD"));
@@ -376,6 +481,7 @@ pub fn boot(
         Command::new(&sdk.emulator)
     };
     let sdk_root = runtime.unwrap_or(&sdk.root);
+    hardware.apply(&mut command, gpu);
     command
         .env("ANDROID_HOME", sdk_root)
         .env("ANDROID_SDK_ROOT", sdk_root)
@@ -431,8 +537,42 @@ pub fn boot(
         command.args(["-qemu", "-append", "noxsaves"]);
     }
     let rpc = rpc_socket.map(|(_, rpc)| rpc);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // ADB is shared with other emulators. Start its server outside the private VM job.
+        let mut adb = RunningProcess(
+            Command::new(&sdk.adb)
+                .arg("start-server")
+                .creation_flags(0x08000000)
+                .stdout(Stdio::null())
+                .spawn()?,
+        );
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            if stop.load(Ordering::Acquire) {
+                return Ok(());
+            }
+            if let Some(status) = adb.0.try_wait()? {
+                if !status.success() {
+                    return Err(format!("Falha ao iniciar o ADB: {status}").into());
+                }
+                break;
+            }
+            if Instant::now() >= deadline {
+                return Err("O servidor ADB não respondeu ao iniciar.".into());
+            }
+            sleep(Duration::from_millis(100));
+        }
+    }
+    if stop.load(Ordering::Acquire) {
+        return Ok(());
+    }
     drop((console, adb_port));
     let mut vm = RunningProcess(command.spawn()?);
+    #[cfg(windows)]
+    let _job =
+        vm_job(&vm.0).map_err(|error| format!("Falha ao vincular a VM ao launcher: {error}"))?;
 
     notify(BootEvent::Message(format!(
         "Iniciando {AVD} em {serial}. Motor: {}. Log: {}",
@@ -444,6 +584,8 @@ pub fn boot(
             console: port,
             rpc,
             avd: profile.avd_home.join(format!("{AVD}.avd")),
+            #[cfg(feature = "ui")]
+            adb: sdk.adb.clone(),
         });
     }
     let start = Instant::now();
@@ -490,6 +632,31 @@ pub fn boot(
                 ["shell", "getprop", "ro.build.version.release"],
             )
             .unwrap_or_else(|| "?".into());
+            if hardware.arm_lite && is_kemu_image(&system_dir) && version.trim() == "16" {
+                let bridge = adb_output(
+                    sdk,
+                    &serial,
+                    ["shell", "getprop", "ro.dalvik.vm.native.bridge"],
+                );
+                if bridge.as_deref().map(str::trim) == Some("libberberis_arm64.so") {
+                    const MODE: &str = "lite-translate-or-interpret";
+                    let applied = adb_output(
+                        sdk,
+                        &serial,
+                        ["shell", "su", "0", "setprop", "berberis.mode", MODE],
+                    )
+                    .and_then(|_| adb_output(sdk, &serial, ["shell", "getprop", "berberis.mode"]))
+                    .is_some_and(|value| value.trim() == MODE);
+                    notify(BootEvent::Message(
+                        if applied {
+                            "Tradução ARM leve ativada para este boot."
+                        } else {
+                            "O Android não permitiu ativar a tradução ARM leve."
+                        }
+                        .into(),
+                    ));
+                }
+            }
             notify(BootEvent::Message(format!(
                 "Boot confirmado em {:.1}s ({serial}, Android {}, sys.boot_completed=1).",
                 start.elapsed().as_secs_f64(),
@@ -592,6 +759,38 @@ fn wait_for_exit(child: &mut Child, timeout: Duration) -> io::Result<bool> {
 
 struct RunningProcess(Child);
 
+#[cfg(windows)]
+fn vm_job(child: &Child) -> io::Result<std::os::windows::io::OwnedHandle> {
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+        SetInformationJobObject,
+    };
+    // An unnamed, non-inheritable handle ties the VM to this launcher even if a
+    // native fault prevents Rust destructors from running. Normal shutdown still uses ADB.
+    unsafe {
+        let handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if handle.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let job = OwnedHandle::from_raw_handle(handle);
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if SetInformationJobObject(
+            job.as_raw_handle(),
+            JobObjectExtendedLimitInformation,
+            (&raw const info).cast(),
+            std::mem::size_of_val(&info) as u32,
+        ) == 0
+            || AssignProcessToJobObject(job.as_raw_handle(), child.as_raw_handle()) == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(job)
+    }
+}
+
 impl Drop for RunningProcess {
     fn drop(&mut self) {
         if !matches!(self.0.try_wait(), Ok(Some(_))) {
@@ -604,6 +803,28 @@ impl Drop for RunningProcess {
 #[cfg(test)]
 mod tests {
     use super::{parse_image, property};
+
+    #[cfg(windows)]
+    #[test]
+    fn losing_the_vm_job_handle_terminates_its_child() {
+        use std::{os::windows::process::CommandExt, process::Command, time::Duration};
+        let mut child = super::RunningProcess(
+            Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "Start-Sleep -Seconds 30",
+                ])
+                .creation_flags(0x08000000)
+                .spawn()
+                .unwrap(),
+        );
+        let job = super::vm_job(&child.0).unwrap();
+        assert!(child.0.try_wait().unwrap().is_none());
+        drop(job);
+        assert!(super::wait_for_exit(&mut child.0, Duration::from_secs(3)).unwrap());
+    }
 
     #[test]
     fn reads_settings_after_android_emulator_reformats_them() {
@@ -623,6 +844,7 @@ mod tests {
             ("android-35", "google_apis")
         );
         assert!(parse_image("system-images;android-36;default;x86_64").is_ok());
+        assert!(parse_image("system-images;android-37.0;google_apis_playstore;x86_64").is_ok());
     }
 
     #[test]
