@@ -42,6 +42,16 @@ cargo run -- boot --headless --check
 
 `init --image` aceita outro pacote x86-64 instalado das variantes `default` ou `google_apis`. Use `--state-dir` com um diretório diferente para manter perfis com imagens diferentes.
 
+## Interface
+
+O painel do RustEmuDroid reúne o caminho do SDK, a imagem Android, o perfil e o modo de renderização. O botão **Abrir Android** inicia a janela do Android. **Verificar boot** faz um teste sem janela e encerra a VM ao confirmar a inicialização.
+
+```text
+cargo run --locked --features ui --target-dir target/painel -- ui
+```
+
+No Windows, o painel preenche o caminho de instalação padrão do Kemu quando encontra a imagem. No Linux, informe a pasta da imagem ou deixe o campo em branco para usar o perfil existente ou a imagem padrão do SDK. O painel usa o mesmo launcher da linha de comando. A janela abriu no Windows, o executável do painel confirmou o boot e o código da interface passou na verificação de compilação no Ubuntu em WSL2.
+
 ## Rodar e diagnosticar
 
 - `doctor` localiza o SDK com `--sdk`, `ANDROID_HOME`, `ANDROID_SDK_ROOT` ou o caminho padrão `Android/Sdk` da plataforma. Ele verifica se o hipervisor pode ser usado.
@@ -62,6 +72,8 @@ Os dois testes usaram perfis novos, executaram `boot --headless --check` e retor
 
 A validação cobre a inicialização do Android. A interface própria em Rust, a compatibilidade de jogos e o desempenho de Vulkan permanecem fora deste protótipo.
 
+
+[Comparação em jogo com SuperTuxKart 1.5](benchmarks/stk-1.5/README.md)
 
 ## Referências
 

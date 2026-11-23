@@ -1,4 +1,6 @@
 mod android;
+#[cfg(feature = "ui")]
+mod ui;
 
 use std::{
     error::Error,
@@ -29,6 +31,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Abre o painel do RustEmuDroid.
+    #[cfg(feature = "ui")]
+    Ui,
+
     /// Localiza as ferramentas e verifica o hipervisor.
     Doctor,
 
@@ -63,7 +69,7 @@ enum Action {
     },
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum Gpu {
     Auto,
     Host,
@@ -85,13 +91,21 @@ impl Gpu {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
-    let sdk = Sdk::find(cli.sdk)?;
     let state = cli
         .state_dir
         .unwrap_or_else(|| PathBuf::from(".rustemudroid").join(std::env::consts::OS));
-    let profile = Profile::new(absolute(state)?);
+    let state = absolute(state)?;
+    #[cfg(feature = "ui")]
+    if matches!(&cli.command, Action::Ui) {
+        return ui::run(cli.sdk, state);
+    }
+
+    let sdk = Sdk::find(cli.sdk)?;
+    let profile = Profile::new(state);
 
     match cli.command {
+        #[cfg(feature = "ui")]
+        Action::Ui => unreachable!(),
         Action::Doctor => {
             println!("SDK: {}", sdk.root.display());
             println!("ADB: {}", sdk.adb.display());
