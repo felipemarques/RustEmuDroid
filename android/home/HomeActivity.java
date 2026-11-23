@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.*;
 import android.content.pm.*;
+import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.graphics.Typeface;
 import android.graphics.drawable.*;
 import android.os.Bundle;
@@ -19,13 +21,21 @@ public final class HomeActivity extends Activity {
   private static final int[] TINTS = {0xff3c505b, 0xff43516c, 0xff5b4240, 0xff3f5148};
   private final ExecutorService worker = Executors.newSingleThreadExecutor();
   private final List<Entry> entries = new ArrayList<>(), shown = new ArrayList<>();
-  private boolean games = true, visible;
+  private boolean games = true, visible, resumed, enumerated;
   private int generation;
   private Future<?> pending;
   private EditText search;
-  private TextView gamesTab, appsTab, empty;
+  private TextView gamesTab, appsTab;
+  private EmptyLibraryView empty;
   private GridView grid;
   private Cards cards;
+  private Resources localized;
+  private SharedPreferences homePreferences;
+  private AlertDialog categoryDialog;
+  private final SharedPreferences.OnSharedPreferenceChangeListener localeChanged = (prefs, key) -> {
+    if (HomeLocaleReceiver.EXTRA.equals(key))
+      refreshLocale();
+  };
   private final BroadcastReceiver packages = new BroadcastReceiver() {
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -50,6 +60,7 @@ public final class HomeActivity extends Activity {
   @Override
   public void onCreate(Bundle state) {
     super.onCreate(state);
+    homePreferences = getSharedPreferences(HomeLocaleReceiver.PREFERENCES, MODE_PRIVATE);
     getWindow().setStatusBarColor(BG);
     getWindow().setNavigationBarColor(BG);
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
@@ -61,19 +72,24 @@ public final class HomeActivity extends Activity {
     LinearLayout bar = new LinearLayout(this);
     bar.setGravity(Gravity.CENTER_VERTICAL);
     root.addView(bar, -1, dp(44));
-    gamesTab = tab(bar, "Jogos", true);
-    appsTab = tab(bar, "Aplicativos", false);
+    gamesTab = tab(bar, "", true);
+    appsTab = tab(bar, "", false);
     Space gap = new Space(this);
     bar.addView(gap, new LinearLayout.LayoutParams(0, 1, 1f));
     search = new EditText(this);
     search.setTextSize(14);
     search.setSingleLine();
+    search.setEllipsize(TextUtils.TruncateAt.END);
     search.setTextColor(TEXT);
     search.setHintTextColor(MUTED);
     search.setPadding(dp(12), 0, dp(12), 0);
     search.setBackground(shape(PANEL, 8));
-    bar.addView(
-        search, dp(getResources().getConfiguration().screenWidthDp < 470 ? 116 : 200), dp(36));
+    if (getResources().getConfiguration().screenWidthDp < 470) {
+      gap.setLayoutParams(new LinearLayout.LayoutParams(dp(8), 1));
+      bar.addView(search, new LinearLayout.LayoutParams(0, dp(36), 1f));
+    } else {
+      bar.addView(search, dp(200), dp(36));
+    }
     search.addTextChangedListener(new TextWatcher() {
       public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
       public void onTextChanged(CharSequence s, int start, int before, int count) {
@@ -96,17 +112,15 @@ public final class HomeActivity extends Activity {
     cards = new Cards();
     grid.setAdapter(cards);
     body.addView(grid);
-    empty = text("", 15, false);
-    empty.setTextColor(MUTED);
-    empty.setGravity(Gravity.CENTER);
-    body.addView(empty);
+    empty = new EmptyLibraryView(this, MUTED);
+    body.addView(empty, new FrameLayout.LayoutParams(-1, -1));
     grid.setEmptyView(empty);
     grid.setOnItemClickListener((parent, v, index, id) -> launch(shown.get(index)));
     grid.setOnItemLongClickListener((parent, v, index, id) -> {
       Entry item = shown.get(index);
-      new AlertDialog.Builder(this)
+      categoryDialog = new AlertDialog.Builder(this)
           .setTitle(item.name)
-          .setItems(new String[] {games ? "Mover para Aplicativos" : "Mover para Jogos"},
+          .setItems(new String[] {localized.getString(games ? R.string.move_to_apps : R.string.move_to_games)},
               (dialog, which) -> {
                 getSharedPreferences("categories", 0)
                     .edit()
@@ -118,6 +132,8 @@ public final class HomeActivity extends Activity {
       return true;
     });
     setContentView(root);
+    homePreferences.registerOnSharedPreferenceChangeListener(localeChanged);
+    refreshLocale();
     select(state == null ? !getIntent().getBooleanExtra("apps", false)
                          : state.getBoolean("games", true));
     if (state != null)
@@ -158,9 +174,45 @@ public final class HomeActivity extends Activity {
     super.onStop();
   }
   @Override
+  protected void onResume() {
+    super.onResume();
+    resumed = true;
+    updateEmptyState();
+  }
+
+  @Override
+  protected void onPause() {
+    resumed = false;
+    updateEmptyState();
+    super.onPause();
+  }
+
+  @Override
+  public void onWindowFocusChanged(boolean hasFocus) {
+    super.onWindowFocusChanged(hasFocus);
+    updateEmptyState();
+  }
+
+  @Override
   protected void onDestroy() {
+    homePreferences.unregisterOnSharedPreferenceChangeListener(localeChanged);
+    if (categoryDialog != null)
+      categoryDialog.dismiss();
     worker.shutdownNow();
     super.onDestroy();
+  }
+
+  private void refreshLocale() {
+    Configuration config = new Configuration(getResources().getConfiguration());
+    String tag = homePreferences.getString(HomeLocaleReceiver.EXTRA, HomeLocaleReceiver.DEFAULT);
+    config.setLocale(Locale.forLanguageTag(tag));
+    localized = createConfigurationContext(config).getResources();
+    gamesTab.setText(localized.getString(R.string.games));
+    appsTab.setText(localized.getString(R.string.apps));
+    updateSearchHint();
+    if (categoryDialog != null)
+      categoryDialog.dismiss();
+    filter();
   }
 
   private void reload() {
@@ -199,6 +251,7 @@ public final class HomeActivity extends Activity {
           return;
         entries.clear();
         entries.addAll(items);
+        enumerated = true;
         filter();
       });
     });
@@ -209,7 +262,8 @@ public final class HomeActivity extends Activity {
     try {
       startActivity(intent);
     } catch (ActivityNotFoundException | SecurityException ex) {
-      Toast.makeText(this, "O Android não conseguiu abrir " + item.name, Toast.LENGTH_SHORT).show();
+      Toast.makeText(this, localized.getString(R.string.launch_failed, item.name),
+          Toast.LENGTH_SHORT).show();
       reload();
     }
   }
@@ -233,11 +287,14 @@ public final class HomeActivity extends Activity {
       v.setTextColor(selected ? BG : TEXT);
       v.setSelected(selected);
     }
-    search.setHint(games ? "Buscar jogo" : "Buscar aplicativo");
+    updateSearchHint();
     search.setText("");
     search.clearFocus();
     filter();
     grid.setSelection(0);
+  }
+  private void updateSearchHint() {
+    search.setHint(localized.getString(games ? R.string.search_games : R.string.search_apps));
   }
   private void filter() {
     if (cards == null)
@@ -251,9 +308,18 @@ public final class HomeActivity extends Activity {
               || e.component.getPackageName().toLowerCase(Locale.ROOT).contains(term)))
         shown.add(e);
     }
-    empty.setText(term.isEmpty() ? (games ? "Nenhum jogo instalado" : "Nenhum aplicativo instalado")
-                                 : "Nenhum resultado");
     cards.notifyDataSetChanged();
+    updateEmptyState();
+  }
+
+  private void updateEmptyState() {
+    if (empty == null || localized == null)
+      return;
+    boolean vacant = enumerated && shown.isEmpty();
+    int resources = TextUtils.getTrimmedLength(search.getText()) == 0
+        ? (games ? R.string.no_games : R.string.no_apps) : R.string.no_results;
+    empty.present(vacant ? localized.getString(resources) : "",
+        vacant && resumed && hasWindowFocus());
   }
 
   private final class Cards extends BaseAdapter {

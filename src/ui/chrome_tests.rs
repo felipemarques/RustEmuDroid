@@ -1,7 +1,7 @@
-use super::*;
+use super::{capture_panel::CAPTURE_MODIFIERS, *};
 use eframe::App;
 use egui::{
-    Event, FullOutput, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape, ViewportCommand,
+    Event, FullOutput, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape, ViewportCommand, vec2,
 };
 
 fn button(pos: Pos2, pressed: bool) -> Event {
@@ -216,6 +216,8 @@ fn title_bar_layout_and_window_actions() {
             gpu: Gpu::Auto,
             hardware: Default::default(),
             show_fps: true,
+            animate_mascot: true,
+            locale: Locale::default(),
         };
         let mut app = Launcher::new(brand, config, Default::default(), false);
         app.playing = playing;
@@ -248,11 +250,11 @@ fn title_bar_layout_and_window_actions() {
         tick(vec![Event::PointerMoved(help), button(help, true)]);
         tick(vec![button(help, false)]);
         let dialog = tick(vec![]);
-        assert_eq!(labels(&dialog, VERSION_LABEL).len(), 1);
+        assert_eq!(labels(&dialog, &version_label(Locale::default())).len(), 1);
         let close = labels(&dialog, "Fechar")[0].center();
         tick(vec![Event::PointerMoved(close), button(close, true)]);
         tick(vec![button(close, false)]);
-        assert!(labels(&tick(vec![]), VERSION_LABEL).is_empty());
+        assert!(labels(&tick(vec![]), &version_label(Locale::default())).is_empty());
         for (offset, want) in [
             (21., ViewportCommand::Close),
             (55., ViewportCommand::Maximized(true)),
@@ -335,6 +337,117 @@ fn settings_combo_and_footer_at_minimum_window_size() {
     assert!(app.settings.is_none());
     assert!(matches!(app.config.gpu, Gpu::Host));
     assert!(!app.prefs_file.is_file());
+}
+
+#[test]
+fn idle_panel_localizes_session_controls_and_keeps_diagnostics_collapsed() {
+    for (locale, start, settings, status, details) in [
+        (
+            Locale::PtBr,
+            "Iniciar Android",
+            "Configurações",
+            "Sessão encerrada",
+            "Detalhes técnicos",
+        ),
+        (
+            Locale::EnUs,
+            "Start Android",
+            "Settings",
+            "Session ended",
+            "Technical details",
+        ),
+        (
+            Locale::EsEs,
+            "Iniciar Android",
+            "Ajustes",
+            "Sesión finalizada",
+            "Detalles técnicos",
+        ),
+    ] {
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = dir.path().join("launcher.json");
+        let config = LaunchConfig::load(None, dir.path().into(), None, &prefs);
+        assert_eq!(config.locale, Locale::PtBr);
+        let mut legacy = serde_json::to_value(&config).unwrap();
+        legacy.as_object_mut().unwrap().remove("locale");
+        write_json(&prefs, &legacy).unwrap();
+        let mut config = LaunchConfig::load(None, dir.path().into(), None, &prefs);
+        assert_eq!(config.locale, Locale::PtBr);
+        config.locale = locale;
+        write_json(&prefs, &config).unwrap();
+        let config = LaunchConfig::load(None, dir.path().into(), None, &prefs);
+        assert_eq!(config.locale, locale);
+        assert_eq!(serde_json::to_value(locale).unwrap(), locale.tag());
+        let brand = ctx.load_texture(
+            "brand",
+            egui::ColorImage::filled([2, 2], INK),
+            Default::default(),
+        );
+        let mut app = Launcher::new(brand, config, prefs, false);
+        app.stage = BootStage::Stopped;
+        app.output.push_back("sys.boot_completed=1".into());
+        let mut frame = eframe::Frame::_new_kittest();
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(610., 510.));
+        let mut tick = || {
+            ctx.run(
+                RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ctx| app.update(ctx, &mut frame),
+            )
+        };
+        tick();
+        let out = tick();
+        for expected in [start, settings, status, details] {
+            let rects = labels(&out, expected);
+            assert_eq!(rects.len(), 1, "{locale:?} {expected}");
+            assert!(
+                screen.contains_rect(rects[0]),
+                "{locale:?} {expected}: {:?}",
+                rects[0]
+            );
+        }
+        assert!(labels(&out, "sys.boot_completed=1").is_empty());
+    }
+}
+
+#[test]
+fn capture_shortcut_consumes_activation_and_repeat_before_android_input() {
+    let ctx = egui::Context::default();
+    let send = |key, pressed, modifiers| Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed,
+        repeat: false,
+        modifiers,
+    };
+    let out = ctx.run(
+        RawInput {
+            events: vec![
+                send(egui::Key::R, true, CAPTURE_MODIFIERS),
+                send(egui::Key::R, true, CAPTURE_MODIFIERS),
+                send(egui::Key::R, false, CAPTURE_MODIFIERS),
+                send(egui::Key::J, true, egui::Modifiers::NONE),
+            ],
+            ..Default::default()
+        },
+        |ctx| {
+            assert!(consume_capture_shortcut(ctx, egui::Key::R));
+            assert!(!consume_capture_shortcut(ctx, egui::Key::R));
+            assert!(!consume_capture_shortcut(ctx, egui::Key::J));
+            assert!(ctx.input(|input| input.events.iter().any(|event| matches!(
+                event,
+                Event::Key {
+                    key: egui::Key::J,
+                    ..
+                }
+            ))));
+        },
+    );
+    assert!(commands(&out).is_empty());
 }
 
 #[test]

@@ -1,8 +1,14 @@
 mod android;
+#[cfg(windows)]
+mod bluestacks;
+#[cfg(feature = "ui")]
+mod capture;
+mod cli_i18n;
 #[cfg(feature = "ui")]
 mod controls;
 #[cfg(feature = "ui")]
 mod display;
+mod locale;
 #[cfg(feature = "ui")]
 mod toolbar;
 #[cfg(feature = "ui")]
@@ -17,11 +23,12 @@ use std::{
 
 use android::{Profile, Sdk, SystemImage};
 use clap::{Parser, Subcommand, ValueEnum};
+use locale::Locale;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 #[derive(Parser)]
-#[command(version, about = "Launcher Android isolado para Windows e Linux")]
+#[command(version)]
 struct Cli {
     /// Diretório raiz do Android SDK. Também lê ANDROID_HOME.
     #[arg(long, global = true)]
@@ -30,6 +37,9 @@ struct Cli {
     /// Diretório dos dados do protótipo.
     #[arg(long, global = true)]
     state_dir: Option<PathBuf>,
+
+    #[arg(long, global = true, value_enum, ignore_case = true)]
+    lang: Option<Locale>,
 
     #[command(subcommand)]
     command: Action,
@@ -50,6 +60,14 @@ enum Action {
     #[cfg(feature = "ui")]
     #[command(hide = true)]
     GpuInventory,
+
+    /// Abre uma instância ou jogo no BlueStacks 5 para Windows.
+    #[cfg(windows)]
+    #[command(name = "bluestacks", visible_alias = "blue-stacks")]
+    BlueStacks {
+        #[command(subcommand)]
+        action: BlueStacksAction,
+    },
 
     /// Localiza as ferramentas e verifica o hipervisor.
     Doctor,
@@ -91,6 +109,22 @@ enum Action {
     },
 }
 
+#[cfg(windows)]
+#[derive(Subcommand)]
+enum BlueStacksAction {
+    /// Lista as instâncias configuradas.
+    List,
+    /// Abre uma instância ou solicita a execução de um jogo já instalado.
+    Open {
+        /// Identificador mostrado por bluestacks list.
+        #[arg(long)]
+        instance: Option<String>,
+        /// Nome do pacote Android, como org.supertuxkart.stk.
+        #[arg(long)]
+        package: Option<String>,
+    },
+}
+
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum Engine {
     Auto,
@@ -118,8 +152,25 @@ impl Gpu {
     }
 }
 
-fn run() -> Result<()> {
-    let cli = Cli::parse();
+fn run(cli: Cli) -> Result<()> {
+    let language = cli.lang.unwrap_or_default();
+    #[cfg(windows)]
+    if let Action::BlueStacks { action } = &cli.command {
+        match action {
+            BlueStacksAction::List => {
+                for instance in
+                    bluestacks::instances().map_err(|error| error.localized(language))?
+                {
+                    println!("{}\t{}", instance.id, instance.name);
+                }
+            }
+            BlueStacksAction::Open { instance, package } => {
+                bluestacks::launch(instance.as_deref(), package.as_deref())
+                    .map_err(|error| error.localized(language))?;
+            }
+        }
+        return Ok(());
+    }
     #[cfg(feature = "ui")]
     if matches!(cli.command, Action::GpuInventory) {
         return ui::print_gpu_inventory();
@@ -130,24 +181,27 @@ fn run() -> Result<()> {
     let state = absolute(state)?;
     #[cfg(feature = "ui")]
     if let Action::Ui { play, gpu } = &cli.command {
-        return ui::run(cli.sdk, state, *play, *gpu);
+        return ui::run(cli.sdk, state, *play, *gpu, cli.lang);
     }
 
-    let sdk = Sdk::find(cli.sdk)?;
-    let profile = Profile::new(state);
+    let sdk = Sdk::find_localized(cli.sdk, language)?;
+    let profile = Profile::localized(state, language);
 
     match cli.command {
+        #[cfg(windows)]
+        Action::BlueStacks { .. } => unreachable!(),
         #[cfg(feature = "ui")]
         Action::Ui { .. } | Action::GpuInventory => unreachable!(),
         Action::Doctor => {
             println!("SDK: {}", sdk.root.display());
             println!("ADB: {}", sdk.adb.display());
-            println!("Dados: {}", profile.root.display());
+            let label = language.pick("Dados", "Data", "Datos");
+            println!("{label}: {}", profile.root.display());
             sdk.check_acceleration()?;
         }
         Action::Init { image, system_dir } => {
             let image = match system_dir {
-                Some(path) => SystemImage::from_dir(path)?,
+                Some(path) => SystemImage::from_dir_localized(path, language)?,
                 None => match image {
                     Some(package) => SystemImage::from_sdk(&sdk, &package)?,
                     None => SystemImage::preferred_sdk(&sdk)?,
@@ -183,7 +237,11 @@ fn run() -> Result<()> {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    let cli = match cli_i18n::parse() {
+        Ok(cli) => cli,
+        Err(status) => return status,
+    };
+    match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("RustEmuDroid: {error}");

@@ -1,3 +1,4 @@
+use crate::ui::i18n::Locale;
 use eframe::egui::{self, Color32, Pos2, Shape, Stroke, Vec2};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -13,6 +14,12 @@ pub enum Tool {
     Settings,
     Library,
     Keymap,
+    Screenshot,
+    RecordVideo,
+    StopRecording,
+    AnimatedClip,
+    AnimatedGif,
+    CapturesFolder,
     Fullscreen,
     Help,
     Stop,
@@ -23,31 +30,81 @@ pub enum Tool {
 }
 
 impl Tool {
-    fn label(self) -> &'static str {
+    fn label(self, locale: Locale) -> &'static str {
         match self {
-            Self::Louder => "Aumentar volume",
-            Self::Quieter => "Diminuir volume",
-            Self::Mute => "Silenciar / reativar mídia",
-            Self::Back => "Voltar",
-            Self::Home => "Início",
-            Self::Recents => "Aplicativos recentes",
-            Self::Rotate => "Girar tela",
-            Self::Install => "Instalar APK",
-            Self::Settings => "Configurações",
-            Self::Library => "Biblioteca de aplicativos",
-            Self::Keymap => "Mapear teclado e controle",
-            Self::Fullscreen => "Alternar tela cheia (F11)",
-            Self::Help => "Ajuda",
-            Self::Stop => "Encerrar Android",
-            Self::Minimize => "Minimizar",
-            Self::Maximize => "Maximizar",
-            Self::Restore => "Restaurar janela",
-            Self::Close => "Fechar janela",
+            Self::Louder => locale.pick("Aumentar volume", "Volume up", "Subir volumen"),
+            Self::Quieter => locale.pick("Diminuir volume", "Volume down", "Bajar volumen"),
+            Self::Mute => locale.pick(
+                "Silenciar / reativar mídia",
+                "Mute or unmute media",
+                "Silenciar o reactivar el sonido",
+            ),
+            Self::Back => locale.pick("Voltar", "Back", "Atrás"),
+            Self::Home => locale.pick("Início", "Home", "Inicio"),
+            Self::Recents => locale.pick(
+                "Aplicativos recentes",
+                "Recent apps",
+                "Aplicaciones recientes",
+            ),
+            Self::Rotate => locale.pick("Girar tela", "Rotate screen", "Girar pantalla"),
+            Self::Install => locale.pick("Instalar APK", "Install APK", "Instalar APK"),
+            Self::Settings => locale.pick("Configurações", "Settings", "Ajustes"),
+            Self::Library => locale.pick(
+                "Biblioteca de aplicativos",
+                "App library",
+                "Biblioteca de aplicaciones",
+            ),
+            Self::Keymap => locale.pick(
+                "Mapear teclado e controle (Ctrl+Shift+A)",
+                "Map keyboard and controller (Ctrl+Shift+A)",
+                "Asignar teclado y mando (Ctrl+Mayús+A)",
+            ),
+            Self::Screenshot => locale.pick(
+                "Capturar tela PNG (Ctrl+Shift+S)",
+                "Capture PNG screenshot (Ctrl+Shift+S)",
+                "Capturar pantalla en PNG (Ctrl+Mayús+S)",
+            ),
+            Self::RecordVideo => locale.pick(
+                "Gravar MP4 sem áudio (Ctrl+Shift+R)",
+                "Record MP4 without audio (Ctrl+Shift+R)",
+                "Grabar MP4 sin audio (Ctrl+Mayús+R)",
+            ),
+            Self::StopRecording => locale.pick(
+                "Parar gravação (Ctrl+Shift+R)",
+                "Stop recording (Ctrl+Shift+R)",
+                "Detener la grabación (Ctrl+Mayús+R)",
+            ),
+            Self::AnimatedClip => locale.pick(
+                "Gravar os próximos 3 s em JPEG XL (Ctrl+Shift+J)",
+                "Record the next 3 seconds as JPEG XL (Ctrl+Shift+J)",
+                "Grabar los próximos 3 s en JPEG XL (Ctrl+Mayús+J)",
+            ),
+            Self::AnimatedGif => locale.pick(
+                "Gravar os próximos 3 s em GIF",
+                "Record the next 3 seconds as GIF",
+                "Grabar los próximos 3 s en GIF",
+            ),
+            Self::CapturesFolder => locale.pick(
+                "Abrir pasta de capturas",
+                "Open captures folder",
+                "Abrir carpeta de capturas",
+            ),
+            Self::Fullscreen => locale.pick(
+                "Alternar tela cheia (F11)",
+                "Toggle fullscreen (F11)",
+                "Alternar pantalla completa (F11)",
+            ),
+            Self::Help => locale.pick("Ajuda", "Help", "Ayuda"),
+            Self::Stop => locale.pick("Encerrar Android", "Stop Android", "Apagar Android"),
+            Self::Minimize => locale.pick("Minimizar", "Minimize", "Minimizar"),
+            Self::Maximize => locale.pick("Maximizar", "Maximize", "Maximizar"),
+            Self::Restore => locale.pick("Restaurar janela", "Restore window", "Restaurar ventana"),
+            Self::Close => locale.pick("Fechar janela", "Close window", "Cerrar ventana"),
         }
     }
 
-    pub fn button(self, ui: &mut egui::Ui) -> bool {
-        let label = self.label();
+    pub fn button(self, ui: &mut egui::Ui, locale: Locale) -> bool {
+        let label = self.label(locale);
         let response = ui.add(
             egui::Button::new("")
                 .min_size(Vec2::splat(32.0))
@@ -91,6 +148,63 @@ impl Tool {
             ));
         };
         match self {
+            Self::Screenshot => {
+                path(&[
+                    (-8., 6.),
+                    (-8., -4.),
+                    (-4., -4.),
+                    (-2., -7.),
+                    (3., -7.),
+                    (5., -4.),
+                    (8., -4.),
+                    (8., 6.),
+                    (-8., 6.),
+                ]);
+                painter.circle_stroke(center + egui::vec2(0., 1.), 3., stroke);
+            }
+            Self::RecordVideo => {
+                painter.circle_stroke(center, 6.5, stroke);
+            }
+            Self::StopRecording => {
+                painter.rect_filled(
+                    egui::Rect::from_center_size(center, Vec2::splat(11.)),
+                    2.,
+                    egui::Color32::from_rgb(255, 130, 127),
+                );
+            }
+            Self::AnimatedClip => {
+                painter.rect_stroke(
+                    egui::Rect::from_center_size(center, Vec2::new(16., 12.)),
+                    2.,
+                    stroke,
+                    egui::StrokeKind::Middle,
+                );
+                path(&[(-2., -3.), (3., 0.), (-2., 3.), (-2., -3.)]);
+            }
+            Self::AnimatedGif => {
+                painter.rect_stroke(
+                    egui::Rect::from_center_size(center, Vec2::new(22., 13.)),
+                    2.,
+                    stroke,
+                    egui::StrokeKind::Middle,
+                );
+                painter.text(
+                    center,
+                    egui::Align2::CENTER_CENTER,
+                    "GIF",
+                    egui::FontId::proportional(9.),
+                    color,
+                );
+            }
+            Self::CapturesFolder => path(&[
+                (-8., 6.),
+                (-8., -6.),
+                (-2., -6.),
+                (0., -3.),
+                (8., -3.),
+                (8., 6.),
+                (-8., 6.),
+            ]),
             Self::Keymap => {
                 painter.rect_stroke(
                     egui::Rect::from_center_size(center, Vec2::new(18., 13.)),
@@ -221,33 +335,45 @@ impl Tool {
     }
 }
 
-pub(super) fn audio_buttons(ui: &mut egui::Ui, controls: &mut crate::controls::Controls) {
+pub(super) fn audio_buttons(
+    ui: &mut egui::Ui,
+    controls: &mut crate::controls::Controls,
+    locale: Locale,
+) {
     use crate::controls::Action;
     for (tool, action) in [
         (Tool::Louder, Action::Louder),
         (Tool::Quieter, Action::Quieter),
         (Tool::Mute, Action::ToggleMute),
     ] {
-        if tool.button(ui) {
+        if tool.button(ui, locale) {
             controls.send(action, ui.ctx());
         }
     }
 }
 
-pub fn session_tools(ui: &mut egui::Ui, controls: &mut crate::controls::Controls, ready: bool) {
+pub fn session_tools(
+    ui: &mut egui::Ui,
+    controls: &mut crate::controls::Controls,
+    ready: bool,
+    locale: Locale,
+) {
     use crate::controls::Action;
     let ctx = ui.ctx().clone();
     ui.add_enabled_ui(ready, |ui| {
-        audio_buttons(ui, controls);
+        audio_buttons(ui, controls, locale);
         ui.separator();
-        if Tool::Rotate.button(ui) {
+        if Tool::Rotate.button(ui, locale) {
             controls.send(Action::Rotate, &ctx);
         }
-        if Tool::Install.button(ui)
+        if Tool::Install.button(ui, locale)
             && !controls.busy()
             && let Some(path) = rfd::FileDialog::new()
-                .set_title("Instalar APK")
-                .add_filter("Pacote Android", &["apk"])
+                .set_title(locale.pick("Instalar APK", "Install APK", "Instalar APK"))
+                .add_filter(
+                    locale.pick("Pacote Android", "Android package", "Paquete Android"),
+                    &["apk"],
+                )
                 .pick_file()
         {
             controls.send(Action::Install(path), &ctx);

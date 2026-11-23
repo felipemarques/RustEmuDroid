@@ -1,5 +1,9 @@
 //! Android Emulator's EmulatorController protocol (the subset used by this view).
+#[cfg(test)]
+mod live_input_test;
 mod mapping;
+
+use crate::{capture::Shot, ui::i18n::Locale};
 use eframe::egui::{self, ColorImage, Key, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use prost::Message;
 use std::{
@@ -69,7 +73,7 @@ struct Keyboard {
 #[derive(Clone, PartialEq, Message)]
 struct Empty {}
 enum Input {
-    Touch(Touch),
+    Touch(TouchEvent),
     Key(Keyboard),
 }
 
@@ -133,10 +137,10 @@ async fn deliver(
 ) -> DisplayResult<()> {
     client.ready().await?;
     let _: tonic::Response<Empty> = match input {
-        Input::Touch(t) => {
+        Input::Touch(event) => {
             client
                 .unary(
-                    authorized(TouchEvent { touches: vec![t] }, token),
+                    authorized(event, token),
                     PathAndQuery::from_static(
                         "/android.emulation.control.EmulatorController/sendTouch",
                     ),
@@ -244,6 +248,8 @@ pub struct Display {
     state: Arc<Mutex<Shared>>,
     input: mpsc::UnboundedSender<Input>,
     texture: Option<TextureHandle>,
+    shot: Option<Shot>,
+    shot_changed: bool,
     size: [usize; 2],
     rotation: i32,
     contact: Option<(i32, i32)>,
@@ -282,6 +288,8 @@ impl Display {
             state,
             input,
             texture: None,
+            shot: None,
+            shot_changed: false,
             size: [1, 1],
             rotation: 0,
             contact: None,
@@ -301,6 +309,15 @@ impl Display {
             self.fps
         }
     }
+    pub(crate) fn shot(&self) -> Option<&Shot> {
+        self.shot.as_ref()
+    }
+
+    pub(crate) fn take_new_shot(&mut self) -> Option<&Shot> {
+        std::mem::take(&mut self.shot_changed)
+            .then_some(self.shot.as_ref())
+            .flatten()
+    }
     fn key(&self, key: &str, event: i32) {
         let _ = self.input.send(Input::Key(Keyboard {
             event,
@@ -308,25 +325,37 @@ impl Display {
         }));
     }
     fn touch(&self, xy: (i32, i32), pressure: i32) {
-        self.touch_id(0, xy, pressure);
-    }
-    fn touch_id(&self, identifier: i32, xy: (i32, i32), pressure: i32) {
-        let _ = self.input.send(Input::Touch(Touch {
-            x: xy.0,
-            y: xy.1,
-            identifier,
-            pressure,
+        let _ = self.input.send(Input::Touch(TouchEvent {
+            touches: vec![Touch {
+                x: xy.0,
+                y: xy.1,
+                identifier: 0,
+                pressure,
+            }],
         }));
     }
     fn mapped(&self, contacts: Vec<mapping::Contact>) {
         let unit = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+        let mut touches: Vec<Touch> = vec![];
         for contact in contacts {
             let pos = Pos2::new(contact.pos[0], contact.pos[1]);
-            self.touch_id(
-                contact.id,
-                self.coordinates(pos, unit),
-                if contact.down { 1024 } else { 0 },
-            );
+            // A repeated ID indicates another phase of the same contact. Distinct
+            // fingers from the same phase travel in one event.
+            if touches.iter().any(|t| t.identifier == contact.id) {
+                let _ = self.input.send(Input::Touch(TouchEvent {
+                    touches: std::mem::take(&mut touches),
+                }));
+            }
+            let (x, y) = self.coordinates(pos, unit);
+            touches.push(Touch {
+                x,
+                y,
+                identifier: contact.id,
+                pressure: if contact.down { 1024 } else { 0 },
+            });
+        }
+        if !touches.is_empty() {
+            let _ = self.input.send(Input::Touch(TouchEvent { touches }));
         }
     }
     pub fn set_package(&mut self, package: Option<&str>) {
@@ -367,6 +396,13 @@ impl Display {
         self.rotation = rotation;
         let mut pixels = vec![egui::Color32::TRANSPARENT; size[0] * size[1]];
         bytemuck::cast_slice_mut(&mut pixels).copy_from_slice(&frame.pixels);
+        // Capture the same pixels and orientation sent to the desktop texture.
+        self.shot = Some(Shot {
+            width: format.width,
+            height: format.height,
+            pixels: frame.pixels,
+        });
+        self.shot_changed = true;
         let image = ColorImage::new(size, pixels);
         if let Some(texture) = &mut self.texture {
             if same_size {
@@ -394,7 +430,7 @@ impl Display {
             self.since = Instant::now();
         }
     }
-    pub fn show(&mut self, ui: &mut egui::Ui, interactive: bool) {
+    pub fn show(&mut self, ui: &mut egui::Ui, interactive: bool, locale: Locale) {
         let (frame, error) = {
             let mut shared = self.state.lock().unwrap();
             (shared.latest.take(), shared.error.clone())
@@ -403,12 +439,24 @@ impl Display {
             self.upload(ui.ctx(), frame)
         }
         if let Some(error) = error {
-            ui.colored_label(egui::Color32::LIGHT_RED, error);
+            ui.colored_label(
+                egui::Color32::LIGHT_RED,
+                locale.pick(
+                    "Falha na conexão com a tela do Android.",
+                    "Couldn't connect to the Android display.",
+                    "No se pudo conectar con la pantalla de Android.",
+                ),
+            )
+            .on_hover_text(error);
             return;
         }
         let Some(texture) = &self.texture else {
             ui.spinner();
-            ui.label("Conectando a tela do Android…");
+            ui.label(locale.pick(
+                "Conectando à tela do Android…",
+                "Connecting to the Android display…",
+                "Conectando con la pantalla de Android…",
+            ));
             return;
         };
         let size = Vec2::new(self.size[0] as f32, self.size[1] as f32);
@@ -434,10 +482,16 @@ impl Display {
             self.release();
             return;
         }
+        let aiming_before = self.mapping.aims_pointer();
         let changes = self.mapping.frame(ui, rect, &events);
         self.mapped(changes);
         if self.mapping.editing {
             return;
+        }
+        if self.mapping.captures_pointer(egui::PointerButton::Primary)
+            && let Some(xy) = self.contact.take()
+        {
+            self.touch(xy, 0);
         }
         {
             for (key, pressed) in [
@@ -446,6 +500,7 @@ impl Display {
                 ("Alt", modifiers.alt),
                 ("Meta", modifiers.mac_cmd),
             ] {
+                let pressed = pressed && !self.mapping.captures_input(key);
                 let held = self.held.iter().position(|k| k == key);
                 if pressed && held.is_none() {
                     self.key(key, 0);
@@ -463,7 +518,7 @@ impl Display {
                     button: egui::PointerButton::Primary,
                     pressed,
                     ..
-                } => {
+                } if !self.mapping.captures_pointer(egui::PointerButton::Primary) => {
                     if pressed && rect.contains(pos) {
                         let xy = self.coordinates(pos, rect);
                         self.touch(xy, 1024);
@@ -491,7 +546,8 @@ impl Display {
                     repeat: false,
                     ..
                 } => {
-                    if !self.mapping.captures(key)
+                    if !(key == Key::Escape && aiming_before)
+                        && !self.mapping.captures(key)
                         && let Some(name) = key_name(key)
                     {
                         if pressed {
@@ -675,9 +731,11 @@ mod tests {
                 },
                 |ctx| {
                     if d.mapping.editing {
-                        egui::TopBottomPanel::bottom("tools").show(ctx, |ui| d.mapping.toolbar(ui));
+                        egui::TopBottomPanel::bottom("tools")
+                            .show(ctx, |ui| d.mapping.toolbar(ui, Locale::default()));
                     }
-                    egui::CentralPanel::default().show(ctx, |ui| d.show(ui, true));
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| d.show(ui, true, Locale::default()));
                 },
             )
         };
@@ -776,7 +834,11 @@ mod tests {
                 let Input::Touch(t) = event else {
                     panic!("binding leaked a keyboard event to Android")
                 };
-                ids.push((t.identifier, t.pressure));
+                ids.extend(
+                    t.touches
+                        .into_iter()
+                        .map(|touch| (touch.identifier, touch.pressure)),
+                );
             }
             assert_eq!(ids, [(1, 1024), (9, 1024), (9, 1024), (1, 0), (9, 0)]);
         }
@@ -827,14 +889,16 @@ mod tests {
         let _ = ctx.run(raw, |ctx| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
-                .show(ctx, |ui| display.show(ui, true));
+                .show(ctx, |ui| display.show(ui, true, Locale::default()));
         });
         assert_eq!(display.texture.as_ref().unwrap().size(), [16, 9]);
         for (x, y, pressure) in [(8, 4, 1024), (12, 6, 1024), (12, 6, 0)] {
             let Input::Touch(t) = received.try_recv().unwrap() else {
                 panic!("expected touch")
             };
-            assert_eq!((t.x, t.y, t.pressure), (x, y, pressure));
+            assert_eq!(t.touches.len(), 1);
+            let touch = &t.touches[0];
+            assert_eq!((touch.x, touch.y, touch.pressure), (x, y, pressure));
         }
         for event in [0, 1] {
             let Input::Key(k) = received.try_recv().unwrap() else {

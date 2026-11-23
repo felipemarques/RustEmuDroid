@@ -1,7 +1,7 @@
 use super::{BACKGROUND, BORDER, INK, MUTED, PANEL};
 use eframe::egui::{self, Color32, FontId, RichText, Stroke, Vec2, vec2};
 
-pub(super) const ACCENT: Color32 = Color32::from_rgb(255, 162, 116);
+pub(crate) const ACCENT: Color32 = Color32::from_rgb(255, 162, 116);
 const FIELD: Color32 = Color32::from_rgb(34, 45, 58);
 const HOVER: Color32 = Color32::from_rgb(48, 62, 77);
 const SELECTED: Color32 = Color32::from_rgb(69, 49, 44);

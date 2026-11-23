@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use crate::{Engine, Gpu, Result};
+use crate::{Engine, Gpu, Result, locale::Locale};
 
 const AVD: &str = "RustEmuDroid";
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -20,37 +20,62 @@ pub struct Sdk {
     pub root: PathBuf,
     pub adb: PathBuf,
     emulator: PathBuf,
+    locale: Locale,
 }
 
 impl Sdk {
+    #[cfg(feature = "ui")]
     pub fn find(explicit: Option<PathBuf>) -> Result<Self> {
+        Self::find_localized(explicit, Locale::default())
+    }
+    pub fn find_localized(explicit: Option<PathBuf>, locale: Locale) -> Result<Self> {
         let root = explicit
             .or_else(|| env::var_os("ANDROID_HOME").map(PathBuf::from))
             .or_else(|| env::var_os("ANDROID_SDK_ROOT").map(PathBuf::from))
             .or_else(default_sdk_path)
-            .ok_or("Informe --sdk ou configure ANDROID_HOME.")?;
+            .ok_or(locale.pick(
+                "Informe --sdk ou configure ANDROID_HOME.",
+                "Pass --sdk or set ANDROID_HOME.",
+                "Indica --sdk o configura ANDROID_HOME.",
+            ))?;
         let root = absolute(root)?;
         let suffix = env::consts::EXE_SUFFIX;
         let emulator = root.join("emulator").join(format!("emulator{suffix}"));
         let adb = root.join("platform-tools").join(format!("adb{suffix}"));
         for tool in [&emulator, &adb] {
             if !tool.is_file() {
-                return Err(
-                    format!("Ferramenta do Android SDK ausente em {}", tool.display()).into(),
-                );
+                return Err(format!(
+                    "{} {}",
+                    locale.pick(
+                        "Ferramenta do Android SDK ausente em",
+                        "Android SDK tool missing at",
+                        "Falta la herramienta del SDK de Android en"
+                    ),
+                    tool.display()
+                )
+                .into());
             }
         }
         Ok(Self {
             root,
             emulator,
             adb,
+            locale,
         })
     }
 
     pub fn check_acceleration(&self) -> Result<()> {
         let status = Command::new(&self.emulator).arg("-accel-check").status()?;
         if !status.success() {
-            return Err(format!("Verificação do hipervisor falhou: {status}").into());
+            return Err(format!(
+                "{}: {status}",
+                self.locale.pick(
+                    "Falha na verificação do hipervisor",
+                    "Hypervisor check failed",
+                    "Error al comprobar el hipervisor"
+                )
+            )
+            .into());
         }
         Ok(())
     }
@@ -72,13 +97,19 @@ pub fn kemu_install_root() -> Option<PathBuf> {
 
 pub struct Profile {
     pub root: PathBuf,
+    locale: Locale,
     avd_home: PathBuf,
     user_home: PathBuf,
 }
 
 impl Profile {
+    #[cfg(feature = "ui")]
     pub fn new(root: PathBuf) -> Self {
+        Self::localized(root, Locale::default())
+    }
+    pub fn localized(root: PathBuf, locale: Locale) -> Self {
         Self {
+            locale,
             avd_home: root.join("avd"),
             user_home: root.join("home"),
             root,
@@ -124,7 +155,11 @@ impl Profile {
             &format!("path={profile_path}\ntarget={api}\n"),
             &["path", "target"],
         )?;
-        println!("AVD {AVD} pronto em {}", directory.display());
+        println!(
+            "AVD {AVD} {} {}",
+            self.locale.pick("pronto em", "ready at", "listo en"),
+            directory.display()
+        );
         Ok(())
     }
 
@@ -171,14 +206,32 @@ impl SystemImage {
                 return Ok(image);
             }
         }
-        Err("Instale a imagem system-images;android-37.0;google_apis_playstore;x86_64 pelo SDK Manager ou informe a pasta da imagem.".into())
+        Err(sdk
+            .locale
+            .pick(
+                "Instale a imagem pelo SDK Manager ou informe a pasta da imagem.",
+                "Install a system image with SDK Manager or specify its directory.",
+                "Instala una imagen con SDK Manager o indica su carpeta.",
+            )
+            .into())
     }
     pub fn from_sdk(sdk: &Sdk, package: &str) -> Result<Self> {
-        let (api, tag) = parse_image(package)?;
+        let (api, tag) = parse_image(package).map_err(|_| {
+            sdk.locale.pick(
+                "Use um pacote system-images x86_64 válido.",
+                "Use a valid x86_64 system-images package.",
+                "Usa un paquete system-images x86_64 válido.",
+            )
+        })?;
         let location = format!("system-images/{api}/{tag}/x86_64/");
         if !sdk.root.join(&location).join("system.img").is_file() {
             return Err(format!(
-                "Imagem ausente em {}. Instale {package} pelo SDK Manager.",
+                "{} {} ({package}, SDK Manager)",
+                sdk.locale.pick(
+                    "Imagem ausente em",
+                    "Image missing at",
+                    "Falta la imagen en"
+                ),
                 sdk.root.join(&location).display()
             )
             .into());
@@ -190,10 +243,19 @@ impl SystemImage {
         })
     }
 
-    pub fn from_dir(path: PathBuf) -> Result<Self> {
+    pub fn from_dir_localized(path: PathBuf, locale: Locale) -> Result<Self> {
         let path = absolute(path)?;
         if !path.join("system.img").is_file() {
-            return Err(format!("system.img ausente em {}", path.display()).into());
+            return Err(format!(
+                "{} {}",
+                locale.pick(
+                    "system.img ausente em",
+                    "system.img missing at",
+                    "Falta system.img en"
+                ),
+                path.display()
+            )
+            .into());
         }
         let metadata = fs::read_to_string(path.join("source.properties")).unwrap_or_default();
         let tag = property(&metadata, "SystemImage.TagId").unwrap_or("default");
@@ -201,15 +263,32 @@ impl SystemImage {
         let props = fs::read_to_string(&props_path)
             .map_err(|error| format!("{}: {error}", props_path.display()))?;
         if property(&props, "ro.product.cpu.abi") != Some("x86_64") {
-            return Err(format!("{} deve declarar ABI x86_64.", props_path.display()).into());
+            return Err(format!(
+                "{} {}",
+                props_path.display(),
+                locale.pick(
+                    "deve declarar ABI x86_64.",
+                    "must declare the x86_64 ABI.",
+                    "debe declarar la ABI x86_64."
+                )
+            )
+            .into());
         }
         let api: u16 = property(&props, "ro.build.version.sdk")
-            .ok_or("A imagem deve declarar ro.build.version.sdk.")?
+            .ok_or(locale.pick(
+                "A imagem deve declarar ro.build.version.sdk.",
+                "The image must declare ro.build.version.sdk.",
+                "La imagen debe declarar ro.build.version.sdk.",
+            ))?
             .parse()?;
         let location = path
             .to_str()
             .filter(|path| !path.contains(['\r', '\n']))
-            .ok_or("O caminho da imagem deve ser UTF-8 sem quebras de linha.")?;
+            .ok_or(locale.pick(
+                "O caminho da imagem deve ser UTF-8 sem quebras de linha.",
+                "The image path must be UTF-8 without line breaks.",
+                "La ruta de la imagen debe ser UTF-8 sin saltos de línea.",
+            ))?;
         Ok(Self {
             api: format!("android-{api}"),
             tag: tag.into(),
@@ -341,6 +420,8 @@ pub struct BootOptions {
 }
 
 pub enum BootEvent {
+    Starting(String),
+    Ready(String),
     Message(String),
     Display {
         console: u16,
@@ -354,7 +435,9 @@ pub enum BootEvent {
 impl std::fmt::Display for BootEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Message(message) => f.write_str(message),
+            Self::Starting(message) | Self::Ready(message) | Self::Message(message) => {
+                f.write_str(message)
+            }
             Self::Display {
                 console, rpc, avd, ..
             } => write!(
@@ -411,8 +494,11 @@ pub fn boot(
     let runtime = installed.as_deref();
     let gaming;
     let profile = if runtime.is_some() {
-        gaming = Profile::new(profile.root.join("gaming"));
-        gaming.init_disk(SystemImage::from_dir(system_dir.clone())?, true)?;
+        gaming = Profile::localized(profile.root.join("gaming"), sdk.locale);
+        gaming.init_disk(
+            SystemImage::from_dir_localized(system_dir.clone(), sdk.locale)?,
+            true,
+        )?;
         &gaming
     } else {
         profile
@@ -428,7 +514,14 @@ pub fn boot(
     match lease.try_lock() {
         Ok(()) => {}
         Err(fs::TryLockError::WouldBlock) => {
-            return Err("Este perfil já está em uso por outra sessão do RustEmuDroid.".into());
+            return Err(sdk
+                .locale
+                .pick(
+                    "Este perfil já está em uso por outra sessão do RustEmuDroid.",
+                    "Another RustEmuDroid session is using this profile.",
+                    "Otra sesión de RustEmuDroid está usando este perfil.",
+                )
+                .into());
         }
         Err(fs::TryLockError::Error(error)) => return Err(error.into()),
     }
@@ -555,12 +648,27 @@ pub fn boot(
             }
             if let Some(status) = adb.0.try_wait()? {
                 if !status.success() {
-                    return Err(format!("Falha ao iniciar o ADB: {status}").into());
+                    return Err(format!(
+                        "{}: {status}",
+                        sdk.locale.pick(
+                            "Falha ao iniciar o ADB",
+                            "Could not start ADB",
+                            "No se ha podido iniciar ADB"
+                        )
+                    )
+                    .into());
                 }
                 break;
             }
             if Instant::now() >= deadline {
-                return Err("O servidor ADB não respondeu ao iniciar.".into());
+                return Err(sdk
+                    .locale
+                    .pick(
+                        "O servidor ADB não respondeu ao iniciar.",
+                        "The ADB server did not respond during startup.",
+                        "El servidor ADB no ha respondido durante el arranque.",
+                    )
+                    .into());
             }
             sleep(Duration::from_millis(100));
         }
@@ -571,11 +679,21 @@ pub fn boot(
     drop((console, adb_port));
     let mut vm = RunningProcess(command.spawn()?);
     #[cfg(windows)]
-    let _job =
-        vm_job(&vm.0).map_err(|error| format!("Falha ao vincular a VM ao launcher: {error}"))?;
+    let _job = vm_job(&vm.0).map_err(|error| {
+        format!(
+            "{}: {error}",
+            sdk.locale.pick(
+                "Falha ao vincular a VM ao launcher",
+                "Could not attach the VM to the launcher",
+                "No se ha podido vincular la VM al cliente"
+            )
+        )
+    })?;
 
-    notify(BootEvent::Message(format!(
-        "Iniciando {AVD} em {serial}. Motor: {}. Log: {}",
+    notify(BootEvent::Starting(format!(
+        "{} {AVD} / {serial}. {}: {}. Log: {}",
+        sdk.locale.pick("Iniciando", "Starting", "Iniciando"),
+        sdk.locale.pick("Motor", "Engine", "Motor"),
         command.get_program().to_string_lossy(),
         log_path.display()
     )));
@@ -597,7 +715,12 @@ pub fn boot(
         }
         if let Some(status) = vm.0.try_wait()? {
             return Err(format!(
-                "Emulador encerrou antes do boot: {status}. Veja {}",
+                "{} ({status}): {}",
+                sdk.locale.pick(
+                    "Emulador encerrou antes do boot",
+                    "Emulator exited before boot",
+                    "El emulador se cerró antes del arranque"
+                ),
                 log_path.display()
             )
             .into());
@@ -649,16 +772,29 @@ pub fn boot(
                     .is_some_and(|value| value.trim() == MODE);
                     notify(BootEvent::Message(
                         if applied {
-                            "Tradução ARM leve ativada para este boot."
+                            sdk.locale.pick(
+                                "Tradução ARM leve ativada para este boot.",
+                                "Lightweight ARM translation enabled for this boot.",
+                                "Traducción ARM ligera activada en este arranque.",
+                            )
                         } else {
-                            "O Android não permitiu ativar a tradução ARM leve."
+                            sdk.locale.pick(
+                                "O Android não permitiu ativar a tradução ARM leve.",
+                                "Android could not enable lightweight ARM translation.",
+                                "Android no ha podido activar la traducción ARM ligera.",
+                            )
                         }
                         .into(),
                     ));
                 }
             }
-            notify(BootEvent::Message(format!(
-                "Boot confirmado em {:.1}s ({serial}, Android {}, sys.boot_completed=1).",
+            notify(BootEvent::Ready(format!(
+                "{} {:.1}s ({serial}, Android {}, sys.boot_completed=1).",
+                sdk.locale.pick(
+                    "Boot confirmado em",
+                    "Boot confirmed in",
+                    "Arranque confirmado en"
+                ),
                 start.elapsed().as_secs_f64(),
                 version.trim()
             )));
@@ -666,7 +802,9 @@ pub fn boot(
                 adb_output(sdk, &serial, ["shell", "getprop", "ro.build.fingerprint"])
             {
                 notify(BootEvent::Message(format!(
-                    "Imagem Android: {}",
+                    "{}: {}",
+                    sdk.locale
+                        .pick("Imagem Android", "Android image", "Imagen Android"),
                     fingerprint.trim()
                 )));
             }
@@ -678,7 +816,9 @@ pub fn boot(
                             return Ok(());
                         }
                         return Err(format!(
-                            "Motor encerrou com {status}. Veja {}",
+                            "{} ({status}): {}",
+                            sdk.locale
+                                .pick("Motor encerrou", "Engine exited", "El motor se cerró"),
                             log_path.display()
                         )
                         .into());
@@ -689,28 +829,44 @@ pub fn boot(
                     sleep(POLL_INTERVAL);
                 }
             }
-            if !owns_console(sdk, &serial, &expected_avd)
-                || adb_output(sdk, &serial, ["emu", "kill"]).is_none()
-            {
-                return Err("Falha ao pedir o encerramento normal da VM.".into());
+            if !stop_owned_vm(sdk, &serial, &expected_avd) {
+                return Err(sdk
+                    .locale
+                    .pick(
+                        "Falha ao pedir o encerramento normal da VM.",
+                        "Could not request a clean VM shutdown.",
+                        "Error al solicitar el apagado de la VM.",
+                    )
+                    .into());
             }
             if !wait_for_exit(&mut vm.0, Duration::from_secs(15))? {
-                return Err("A VM não encerrou após o pedido de desligamento.".into());
+                return Err(sdk
+                    .locale
+                    .pick(
+                        "A VM não encerrou após o pedido de desligamento.",
+                        "The VM did not exit after the shutdown request.",
+                        "La VM sigue activa después de solicitar el apagado.",
+                    )
+                    .into());
             }
             return Ok(());
         }
         sleep(POLL_INTERVAL);
     }
 
-    if owns_console(sdk, &serial, &expected_avd) {
-        let _ = adb_output(sdk, &serial, ["emu", "kill"]);
+    if stop_owned_vm(sdk, &serial, &expected_avd) {
         let _ = wait_for_exit(&mut vm.0, Duration::from_secs(10));
     }
     if stop.load(Ordering::Acquire) {
         return Ok(());
     }
     Err(format!(
-        "Tempo limite de boot excedido em {serial}. Veja {}",
+        "{} ({serial}): {}",
+        sdk.locale.pick(
+            "Tempo limite de boot excedido",
+            "Boot timed out",
+            "Se ha agotado el tiempo de arranque"
+        ),
         log_path.display()
     )
     .into())
@@ -719,6 +875,16 @@ pub fn boot(
 fn owns_console(sdk: &Sdk, serial: &str, expected: &Path) -> bool {
     adb_output(sdk, serial, ["emu", "avd", "path"])
         .is_some_and(|output| output.lines().next().map(str::trim).map(Path::new) == Some(expected))
+}
+
+fn stop_owned_vm(sdk: &Sdk, serial: &str, expected: &Path) -> bool {
+    if !owns_console(sdk, serial, expected) {
+        return false;
+    }
+    // emu kill can power off before recent APK and preference writes reach the virtual disk.
+    // During early boot the shell may still be unavailable. adb_output bounds that wait.
+    let _ = adb_output(sdk, serial, ["shell", "sync"]);
+    owns_console(sdk, serial, expected) && adb_output(sdk, serial, ["emu", "kill"]).is_some()
 }
 
 fn adb_output(

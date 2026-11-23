@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="games">Games</string>
+    <string name="apps">Apps</string>
+    <string name="search_games">Search games</string>
+    <string name="search_apps">Search apps</string>
+    <string name="move_to_apps">Move to Apps</string>
+    <string name="move_to_games">Move to Games</string>
+    <string name="no_games">No games installed</string>
+    <string name="no_apps">No apps installed</string>
+    <string name="no_results">No results</string>
+    <string name="launch_failed">Android could not open %1$s</string>
+</resources>

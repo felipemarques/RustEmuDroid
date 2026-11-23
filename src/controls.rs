@@ -1,6 +1,13 @@
 use std::{collections::VecDeque, ffi::OsStr, path::PathBuf, process::Command, sync::mpsc, thread};
 
 use eframe::egui;
+
+use crate::ui::i18n::Locale;
+
+const HOME_PACKAGE: &str = "org.rustemudroid.home";
+const HOME_ACTIVITY: &str = "org.rustemudroid.home/.HomeActivity";
+const HOME_APK_VERSION: u32 = 3;
+
 pub enum Action {
     Louder,
     Quieter,
@@ -8,13 +15,15 @@ pub enum Action {
     Rotate,
     Install(PathBuf),
     AndroidSettings,
-    PrepareHome,
+    PrepareHome(Locale),
+    SetHomeLocale(Locale),
     Applications,
 }
 
 pub enum Update {
     Notice(String),
     HomeReady,
+    HomeLocaleUpdated,
 }
 
 #[derive(Clone)]
@@ -22,33 +31,61 @@ struct Guest {
     adb: PathBuf,
     serial: String,
     avd: PathBuf,
+    locale: Locale,
 }
 
 impl Guest {
-    fn prepare_home(&self) -> Result<Update, String> {
+    fn home_apk_available(&self) -> bool {
+        self.command([
+            "shell",
+            "cmd",
+            "package",
+            "path",
+            "--user",
+            "current",
+            HOME_PACKAGE,
+        ])
+        .is_ok_and(|reply| reply.lines().any(|line| line.starts_with("package:")))
+    }
+
+    fn prepare_home(&self, locale: Locale) -> Result<Update, String> {
         use std::io::Write;
-        const PACKAGE: &str = "org.rustemudroid.home";
-        const HOME: &str = "org.rustemudroid.home/.HomeActivity";
-        let installed = self.command(["shell", "dumpsys", "package", PACKAGE])?;
-        if !installed
-            .lines()
-            .any(|line| line.split_whitespace().next() == Some("versionCode=1"))
-        {
+        let installed = self.command(["shell", "dumpsys", "package", HOME_PACKAGE])?;
+        let version = installed.lines().find_map(|line| {
+            line.split_whitespace()
+                .next()?
+                .strip_prefix("versionCode=")?
+                .parse::<u32>()
+                .ok()
+        });
+        // Package settings can outlive an APK the boot-time scanner rejected.
+        let reinstall =
+            version.unwrap_or_default() < HOME_APK_VERSION || !self.home_apk_available();
+        if reinstall {
             let mut apk = tempfile::Builder::new()
                 .suffix(".apk")
                 .tempfile()
                 .map_err(|e| e.to_string())?;
             apk.write_all(include_bytes!("../android/home/home.apk"))
                 .map_err(|e| e.to_string())?;
-            let out = self.command([
-                OsStr::new("install"),
-                OsStr::new("-r"),
-                apk.path().as_os_str(),
-            ])?;
-            if !out.lines().any(|s| s.trim() == "Success") {
-                return Err(format!("Instalação da Home falhou: {out}"));
+            let message = self.locale.pick(
+                "Falha ao instalar a tela inicial.",
+                "Could not install the home screen.",
+                "No se pudo instalar la pantalla de inicio.",
+            );
+            let out = self
+                .command([
+                    OsStr::new("install"),
+                    OsStr::new("-r"),
+                    OsStr::new("--no-streaming"),
+                    apk.path().as_os_str(),
+                ])
+                .map_err(|detail| format!("{message} {detail}"))?;
+            if !out.lines().any(|s| s.trim() == "Success") || !self.home_apk_available() {
+                return Err(format!("{message} {out}"));
             }
         }
+        self.set_home_locale(locale)?;
         let resolve = || {
             self.command([
                 "shell",
@@ -64,7 +101,7 @@ impl Guest {
                 "android.intent.category.HOME",
             ])
         };
-        if !resolve()?.lines().any(|s| s.trim() == HOME) {
+        if !resolve()?.lines().any(|s| s.trim() == HOME_ACTIVITY) {
             self.command([
                 "shell",
                 "cmd",
@@ -72,11 +109,16 @@ impl Guest {
                 "set-home-activity",
                 "--user",
                 "current",
-                HOME,
+                HOME_ACTIVITY,
             ])?;
             let resolved = resolve()?;
-            if !resolved.lines().any(|s| s.trim() == HOME) {
-                return Err(format!("O Android selecionou outra Home: {resolved}"));
+            if !resolved.lines().any(|s| s.trim() == HOME_ACTIVITY) {
+                let message = self.locale.pick(
+                    "O Android selecionou outra tela inicial.",
+                    "Android selected a different home screen.",
+                    "Android ha seleccionado otra pantalla de inicio.",
+                );
+                return Err(format!("{message} {resolved}"));
             }
         }
         let out = self.command([
@@ -90,12 +132,62 @@ impl Guest {
             "android.intent.action.MAIN",
             "-c",
             "android.intent.category.HOME",
+            "-n",
+            HOME_ACTIVITY,
         ])?;
         if !out.lines().any(|s| s.trim() == "Status: ok") {
-            return Err(format!("Falha ao abrir a Home: {out}"));
+            let message = self.locale.pick(
+                "Falha ao abrir a tela inicial.",
+                "Could not open the home screen.",
+                "No se pudo abrir la pantalla de inicio.",
+            );
+            return Err(format!("{message} {out}"));
+        }
+        if reinstall {
+            let message = self.locale.pick(
+                "Falha ao gravar a tela inicial no disco.",
+                "Could not flush home screen changes to disk.",
+                "No se pudieron guardar en el disco los cambios de la pantalla de inicio.",
+            );
+            self.command(["shell", "sync"])
+                .map_err(|detail| format!("{message} {detail}"))?;
         }
         Ok(Update::HomeReady)
     }
+
+    fn set_home_locale(&self, locale: Locale) -> Result<Update, String> {
+        let message = self.locale.pick(
+            "O Android não confirmou o idioma da tela inicial.",
+            "Android did not confirm the home screen language.",
+            "Android no ha confirmado el idioma de la pantalla de inicio.",
+        );
+        let reply = self
+            .command([
+                "shell",
+                "am",
+                "broadcast",
+                "--user",
+                "current",
+                "-n",
+                "org.rustemudroid.home/.HomeLocaleReceiver",
+                "-a",
+                "org.rustemudroid.home.SET_LOCALE",
+                "--es",
+                "locale",
+                locale.tag(),
+            ])
+            .map_err(|detail| format!("{message} {detail}"))?;
+        let confirmed = reply.lines().any(|line| {
+            line.strip_prefix("Broadcast completed: result=")
+                .and_then(|value| value.split([',', ' ']).next())
+                == Some("-1")
+        });
+        if !confirmed {
+            return Err(format!("{message} {reply}"));
+        }
+        Ok(Update::HomeLocaleUpdated)
+    }
+
     fn command(&self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Result<String, String> {
         let mut cmd = Command::new(&self.adb);
         #[cfg(windows)]
@@ -142,7 +234,15 @@ impl Guest {
                             .take_while(|s| !s.trim().is_empty())
                             .find_map(|s| s.trim().strip_prefix("Muted: ")?.parse().ok())
                     })
-                    .ok_or_else(|| "O Android não informou o estado do áudio de mídia.".to_owned())
+                    .ok_or_else(|| {
+                        self.locale
+                            .pick(
+                                "O Android não informou o estado do áudio de mídia.",
+                                "Android did not report the media audio state.",
+                                "Android no ha comunicado el estado del sonido multimedia.",
+                            )
+                            .to_owned()
+                    })
             }
         }
     }
@@ -157,10 +257,18 @@ impl Guest {
             .as_ref()
             != Some(&self.avd)
         {
-            return Err("A sessão do Android mudou.".into());
+            return Err(self
+                .locale
+                .pick(
+                    "A sessão do Android mudou.",
+                    "The Android session changed.",
+                    "La sesión de Android ha cambiado.",
+                )
+                .into());
         }
         let notice = match action {
-            Action::PrepareHome => return self.prepare_home(),
+            Action::PrepareHome(locale) => return self.prepare_home(locale),
+            Action::SetHomeLocale(locale) => return self.set_home_locale(locale),
             Action::Applications => {
                 self.command([
                     "shell",
@@ -178,7 +286,9 @@ impl Guest {
                     "apps",
                     "true",
                 ])?;
-                "Aplicativos".into()
+                self.locale
+                    .pick("Aplicativos", "Apps", "Aplicaciones")
+                    .into()
             }
             Action::Louder | Action::Quieter => {
                 let (direction, key) = if matches!(action, Action::Louder) {
@@ -204,8 +314,23 @@ impl Guest {
                     .lines()
                     .find_map(|s| s.split_once("volume is ")?.1.split_whitespace().next());
                 level
-                    .map(|n| format!("Volume de mídia: {n}"))
-                    .ok_or("O Android não confirmou o volume de mídia.")?
+                    .map(|n| {
+                        format!(
+                            "{}{n}",
+                            self.locale.pick(
+                                "Volume de mídia ",
+                                "Media volume ",
+                                "Volumen multimedia ",
+                            )
+                        )
+                    })
+                    .ok_or_else(|| {
+                        self.locale.pick(
+                            "O Android não confirmou o volume de mídia.",
+                            "Android did not confirm the media volume.",
+                            "Android no ha confirmado el volumen multimedia.",
+                        )
+                    })?
             }
             Action::ToggleMute => {
                 let was_muted = self.muted()?;
@@ -214,31 +339,65 @@ impl Guest {
                 if self.muted()? == was_muted {
                     self.command(["shell", "input", "keyevent", "KEYCODE_VOLUME_MUTE"])?;
                     if self.muted()? == was_muted {
-                        return Err("O Android não alterou o som de mídia.".into());
+                        return Err(self
+                            .locale
+                            .pick(
+                                "O Android não alterou o som de mídia.",
+                                "Android did not change the media mute state.",
+                                "Android no ha cambiado el estado del sonido multimedia.",
+                            )
+                            .into());
                     }
                 }
                 if was_muted {
-                    "Som de mídia ativado"
+                    self.locale.pick(
+                        "Som de mídia ativado",
+                        "Media sound on",
+                        "Sonido multimedia activado",
+                    )
                 } else {
-                    "Mídia silenciada"
+                    self.locale.pick(
+                        "Mídia silenciada",
+                        "Media muted",
+                        "Sonido multimedia silenciado",
+                    )
                 }
                 .into()
             }
             Action::Rotate => {
                 self.command(["emu", "rotate"])?;
-                "Rotação solicitada ao Android".into()
+                self.locale
+                    .pick(
+                        "Rotação solicitada ao Android",
+                        "Rotation requested",
+                        "Rotación solicitada",
+                    )
+                    .into()
             }
             Action::Install(path) => {
                 let reply =
                     self.command([OsStr::new("install"), OsStr::new("-r"), path.as_os_str()])?;
                 if !reply.lines().any(|line| line.trim() == "Success") {
-                    return Err(format!("Falha ao instalar o APK. {reply}"));
+                    let message = self.locale.pick(
+                        "Falha ao instalar o APK.",
+                        "Could not install the APK.",
+                        "No se pudo instalar el APK.",
+                    );
+                    return Err(format!("{message} {reply}"));
                 }
-                "APK instalado".into()
+                self.locale
+                    .pick("APK instalado", "APK installed", "APK instalado")
+                    .into()
             }
             Action::AndroidSettings => {
                 self.command(["shell", "am", "start", "-a", "android.settings.SETTINGS"])?;
-                "Configurações do Android abertas".into()
+                self.locale
+                    .pick(
+                        "Configurações do Android abertas",
+                        "Opened Android settings",
+                        "Ajustes de Android abiertos",
+                    )
+                    .into()
             }
         };
         Ok(Update::Notice(notice))
@@ -266,6 +425,7 @@ impl Controls {
                 adb,
                 serial: format!("emulator-{port}"),
                 avd,
+                locale: Locale::default(),
             },
             pending: None,
             queue: VecDeque::new(),
@@ -273,6 +433,12 @@ impl Controls {
             foreground: None,
             foreground_query: None,
             next_foreground: std::time::Instant::now(),
+        }
+    }
+    pub fn set_locale(&mut self, locale: Locale) {
+        if self.guest.locale != locale {
+            self.guest.locale = locale;
+            self.message = None;
         }
     }
     pub fn busy(&self) -> bool {
@@ -326,7 +492,11 @@ impl Controls {
             return;
         }
         self.message = match action {
-            Action::Install(_) => Some(Ok("Instalando APK…".into())),
+            Action::Install(_) => Some(Ok(self
+                .guest
+                .locale
+                .pick("Instalando APK…", "Installing APK…", "Instalando APK…")
+                .into())),
             _ => None,
         };
         let (tx, rx) = mpsc::channel();
@@ -344,9 +514,15 @@ impl Controls {
             let result = match rx.try_recv() {
                 Ok(result) => result,
                 Err(mpsc::TryRecvError::Empty) => return None,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    Err("O controle do Android foi interrompido.".into())
-                }
+                Err(mpsc::TryRecvError::Disconnected) => Err(self
+                    .guest
+                    .locale
+                    .pick(
+                        "O controle do Android foi interrompido.",
+                        "Android controls were interrupted.",
+                        "Se han interrumpido los controles de Android.",
+                    )
+                    .into()),
             };
             self.pending = None;
             if let Some(action) = self.queue.pop_front() {
@@ -406,7 +582,7 @@ mod tests {
                     .frame(egui::Frame::NONE)
                     .show(ctx, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.;
-                        crate::toolbar::audio_buttons(ui, &mut controls);
+                        crate::toolbar::audio_buttons(ui, &mut controls, Locale::default());
                     });
             });
             let until = Instant::now() + Duration::from_secs(10);

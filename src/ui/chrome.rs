@@ -10,6 +10,7 @@ const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 
 impl Launcher {
     pub(super) fn title_bar(&mut self, ctx: &egui::Context, fullscreen: bool, resizing: bool) {
+        let locale = self.config.locale;
         let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
         egui::TopBottomPanel::top("title-bar")
             .exact_height(HEIGHT)
@@ -59,7 +60,7 @@ impl Launcher {
                     if self.playing {
                         let ready = self.home_ready && !self.stop.load(Ordering::Acquire);
                         ui.add_enabled_ui(ready, |ui| {
-                            if Tool::Library.button(ui)
+                            if Tool::Library.button(ui, locale)
                                 && let Some(c) = &mut self.controls
                             {
                                 c.send(crate::controls::Action::Applications, ctx);
@@ -69,7 +70,7 @@ impl Launcher {
                                 (Tool::Home, "GoHome"),
                                 (Tool::Recents, "AppSwitch"),
                             ] {
-                                if tool.button(ui)
+                                if tool.button(ui, locale)
                                     && let Some(display) = &self.display
                                 {
                                     display.press(key);
@@ -85,12 +86,16 @@ impl Launcher {
                                     .size(12.)
                                     .color(MINT),
                             )
-                            .on_hover_text("Quadros por segundo exibidos no painel");
+                            .on_hover_text(locale.pick(
+                                "Quadros por segundo exibidos no painel",
+                                "Frames per second presented in the window",
+                                "Fotogramas por segundo mostrados en la ventana",
+                            ));
                         }
                     }
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if Tool::Close.button(ui) {
+                        if Tool::Close.button(ui, locale) {
                             ctx.send_viewport_cmd(ViewportCommand::Close);
                         }
                         if !fullscreen {
@@ -99,28 +104,28 @@ impl Launcher {
                             } else {
                                 Tool::Maximize
                             };
-                            if size.button(ui) {
+                            if size.button(ui, locale) {
                                 ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
                             }
                         }
-                        if Tool::Minimize.button(ui) {
+                        if Tool::Minimize.button(ui, locale) {
                             ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
                         }
                         divider(ui);
                         if self.playing {
-                            if Tool::Fullscreen.button(ui) {
+                            if Tool::Fullscreen.button(ui, locale) {
                                 ctx.send_viewport_cmd(ViewportCommand::Fullscreen(!fullscreen));
                             }
                             ui.add_enabled_ui(!self.stop.load(Ordering::Acquire), |ui| {
-                                if Tool::Stop.button(ui) {
+                                if Tool::Stop.button(ui, locale) {
                                     self.stop.store(true, Ordering::Release);
                                 }
                             });
                         }
-                        if Tool::Help.button(ui) {
+                        if Tool::Help.button(ui, locale) {
                             self.help_open = true;
                         }
-                        if Tool::Settings.button(ui) {
+                        if Tool::Settings.button(ui, locale) {
                             self.open_settings();
                         }
                         if let Some(message) =
@@ -128,7 +133,15 @@ impl Launcher {
                         {
                             let (short, full, color) = match message {
                                 Ok(text) => (text.as_str(), text, MUTED),
-                                Err(error) => ("Falha no controle", error, ERROR),
+                                Err(error) => (
+                                    locale.pick(
+                                        "Falha no controle",
+                                        "Control failed",
+                                        "Error del control",
+                                    ),
+                                    error,
+                                    ERROR,
+                                ),
                             };
                             ui.add(
                                 egui::Label::new(RichText::new(short).size(12.).color(color))

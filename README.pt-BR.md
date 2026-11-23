@@ -1,10 +1,10 @@
 # RustEmuDroid
 
-[English](README.md) · [Downloads para Windows e Linux](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml) · [Resultados de desempenho](benchmarks/stk-1.5/README.md)
+[English](README.md) · [Español](README.es-ES.md) · [Downloads para Windows e Linux](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml) · [Resultados de desempenho](benchmarks/stk-1.5/README.md)
 
-O RustEmuDroid executa jogos e aplicativos Android em uma única janela no Windows e no Linux x86-64. O cliente em Rust inicia a máquina virtual, exibe a tela do Android e controla a entrada e a janela. Dentro da VM, a Home abre diretamente na biblioteca de jogos instalados. O painel e a Home são livres de anúncios. A interface do protótipo está em português brasileiro.
+O RustEmuDroid executa jogos e aplicativos Android em uma única janela no Windows e no Linux x86-64. O cliente em Rust inicia a máquina virtual, exibe a tela do Android e controla a entrada e a janela. Dentro da VM, a Home abre diretamente na biblioteca de jogos instalados. O painel e a Home são livres de anúncios. O idioma padrão é português brasileiro. Nas configurações, escolha inglês dos Estados Unidos ou espanhol da Espanha e salve para mudar o painel e a Home do Android juntos. Cada jogo ou aplicativo instalado controla o próprio idioma.
 
-![Janela do RustEmuDroid com a biblioteca de jogos do Android](docs/screenshots/games.png)
+![Janela do RustEmuDroid com a biblioteca de jogos do Android](docs/screenshots/pt-br/games.png)
 
 *Os jogos da captura foram instalados no perfil de teste. Um perfil novo começa com os aplicativos fornecidos pela imagem Android.*
 
@@ -49,24 +49,63 @@ Abra a engrenagem na barra de título. Cada perfil tem seu próprio disco gravá
 
 A configuração de jogos solicita quatro vCPUs, 8 GiB de RAM para o Android e 1600 × 900 a 60 Hz. O perfil genérico do SDK solicita quatro vCPUs, 3 GiB e 1080 × 1920. O motor do Kemu no Windows usa um disco gravável separado na pasta `gaming/`.
 
-![Configurações dos perfis, da renderização, da placa Vulkan e da webcam](docs/screenshots/settings.png)
+![Configurações dos perfis, da renderização, da placa Vulkan e da webcam](docs/screenshots/pt-br/settings.png)
 
 ## Usar os controles
 
 | Ação | Como usar |
 |---|---|
 | Encontrar e instalar apps | Busque nas abas **Jogos** e **Aplicativos**. Pressione e segure um cartão para mudar sua categoria. O botão de instalação da barra direita aceita um APK e atualiza a biblioteca. |
-| Navegar no Android | O botão de quatro quadrados abre Aplicativos. A barra superior também traz Voltar, Início e Recentes. Início retorna à aba Jogos. Clique para tocar e arraste para deslizar. |
+| Navegar no Android | O botão de quatro quadrados abre Aplicativos. A barra superior também traz **Voltar**, **Início** e **Aplicativos recentes**. Início retorna à aba Jogos. Clique para tocar e arraste para deslizar. |
 | Mapear teclado ou controle | Abra o jogo e clique no ícone de teclado. Em **Botão**, clique no ponto de toque e pressione a tecla ou botão físico. Para usar WASD ou o analógico esquerdo, escolha **Direcional**, clique no centro do joystick virtual e ajuste o raio. Clique com o botão direito para remover uma marca. **Salvar** guarda as posições relativas para aquele pacote Android. No Windows, os controles usam XInput. |
 | Ajustar mídia | A barra direita permite subir ou baixar o volume de mídia, silenciar, reativar e girar a tela. Segure um botão de volume para alterar vários níveis. |
 | Usar uma webcam | Na engrenagem, selecione a webcam frontal ou traseira do computador. O índice 0 representa a primeira câmera. Salve e reinicie o Android para aplicar a mudança. Conceda a permissão dentro do aplicativo Android quando necessário. Também há uma câmera frontal simulada. |
 | Tela cheia e versão | Pressione **F11**. Aproxime o ponteiro da borda superior ou direita para revelar os controles em tela cheia. A versão aparece na barra de título e na janela **?**. |
 
-![Janela de ajuda com a marca e a versão do RustEmuDroid](docs/screenshots/about.png)
+![Janela de ajuda com a marca e a versão do RustEmuDroid](docs/screenshots/pt-br/about.png)
 
 **Encerrar Android** desliga a VM e volta ao painel. Ao fechar a janela pelo **X** ou pelo atalho do sistema, o painel exibe **Desligando Android…**, continua respondendo e fecha automaticamente quando a VM termina. Isso também funciona durante a inicialização. Com o painel ocioso, a janela fecha imediatamente.
 
-![Janela aguardando o encerramento do Android](docs/screenshots/shutdown.png)
+![Janela aguardando o encerramento do Android](docs/screenshots/pt-br/shutdown.png)
+
+Ao encerrar o Android, a tela da sessão permite iniciar o mesmo perfil novamente.
+
+![Tela da sessão após encerrar o Android](docs/screenshots/pt-br/idle.png)
+
+## Abrir uma instância instalada do BlueStacks no Windows
+
+Liste as instâncias registradas pelo BlueStacks 5 e use o identificador da sua instalação para abri-la. Acrescente o nome do pacote Android para iniciar um jogo já instalado naquela instância.
+
+```powershell
+.\rustemudroid.exe bluestacks list
+.\rustemudroid.exe bluestacks open --instance Pie64
+.\rustemudroid.exe bluestacks open --instance Pie64 --package org.supertuxkart.stk
+```
+
+O BlueStacks abre a própria janela e usa os aplicativos, saves e dispositivos daquela instância. A tela integrada, o mapeamento de controles e o contador de FPS do RustEmuDroid pertencem ao runtime Android nativo. Os testes de boot independente usam cópias locais dos discos. Consulte o [registro de boot e dispositivos](docs/bluestacks-lab.md).
+
+O caranguejo se movimenta durante a inicialização e o desligamento, na tela Sobre e quando a busca da Home do Android não encontra itens. Durante a partida, a animação fica desativada.
+
+![Prévia da animação do caranguejo na interface](docs/mascot-preview.png)
+
+## Capturar uma jogada
+
+| Ação | Atalho | Arquivo |
+|---|---|---|
+| Tirar print | **Ctrl+Shift+S** | PNG na resolução da tela do Android |
+| Iniciar ou parar o vídeo | **Ctrl+Shift+R** | MP4 H.264 sem áudio, com alvo de 30 FPS |
+| Gravar um momento | **Ctrl+Shift+J** | Os próximos três segundos em JPEG XL animado a 10 FPS |
+| Gravar um GIF | Botão GIF na barra lateral | Os próximos três segundos em GIF em loop a 10 FPS |
+
+O botão de pasta na barra lateral abre `captures/`, ao lado de `launcher.json`. O Rust grava o PNG diretamente. Para MP4, instale FFmpeg com `libx264`. Para JPEG XL animado, procure o codificador `libjxl_anim`. Se o FFmpeg estiver fora do PATH, informe o caminho do executável em `RUSTEMUDROID_FFMPEG`. As animações preservam a proporção da imagem e cabem em 720 × 720. A gravação começa ao apertar o atalho. Ao fechar a janela, o cliente espera o arquivo terminar de gravar.
+
+## Criar um esquema de controle
+
+Abra o jogo e pressione **Ctrl+Shift+A** ou clique no teclado da barra lateral. No editor avançado, posicione um controle sobre o jogo, associe a entrada física e ajuste as propriedades. Para um jogo de tiro, por exemplo, use o direcional para movimento, a mira relativa para a câmera e o clique esquerdo sobre o botão de disparo. Nos deslizes, defina o destino e a duração. Pinça e rotação usam dois contatos simultâneos. Habilidades MOBA permitem arrastar a partir do botão da habilidade para escolher a direção. Salve o esquema para aquele jogo. Crie perfis com nomes e importe ou exporte cada esquema em JSON.
+
+![Editor de controles sobre o SuperTuxKart em execução](docs/screenshots/pt-br/editor.png)
+
+*O SuperTuxKart aparece em inglês. O jogo tem sua própria configuração de idioma.*
 
 ## Compilar o projeto
 

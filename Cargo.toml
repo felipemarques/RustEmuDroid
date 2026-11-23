@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-ui = ["dep:eframe", "dep:tonic", "dep:prost", "dep:tokio", "dep:bytemuck", "dep:rfd", "dep:serde", "dep:serde_json", "dep:tempfile", "dep:ash", "dep:gilrs"]
+ui = ["dep:eframe", "dep:tonic", "dep:prost", "dep:tokio", "dep:bytemuck", "dep:rfd", "dep:serde", "dep:serde_json", "dep:tempfile", "dep:ash", "dep:gilrs", "dep:png", "dep:raw-window-handle"]
 
 [dependencies]
+png = { version = "0.18", optional = true }
 clap = { version = "4.5", features = ["derive"] }
 eframe = { version = "0.33", optional = true, default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 tonic = { version = "0.12", optional = true, default-features = false, features = ["transport", "prost", "codegen"] }
@@ -24,7 +25,8 @@ gilrs = { version = "0.11", optional = true, default-features = false, features 
 winresource = "0.1"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+raw-window-handle = { version = "0.6", optional = true }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Registry", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 winit = { version = "0.30", default-features = false }

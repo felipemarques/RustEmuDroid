@@ -22,16 +22,21 @@ def run(*argv):
 
 with tempfile.TemporaryDirectory() as tmp:
     work = Path(tmp)
-    res = work / "res/drawable-nodpi"
-    res.mkdir(parents=True)
-    shutil.copyfile(home.parents[1] / "assets/rustemudroid.png", res / "brand.png")
+    res = work / "res"
+    shutil.copytree(home / "res", res)
+    drawable = res / "drawable-nodpi"
+    drawable.mkdir()
+    shutil.copyfile(home.parents[1] / "assets/rustemudroid.png", drawable / "brand.png")
     jar = args.android_jar.resolve()
     bt = args.build_tools.resolve()
-    run(bt / ("aapt"+suffix), "package", "-f", "-M",home / "AndroidManifest.xml",
-        "-S",res.parent,"-I",jar,"-F",work/"home.apk")
+    generated = work / "generated"
+    generated.mkdir()
+    run(bt / ("aapt" + suffix), "package", "-f", "-M", home / "AndroidManifest.xml",
+        "-S", res, "-I", jar, "-F", work / "home.apk", "-J", generated)
     classes = work / "classes"
     classes.mkdir()
-    run("javac","--release","8","-encoding","UTF-8","-classpath",jar,"-d",classes,home/"HomeActivity.java")
+    run("javac", "--release", "8", "-encoding", "UTF-8", "-classpath", jar, "-d", classes,
+        *sorted(home.glob("*.java")), *generated.rglob("R.java"))
     run(bt / ("d8"+script),"--min-api","26","--lib",jar,"--output",work,*classes.rglob("*.class"))
     with zipfile.ZipFile(work/"home.apk","a") as apk:
         apk.write(work/"classes.dex","classes.dex",compress_type=zipfile.ZIP_DEFLATED)

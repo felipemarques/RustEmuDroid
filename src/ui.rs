@@ -1,4 +1,10 @@
+#[cfg(windows)]
+mod bluestacks;
+mod capture_panel;
 mod chrome;
+pub(crate) mod i18n;
+mod mascot;
+mod session_panel;
 mod settings;
 pub(crate) mod theme;
 use settings::LaunchConfig;
@@ -21,11 +27,14 @@ use std::{
     time::Duration,
 };
 
-use eframe::egui::{self, Color32, RichText, vec2};
+use capture_panel::consume_capture_shortcut;
+use eframe::egui::{self, Color32, RichText};
+use i18n::Locale;
 
 use crate::{
     Engine, Gpu, Result,
     android::{self, BootEvent, BootOptions, Profile, Sdk, SystemImage},
+    capture::{Capture, Event as CaptureEvent},
     controls::{Action, Controls, Update},
     display::Display,
     toolbar::Tool,
@@ -39,9 +48,15 @@ const MUTED: Color32 = Color32::from_rgb(164, 183, 199);
 const MINT: Color32 = Color32::from_rgb(138, 233, 192);
 const ERROR: Color32 = Color32::from_rgb(255, 157, 148);
 const APP_TITLE: &str = concat!("RustEmuDroid v", env!("CARGO_PKG_VERSION"));
-const VERSION_LABEL: &str = concat!("Versão ", env!("CARGO_PKG_VERSION"));
+fn version_label(locale: Locale) -> String {
+    format!(
+        "{} {}",
+        locale.pick("Versão", "Version", "Versión"),
+        env!("CARGO_PKG_VERSION")
+    )
+}
 
-pub fn run(sdk: Option<PathBuf>, state: PathBuf, _play: bool, gpu: Option<Gpu>) -> Result<()> {
+fn branded_window() -> Result<(eframe::NativeOptions, egui::ColorImage)> {
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/rustemudroid.png"))?;
     let brand = egui::ColorImage::from_rgba_unmultiplied(
         [icon.width as usize, icon.height as usize],
@@ -57,17 +72,42 @@ pub fn run(sdk: Option<PathBuf>, state: PathBuf, _play: bool, gpu: Option<Gpu>) 
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
+    Ok((options, brand))
+}
+
+fn install_window(
+    creation: &eframe::CreationContext<'_>,
+    brand: egui::ColorImage,
+) -> egui::TextureHandle {
+    #[cfg(windows)]
+    window_icon::install(creation);
+    theme::install(&creation.egui_ctx);
+    creation
+        .egui_ctx
+        .load_texture("RustEmuDroid", brand, egui::TextureOptions::LINEAR)
+}
+
+#[cfg(windows)]
+mod window_icon;
+
+pub fn run(
+    sdk: Option<PathBuf>,
+    state: PathBuf,
+    _play: bool,
+    gpu: Option<Gpu>,
+    locale: Option<Locale>,
+) -> Result<()> {
+    let (options, brand) = branded_window()?;
     eframe::run_native(
         "RustEmuDroid",
         options,
         Box::new(move |creation| {
-            theme::install(&creation.egui_ctx);
+            let texture = install_window(creation, brand);
             let prefs_file = state.join("launcher.json");
-            let config = LaunchConfig::load(sdk, state, gpu, &prefs_file);
-            let texture =
-                creation
-                    .egui_ctx
-                    .load_texture("RustEmuDroid", brand, egui::TextureOptions::LINEAR);
+            let mut config = LaunchConfig::load(sdk, state, gpu, &prefs_file);
+            if let Some(locale) = locale {
+                config.locale = locale;
+            }
             Ok(Box::new(Launcher::new(texture, config, prefs_file, true)))
         }),
     )?;
@@ -94,13 +134,30 @@ struct Launcher {
     closing: bool,
     stop: Arc<AtomicBool>,
     display: Option<Display>,
+    capture: Capture,
+    capture_notice: Option<(CaptureEvent, std::time::Instant)>,
     controls: Option<Controls>,
     help_open: bool,
+    #[cfg(windows)]
+    blue: bluestacks::BlueStacksPanel,
     playing: bool,
     play: bool,
+    stage: BootStage,
+    checking_boot: bool,
     status: String,
     failed: bool,
     output: VecDeque<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum BootStage {
+    #[default]
+    Idle,
+    Preparing,
+    Starting,
+    Booted,
+    Verified,
+    Stopped,
 }
 
 struct Session {
@@ -128,11 +185,17 @@ impl Launcher {
             closing: false,
             stop: Arc::new(AtomicBool::new(false)),
             display: None,
+            capture: Capture::default(),
+            capture_notice: None,
             controls: None,
             help_open: false,
+            #[cfg(windows)]
+            blue: Default::default(),
             playing: false,
             play,
-            status: "Aguardando início".into(),
+            stage: BootStage::Idle,
+            checking_boot: false,
+            status: String::new(),
             failed: false,
             output: VecDeque::new(),
         }
@@ -147,10 +210,13 @@ impl Launcher {
         let image = self.config.image.trim().to_owned();
         let gpu = self.config.gpu;
         let hardware = self.config.hardware.clone();
+        let language = self.config.locale;
         let (events, receiver) = mpsc::channel();
         self.failed = false;
         self.home_ready = false;
-        self.status = "Preparando Android…".into();
+        self.stage = BootStage::Preparing;
+        self.checking_boot = check;
+        self.status.clear();
         self.output.clear();
 
         self.stop = Arc::new(AtomicBool::new(false));
@@ -158,12 +224,16 @@ impl Launcher {
         self.playing = !check;
         let worker = thread::spawn(move || {
             let result = (|| -> Result<()> {
-                let sdk = Sdk::find((!sdk.is_empty()).then(|| PathBuf::from(sdk)))?;
+                let sdk =
+                    Sdk::find_localized((!sdk.is_empty()).then(|| PathBuf::from(sdk)), language)?;
                 let state = std::path::absolute(state)?;
                 let needs_init = !state.join("avd/RustEmuDroid.ini").is_file();
-                let profile = Profile::new(state);
+                let profile = Profile::localized(state, language);
                 if !image.is_empty() {
-                    profile.init(SystemImage::from_dir(PathBuf::from(image))?)?
+                    profile.init(SystemImage::from_dir_localized(
+                        PathBuf::from(image),
+                        language,
+                    )?)?
                 } else if needs_init {
                     profile.init(SystemImage::preferred_sdk(&sdk)?)?
                 }
@@ -208,18 +278,22 @@ impl Launcher {
                     if self.stop.load(Ordering::Acquire) {
                         continue;
                     }
-                    self.controls = Some(Controls::new(adb, console, avd.clone()));
+                    let mut controls = Controls::new(adb, console, avd.clone());
+                    controls.set_locale(self.config.locale);
+                    self.controls = Some(controls);
                     self.display = Some(Display::open(console, rpc, avd, ctx));
                 }
-                BootEvent::Message(line) => {
-                    if line.starts_with("Iniciando ") {
-                        self.status = "Iniciando Android…".into();
-                    } else if line.starts_with("Boot confirmado ") {
+                event => {
+                    let line = event.to_string();
+                    if matches!(event, BootEvent::Starting(_)) {
+                        self.stage = BootStage::Starting;
+                    } else if matches!(event, BootEvent::Ready(_)) {
+                        self.stage = BootStage::Booted;
                         self.status = line.clone();
                         if !self.stop.load(Ordering::Acquire)
                             && let Some(controls) = &mut self.controls
                         {
-                            controls.send(Action::PrepareHome, ctx);
+                            controls.send(Action::PrepareHome(self.config.locale), ctx);
                         }
                     }
                     self.output.push_back(line);
@@ -238,6 +312,7 @@ impl Launcher {
                 Err("O processo de controle do emulador foi interrompido.".into())
             });
         self.display = None;
+        self.capture.stop();
         self.controls = None;
         self.home_ready = false;
         self.playing = false;
@@ -250,10 +325,10 @@ impl Launcher {
         }
         match result {
             Ok(()) => {
-                self.status = if self.status.starts_with("Boot confirmado ") {
-                    format!("{} Sessão encerrada.", self.status)
+                self.stage = if self.checking_boot && self.stage == BootStage::Booted {
+                    BootStage::Verified
                 } else {
-                    "Sessão encerrada.".into()
+                    BootStage::Stopped
                 };
             }
             Err(error) => {
@@ -261,23 +336,6 @@ impl Launcher {
                 self.failed = true;
             }
         }
-    }
-
-    fn show_shutdown(&self, ctx: &egui::Context) {
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(BACKGROUND))
-            .show(ctx, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(((ui.available_height() - 165.) * 0.5).max(0.));
-                    ui.image((self.brand.id(), vec2(72., 72.)));
-                    ui.add_space(14.);
-                    ui.heading("Desligando Android…");
-                    ui.label(RichText::new("A janela fechará automaticamente.").color(MUTED));
-                    ui.add_space(12.);
-                    ui.add(egui::Spinner::new().size(22.).color(theme::ACCENT));
-                });
-            });
-        ctx.request_repaint_after(Duration::from_millis(50));
     }
 }
 
@@ -289,12 +347,22 @@ impl eframe::App for Launcher {
             self.play = false;
             self.restart = false;
             self.stop.store(true, Ordering::Release);
+            self.capture.stop();
             self.display = None;
             self.controls = None;
         }
         self.receive(ctx);
+        if self.stop.load(Ordering::Acquire) {
+            self.capture.stop();
+        }
+        while let Some(event) = self.capture.poll() {
+            self.capture_notice = Some((event, std::time::Instant::now()));
+        }
+        if self.capture.busy() {
+            ctx.request_repaint_after(Duration::from_millis(50));
+        }
         if self.closing {
-            if self.task.is_some() {
+            if self.task.is_some() || self.capture.busy() {
                 if close_requested {
                     ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 }
@@ -305,9 +373,15 @@ impl eframe::App for Launcher {
             return;
         }
         self.show_main(ctx);
+        self.show_capture_notice(ctx);
         self.adapters.poll(ctx);
-        self.show_settings(ctx);
+        if !self.external_dialog_open() {
+            self.show_settings(ctx);
+        }
+        #[cfg(windows)]
+        self.blue.show(ctx, self.config.locale);
         if self.help_open {
+            let locale = self.config.locale;
             let dialog = egui::Modal::new("help-dialog".into())
                 .frame(
                     egui::Frame::popup(&ctx.style())
@@ -318,12 +392,21 @@ impl eframe::App for Launcher {
                 .show(ctx, |ui| {
                     ui.set_width(250.0);
                     ui.vertical_centered(|ui| {
-                        ui.image((self.brand.id(), vec2(120.0, 120.0)));
+                        mascot::show(
+                            ui,
+                            self.brand.id(),
+                            120.,
+                            self.config.animate_mascot,
+                            self.home_ready,
+                        );
                         ui.add_space(8.0);
                         ui.heading("RustEmuDroid");
-                        ui.label(RichText::new(VERSION_LABEL).color(MINT));
+                        ui.label(RichText::new(version_label(locale)).color(MINT));
                         ui.add_space(18.0);
-                        if ui.add(theme::button("Fechar")).clicked() {
+                        if ui
+                            .add(theme::button(locale.pick("Fechar", "Close", "Cerrar")))
+                            .clicked()
+                        {
                             ui.close();
                         }
                     });
@@ -337,6 +420,7 @@ impl eframe::App for Launcher {
 
 impl Launcher {
     fn show_main(&mut self, ctx: &egui::Context) {
+        let locale = self.config.locale;
         if std::mem::take(&mut self.play) {
             self.start(false)
         }
@@ -383,12 +467,41 @@ impl Launcher {
             || reveal
             || self.settings.is_some()
             || self.help_open
+            || self.external_dialog_open()
             || self.display.as_ref().is_some_and(|d| d.mapping.editing);
         let resizing = chrome::handle_resize(ctx);
         if show_chrome {
             self.title_bar(ctx, fullscreen, resizing);
         }
         if self.playing {
+            let tools_interactive = self.home_ready
+                && !self.stop.load(Ordering::Acquire)
+                && self.settings.is_none()
+                && !self.help_open
+                && !self.external_dialog_open();
+            if tools_interactive
+                && let Some(display) = &mut self.display
+                && !display.mapping.editing
+                && consume_capture_shortcut(ctx, egui::Key::A)
+            {
+                display.toggle_mapping();
+            }
+            let capture_interactive = tools_interactive
+                && self
+                    .display
+                    .as_ref()
+                    .is_some_and(|display| !display.mapping.editing);
+            if capture_interactive {
+                for (key, tool) in [
+                    (egui::Key::S, Tool::Screenshot),
+                    (egui::Key::R, self.record_tool()),
+                    (egui::Key::J, Tool::AnimatedClip),
+                ] {
+                    if consume_capture_shortcut(ctx, key) {
+                        self.capture_action(tool);
+                    }
+                }
+            }
             if show_chrome {
                 egui::SidePanel::right("android-tools")
                     .resizable(false)
@@ -400,15 +513,19 @@ impl Launcher {
                                 crate::toolbar::session_tools(
                                     ui,
                                     controls,
-                                    self.status.starts_with("Boot confirmado")
+                                    self.stage == BootStage::Booted
                                         && !self.stop.load(Ordering::Acquire),
+                                    locale,
                                 );
                             }
                             if self.home_ready
                                 && let Some(display) = &mut self.display
-                                && crate::toolbar::Tool::Keymap.button(ui)
+                                && crate::toolbar::Tool::Keymap.button(ui, locale)
                             {
                                 display.toggle_mapping();
+                            }
+                            if self.home_ready {
+                                self.show_capture_tools(ui, capture_interactive);
                             }
                         });
                     });
@@ -418,15 +535,22 @@ impl Launcher {
                 && display.mapping.editing
             {
                 egui::TopBottomPanel::bottom("mapping-tools")
-                    .show(ctx, |ui| display.mapping.toolbar(ui));
+                    .show(ctx, |ui| display.mapping.toolbar(ui, locale));
             }
+            let interactive = self.settings.is_none()
+                && !self.help_open
+                && !self.external_dialog_open()
+                && !resizing;
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
                 .show(ctx, |ui| {
                     if self.home_ready
                         && let Some(display) = &mut self.display
                     {
-                        display.show(ui, self.settings.is_none() && !self.help_open && !resizing);
+                        display.show(ui, interactive, locale);
+                        if let Some(shot) = display.take_new_shot() {
+                            self.capture.update(shot);
+                        }
                     } else {
                         self.show_boot(ui, ctx);
                     }
@@ -435,39 +559,14 @@ impl Launcher {
         }
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(BACKGROUND))
-            .show(ctx, |ui| self.show_boot(ui, ctx));
+            .show(ctx, |ui| self.show_idle(ui));
     }
-    fn show_boot(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        ui.vertical_centered(|ui| {
-            ui.add_space((ui.available_height() * 0.28).max(8.));
-            ui.image((self.brand.id(), vec2(96., 96.)));
-            ui.add_space(12.);
-            if self.playing {
-                if let Some(Err(error)) = self.controls.as_ref().and_then(|c| c.message.as_ref()) {
-                    ui.colored_label(ERROR, error);
-                    if ui.add(theme::button("Tentar abrir a Home")).clicked()
-                        && let Some(c) = &mut self.controls
-                    {
-                        c.send(Action::PrepareHome, ctx);
-                    }
-                } else {
-                    ui.spinner();
-                    ui.label(if self.status.starts_with("Boot confirmado") {
-                        "Abrindo a biblioteca de jogos…"
-                    } else {
-                        &self.status
-                    });
-                }
-            } else {
-                ui.label(&self.status);
-                if ui
-                    .add_enabled(self.task.is_none(), egui::Button::new("Iniciar emulador"))
-                    .clicked()
-                {
-                    self.start(false);
-                }
-            }
-        });
+
+    fn external_dialog_open(&self) -> bool {
+        #[cfg(windows)]
+        return self.blue.is_open();
+        #[cfg(not(windows))]
+        false
     }
 }
 
@@ -483,10 +582,10 @@ fn path_input(ui: &mut egui::Ui, label: &str, value: &mut String) {
     ui.add_space(9.0);
 }
 
-fn gpu_label(gpu: Gpu) -> &'static str {
+fn gpu_label(gpu: Gpu, locale: Locale) -> &'static str {
     match gpu {
-        Gpu::Auto => "Automática",
-        Gpu::Host => "GPU do computador",
+        Gpu::Auto => locale.pick("Automática", "Automatic", "Automática"),
+        Gpu::Host => locale.pick("GPU do computador", "Host GPU", "GPU del equipo"),
         Gpu::Software => "Software",
         Gpu::SwiftShader => "SwiftShader",
     }

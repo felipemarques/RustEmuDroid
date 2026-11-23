@@ -1,10 +1,10 @@
 # RustEmuDroid
 
-[Português brasileiro](README.pt-BR.md) · [Windows and Linux downloads](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml) · [Benchmarks](benchmarks/stk-1.5/README.md)
+[Português brasileiro](README.pt-BR.md) · [Español](README.es-ES.md) · [Windows and Linux downloads](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml) · [Benchmarks](benchmarks/stk-1.5/README.md)
 
-RustEmuDroid runs Android games and apps in one desktop window on x86-64 Windows and Linux. The Rust client starts the virtual machine, displays Android and handles input and window management. Inside the VM, the bundled Android Home opens to your installed games. The desktop client and Home are ad-free. The prototype’s on-screen controls are currently in Brazilian Portuguese.
+RustEmuDroid runs Android games and apps in one desktop window on x86-64 Windows and Linux. The Rust client starts the virtual machine, displays Android and handles input and window management. Inside the VM, the bundled Android Home opens to your installed games. The desktop client and Home are ad-free. Brazilian Portuguese is the default. Choose English (US) or Spanish (Spain) in Settings and save to change the desktop controls and Android Home together. Installed games and apps keep their own language settings.
 
-![RustEmuDroid with the Android game library open](docs/screenshots/games.png)
+![RustEmuDroid with the Android game library open](docs/screenshots/en-us/games.png)
 
 *The games in this screenshot were installed on the test profile. A new profile starts with the apps supplied by its Android image.*
 
@@ -49,24 +49,63 @@ Open the gear in the title bar. Each profile has its own writable disk, installe
 
 Gaming profiles request four vCPUs, 8 GiB of guest RAM and 1600 × 900 at 60 Hz. A generic SDK profile requests four vCPUs, 3 GiB and 1080 × 1920. The Windows Kemu engine keeps a separate writable disk under `gaming/`.
 
-![Settings with profile selection, rendering mode, Vulkan adapter and webcam](docs/screenshots/settings.png)
+![Settings with profile selection, rendering mode, Vulkan adapter and webcam](docs/screenshots/en-us/settings.png)
 
 ## Use the desktop controls
 
 | Task | How to do it |
 |---|---|
-| Find and install apps | Search under **Jogos** (Games) or **Aplicativos** (Apps). Long-press a card to change its category. The install button on the right accepts a single APK and refreshes the library. |
-| Navigate Android | The four-square button opens Apps. The title bar also contains Back, Home and Recents. Home returns to Games. Click to tap and drag to swipe. |
-| Map a keyboard or controller | Open a game and click the keyboard icon. Choose **Botão**, click a touch target, then press the physical key or controller button. For WASD or the left stick, choose **Direcional**, click the center of the virtual stick and adjust its radius. Right-click a marker to remove it. **Salvar** saves relative coordinates for that Android package. Windows gamepads use XInput. |
+| Find and install apps | Search under **Games** or **Apps**. Long-press a card to change its category. The install button on the right accepts a single APK and refreshes the library. |
+| Navigate Android | The four-square button opens Apps. The title bar also contains **Back**, **Home** and **Recent apps**. Home returns to Games. Click to tap and drag to swipe. |
+| Map a keyboard or controller | Open a game and click the keyboard icon. Choose **Button**, click a touch target, then press the physical key or controller button. For WASD or the left stick, choose **Directional control**, click the center of the virtual stick and adjust its radius. Right-click a marker to remove it. **Save** stores relative coordinates for that Android package. Windows gamepads use XInput. |
 | Adjust media | The right toolbar controls Android media volume, mute and screen rotation. Hold a volume button to change several levels. |
 | Use a webcam | In Settings, select a front or rear host webcam, starting with index 0. Save and restart Android to apply hardware changes. Grant camera access inside the Android app when needed. A simulated front camera is also available. |
 | Fullscreen and version | Press **F11**. Move the pointer to the top or right edge to reveal controls in fullscreen. The title bar and **?** dialog show the version. |
 
-![About dialog with the application logo and version](docs/screenshots/about.png)
+![About dialog with the application logo and version](docs/screenshots/en-us/about.png)
 
-**Encerrar Android** stops the VM and returns to the panel. Closing the window with **X** or the system close shortcut shows **Desligando Android…**. The native window keeps responding until the VM exits, then closes automatically. This also works during boot. Closing an idle panel takes effect immediately.
+**Stop Android** stops the VM and returns to the panel. Closing the window with **X** or the system close shortcut shows the shutdown screen. The native window keeps responding until the VM exits, then closes automatically. This also works during boot. Closing an idle panel takes effect immediately.
 
-![Window waiting for Android to shut down](docs/screenshots/shutdown.png)
+![Window waiting for Android to shut down](docs/screenshots/en-us/shutdown.png)
+
+After stopping Android, the session screen lets you start the same profile again.
+
+![Session screen after stopping Android](docs/screenshots/en-us/idle.png)
+
+## Open an installed BlueStacks instance on Windows
+
+List the instances registered by BlueStacks 5, then start one by ID. Add the Android package name to open a game already installed in that instance.
+
+```powershell
+.\rustemudroid.exe bluestacks list
+.\rustemudroid.exe bluestacks open --instance Pie64
+.\rustemudroid.exe bluestacks open --instance Pie64 --package org.supertuxkart.stk
+```
+
+BlueStacks opens its own player window and uses that instance’s apps, saves and devices. RustEmuDroid’s embedded display, input mapping and FPS counter belong to its native Android runtime. Independent boot tests use private disk copies. See the [boot and device verification record](docs/bluestacks-lab.md).
+
+The crab moves during startup and shutdown, in About, and when Android Home has no matching items. The game view keeps the mascot off the rendering path.
+
+![Preview of the desktop mascot animation](docs/mascot-preview.png)
+
+## Capture gameplay
+
+| Action | Shortcut | Output |
+|---|---|---|
+| Screenshot | **Ctrl+Shift+S** | Full-resolution PNG of the guest display |
+| Start or stop video | **Ctrl+Shift+R** | Silent H.264 MP4 with a 30 FPS target |
+| Record a moment | **Ctrl+Shift+J** | The next three seconds as an animated JPEG XL at 10 FPS |
+| Record a GIF | GIF tool in the sidebar | The next three seconds as a looping GIF at 10 FPS |
+
+Open the folder button on the sidebar to find your files in `captures/` beside `launcher.json`. PNG works directly in Rust. Install FFmpeg with `libx264` for MP4 and `libjxl_anim` for animated JPEG XL. Set `RUSTEMUDROID_FFMPEG` to an executable path if FFmpeg is outside PATH. The two short animations fit within 720 × 720 and keep their aspect ratio. Recording starts when you press the shortcut. The window waits for the file to finish writing when you close it.
+
+## Create a control scheme
+
+Open a game, then press **Ctrl+Shift+A** or click the keyboard icon. Use the advanced editor to place a touch control on the game, bind an input and adjust its properties. For example, bind a D-pad to movement, set a separate relative aim control and bind the primary mouse button to the on-screen fire button. A timed swipe can have its own end point and duration. Pinch and rotation produce two simultaneous contacts. MOBA skills support directional dragging from the skill button. Save the scheme for that game. Use named profiles to switch layouts, or export and import an individual scheme as JSON.
+
+![The control editor over a running SuperTuxKart session](docs/screenshots/en-us/editor.png)
+
+*SuperTuxKart is shown in English. The game manages its language separately from the control editor.*
 
 ## Build from source
 
@@ -112,7 +151,7 @@ The [Radeon 780M benchmark](benchmarks/stk-1.5/radeon-780m/README.md) compares i
 - **Measured example.** In the SuperTuxKart 1.5 Black Forest replay, RustEmuDroid averaged 59.93 FPS at the original preset and 28.90 FPS at high quality on the tested Windows RTX 5070 Ti / Android 16 OpenGL ES setup. The report lists the driver, ABI, presets, frame times and the Kemu and BlueStacks results. [Benchmark and raw measurements](benchmarks/stk-1.5/README.md)
 - **Black screen or slow graphics.** Run `doctor`, check the selected Vulkan adapter and try Host or Auto. Software/SwiftShader can help isolate driver issues. The SDK engine uses a GLES compatibility path with the Kemu image on Linux.
 - **Several ADB devices.** Run `adb devices -l` and use `adb -s <serial>` to target the correct instance. Look up the session serial in the launcher output.
-- **PUBG hangs during startup on Kemu Android 16.** In **Compatibilidade de jogos**, enable **Tradução ARM leve para PUBG** and save. This Berberis mode affects ARM apps in that profile during the boot and may change FPS. The local test reached sign-in. Game compatibility also depends on ABI support and publisher restrictions.
+- **PUBG hangs during startup on Kemu Android 16.** In Settings, enable the lightweight ARM translation option for PUBG and save. This Berberis mode affects ARM apps in that profile during the boot and may change FPS. The local test reached sign-in. Game compatibility also depends on ABI support and publisher restrictions.
 - **Missing games after switching.** Return to the profile where you installed them. A fresh clone contains neither installed games nor accounts.
 
 ## Architecture and verification

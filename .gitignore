@@ -1,2 +1,6 @@
 /target/
 /.rustemudroid/
+*.vdi
+*.vhd
+*.vhdx
+*.qcow2
