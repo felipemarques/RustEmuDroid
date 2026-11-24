@@ -1,0 +1,98 @@
+{
+  "bluestacks_version": "5.22.166.1003",
+  "instance": "Pie64",
+  "rea_static": [
+    {
+      "artifact": "HD-Player.exe",
+      "sha256": "e2b27e8f5e66a7c1f35b884446bf36071be652e016c38c3963acbc79cacb7045",
+      "operation": "inspect_pe_imports",
+      "evidence_id": "ev_095bf1fddecf1a0dd5a32c07720af2b2b8d9a79d58f15236d0c34077fde3b410",
+      "coverage": {
+        "delay_imports": 0,
+        "examined_dlls": 54,
+        "imports": 2182,
+        "reason": null,
+        "status": "complete"
+      },
+      "selected_symbols": {
+        "D3D11CreateDevice": "d3d11.dll",
+        "CreateDXGIFactory1": "dxgi.dll"
+      }
+    },
+    {
+      "artifact": "HD-Opengl-Native.dll",
+      "sha256": "273228360b0de0be50262539cae4113492d5b3443aed2929e3e0ef5c355efe50",
+      "operation": "inspect_pe_imports",
+      "evidence_id": "ev_ec603c337ca1a86f8a3e2310589bbace8b2ca6f6c9b5409ad3a10b7a756c2e3a",
+      "coverage": {
+        "delay_imports": 0,
+        "examined_dlls": 16,
+        "imports": 246,
+        "reason": null,
+        "status": "complete"
+      },
+      "selected_symbols": {
+        "astcenc_decompress_image": "HD-Astcdecoder.dll",
+        "astcenc_get_math_feature_string": "HD-Astcdecoder.dll",
+        "launch_threads": "HD-Astcdecoder.dll"
+      }
+    },
+    {
+      "artifact": "libOpenglRender.dll",
+      "sha256": "3cb0f06fee25ecf21f3cecab59a09c354db39bbe97d3af0a83c640427c245b5f",
+      "operation": "inspect_native_exports",
+      "evidence_id": "ev_df9b9be0086dbc65b1f708b31938a740dc4c2775d2b864711bfcf93f9c7fc9d6",
+      "coverage": {
+        "examined_entries": 916,
+        "exports": 916,
+        "reason": null,
+        "status": "complete"
+      },
+      "selected_symbols": [
+        "?glBindFramebufferEXT@gles2@translator@@YAXII@Z",
+        "?getRenderer@emugl@@YA?AW4SelectedRenderer@@XZ",
+        "?emugl_sync_create_fence@emugl@@3P6AH_KI@ZEA"
+      ]
+    },
+    {
+      "artifact": "libOpenglRender.dll",
+      "sha256": "3cb0f06fee25ecf21f3cecab59a09c354db39bbe97d3af0a83c640427c245b5f",
+      "operation": "inspect_pe_imports",
+      "evidence_id": "ev_6213c081d80c826562a8a075316364197a3b047ed9b49288fff5b310b64dd84a",
+      "coverage": {
+        "delay_imports": 0,
+        "examined_dlls": 19,
+        "imports": 482,
+        "reason": null,
+        "status": "complete"
+      },
+      "selected_symbols": {
+        "astcenc_decompress_image": "HD-Astcdecoder.dll"
+      }
+    }
+  ],
+  "bluestacks_player_log_messages": [
+    "DirectX feature level supported: D3D_FEATURE_LEVEL_11_1",
+    "Setting qt renderer: Direct3D11",
+    "Hypervisor Microsoft Hv running",
+    "Selected hypervisor hyperv",
+    "Using ASTC math feature SSE41, AVX1",
+    "GL_VENDOR = NVIDIA Corporation",
+    "GL_RENDERER = NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2",
+    "GL_VERSION = OpenGL ES 3.0 (4.5.0 NVIDIA 610.88)"
+  ],
+  "rea_adb_display": {
+    "physical_size": {
+      "width": 1600,
+      "height": 900
+    },
+    "physical_density": 240,
+    "override_size": null,
+    "override_density": null
+  },
+  "rea_adb_evidence_id": "ev_0cb133ea7faad9cda3d7fd0857bdff9dffbd549d042c2b7a6fe04e0e107dc2e3",
+  "rustemudroid_version": "0.14.0",
+  "rustemudroid_pubg_device_log": "Created VkDevice:<handle> for application:'com.tencent.ig' instance:<handle>. ASTC emulation:on CPU decoding:off. Protected memory:off",
+  "rustemudroid_pubg_renderer": "Renderer (Vulkan 1.3.0 (NVIDIA Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti) (0x00002C05)))",
+  "scope": "PE declarations, Android display configuration and selected runtime log messages. Per-draw API use and cost were not measured by these inspections."
+}

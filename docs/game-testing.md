@@ -45,6 +45,37 @@ For the navigation test, each approximately 23-second sample included three pass
 
 On this Android 17 image, `adb shell cmd game list-modes com.tencent.ig` reported Standard as active and offered Standard and Custom. `cmd game list-configs` found no package intervention. The image did not offer Android's Performance game mode for PUBG. On the BlueStacks Pie64 installation, PUBG opened and requested age verification before a comparative Showroom run could begin. [Android Game Mode API](https://developer.android.com/games/optimize/adpf/gamemode/gamemode-api)
 
+### PUBG Training Grounds on the RTX 5070 Ti
+
+RustEmuDroid 0.14.0 and BlueStacks 5.22.166.1003 Pie64 ran PUBG MOBILE 4.7.0 (build 21718, ARM64) one emulator at a time on the same Windows PC. Both had four vCPUs, 8 GiB, 1600 × 900 and renderer evidence for the RTX 5070 Ti. PUBG used ANGLE over Vulkan on the RustEmuDroid Android 17 guest at 320 dpi. The BlueStacks Android 9 player identified the RTX as its host OpenGL renderer and used 240 dpi. Its player limit was 60 and the High FPS switch was off. Each installation used its own existing guest account and interface language.
+
+Both measured Training Grounds with **Smooth/High** in the Combat settings. RustEmuDroid used its global Balanced preference, which selected Smooth/High for Combat on this guest. On BlueStacks, global Balanced selected Balanced/Extreme. We used Customize → Combat to match Smooth/High, with antialiasing and power saving disabled and Adaptive Graphics enabled. We disabled shadows on BlueStacks for the sample. The RustEmuDroid Combat summary omitted Shadows. Each lobby kept its original enhancement setting.
+
+From the game's mode selector, open **Training Ground**. The official pack is available from Download Center. We measured in third person at the spawn between two rows of tables, facing the brick building at about 90°. For each camera sample, the character stayed put while we performed six alternating 600 ms horizontal swipes at nominal seconds 2, 5, 8, 11, 14 and 17. RustEmuDroid used (1000, 370) to (1200, 370) and BlueStacks used (920, 440) to (1530, 440). We calibrated the distances visually to turn toward the containers and return. One verification pair produced approximately 90° → 130° → 85° on RustEmuDroid and 90° → 135° → 85° on BlueStacks. Both measured High pan sequences drifted from about 85° at their first start to about 65° at their second finish. No public match was joined. [PUBG MOBILE Training Grounds guide](https://pubgmobile.helpshift.com/hc/en/3-pubg-mobile/faq/249-how-do-i-enter-the-training-grounds/)
+
+| Player and scene | New presentations | Sample duration | Presentations/s | P99 interval | Longest interval |
+|---|---:|---:|---:|---:|---:|
+| RustEmuDroid, stationary lobby | 588 | 20.028 s | 29.36 | 51.88 ms | 74.97 ms |
+| RustEmuDroid, still 1 | 581 | 20.022 s | 29.02 | 64.56 ms | 84.34 ms |
+| RustEmuDroid, still 2 | 589 | 20.021 s | 29.42 | 51.45 ms | 102.57 ms |
+| RustEmuDroid, camera pans 1 | 586 | 20.031 s | 29.26 | 65.62 ms | 82.26 ms |
+| RustEmuDroid, camera pans 2 | 587 | 20.022 s | 29.32 | 65.45 ms | 68.99 ms |
+| BlueStacks, still 1 | 601 | 20.017 s | 30.02 | 50.00 ms | 50.00 ms |
+| BlueStacks, still 2 | 601 | 20.014 s | 30.03 | 33.33 ms | 66.67 ms |
+| BlueStacks, camera pans 1 | 600 | 20.017 s | 29.97 | 50.00 ms | 50.00 ms |
+| BlueStacks, camera pans 2 | 600 | 20.016 s | 29.98 | 33.33 ms | 50.00 ms |
+
+All nine windows had zero gaps over 250 ms. The matched High windows were close to 30 presentations/s on both players. The collector deduplicates actual presentation timestamps newer than its first poll and divides that count by the elapsed host time. To reproduce the table, count each exported sample's timestamps and divide by its `duration_ns` in seconds. P99 uses sorted gaps between consecutive presentations at index `floor(0.99 × (N − 1))` for `N` gaps. This measures guest presentation cadence in a loaded scene. Training entry, movement across the map and match performance remain unmeasured. [Relative presentation timestamps](../benchmarks/pubg-mobile/training-grounds-rtx.json) · [SurfaceFlinger collector](../benchmarks/pubg-mobile/capture-presentations.py)
+
+On the RustEmuDroid guest, the Combat menu offered Power Saving, Medium and High at both Smooth and Super Smooth. Android GameManager reported Standard and Custom with no interventions for the package. The preview of Super Smooth was reverted before applying the original global Balanced selection.
+
+BlueStacks offered higher Combat frame-rate choices. In the same loaded scene and game process, we changed only Combat High to **Extreme**, kept Smooth, and repeated the calibrated camera pans with the player limit still at 60. The first Extreme pass started at about 80°. The two Extreme passes measured 59.88 and 59.90 presentations/s. The earlier High passes measured 29.97 and 29.98/s. This ordered check used two passes per setting. The player's original graphics preferences were restored after testing. [Relative presentation timestamps](../benchmarks/pubg-mobile/training-grounds-rtx.json)
+
+| BlueStacks Combat | New presentations | Sample duration | Presentations/s | P99 interval | Longest interval |
+|---|---:|---:|---:|---:|---:|
+| Extreme, camera pans 1 | 1,199 | 20.024 s | 59.88 | 16.67 ms | 33.33 ms |
+| Extreme, camera pans 2 | 1,199 | 20.015 s | 59.90 | 16.67 ms | 50.00 ms |
+
 ### Where the inventory stalls occur
 
 Two separate 24-second Perfetto captures compared a stationary lobby with repeated opening and closing of the inventory. The producer measurements count `onFrameAvailable` notifications on PUBG's `RHIThread` for its GameActivity SurfaceView. They measure when a new game buffer became available. SurfaceFlinger FrameTimeline measures the guest display compositor separately. [Perfetto FrameTimeline](https://perfetto.dev/docs/data-sources/frametimeline)
@@ -118,11 +149,17 @@ One additional BlueStacks pass kept its original global Balanced preference, HD 
 
 Both players ran a hardware-accelerated Android VM. On this Windows host, the BlueStacks Pie64 player log identified Microsoft Hyper-V as its selected hypervisor and the RTX 5070 Ti as its host OpenGL renderer. RustEmuDroid used QEMU with Windows Hypervisor Platform. Both guests ran the ARM64 build of PUBG on an x86-64 CPU. BlueStacks' `libnb.so` log recorded successful initialization of Houdini 9.0.7a. The Google Play Android 17 guest used `libndk_translation.so`, and PUBG created an ANGLE Vulkan instance. These are different translation and graphics paths. Their individual contributions to FPS have not been isolated.
 
-The installed BlueStacks `libOpenglRender.dll` exports GLES translation, GL dispatch and emugl renderer-selection functions. Its PE import table includes an ASTC texture decoder. These observations establish capabilities of the shipped binary. The runtime logs identify the physical graphics adapter used. The ASTC import does not tell us whether PUBG used that decoder during Inventory. BlueStacks' high-frame-rate switch was off and its limit was 60 in the measured instance. The game offered High for the lobby. [BlueStacks frame-rate controls](https://support.bluestacks.com/hc/en-us/articles/360058986331-Customize-FPS-on-BlueStacks-5)
+The BlueStacks player had its high-frame-rate switch off and its limit set to 60. Inside PUBG, the Lobby setting for the comparison was High. These controls can be set separately. [BlueStacks frame-rate controls](https://support.bluestacks.com/hc/en-us/articles/360058986331-Customize-FPS-on-BlueStacks-5) · [BlueStacks settings for PUBG MOBILE](https://support.bluestacks.com/hc/en-us/articles/37159226387213-PUBG-Mobile-on-PC-with-BlueStacks-5)
 
-BlueStacks also documents settings for individual games. Its PUBG guide pairs the in-game Combat tab’s Extreme setting with a target of up to 60 FPS. Its graphics guide lists games for which it prompts the player to switch renderers. The test below keeps Lobby at High on both players to reproduce the menu transitions. [PUBG settings](https://support.bluestacks.com/hc/en-us/articles/4405793595277-Recommended-settings-for-PUBG-Mobile-on-BlueStacks-5) · [Renderer selection by game](https://support.bluestacks.com/hc/en-us/articles/360059893151-How-to-use-a-graphics-renderer-on-BlueStacks-5)
+BlueStacks’ PUBG guide pairs the in-game Combat tab’s Extreme setting with a target of up to 60 FPS. Its graphics guide also lists games for which the player prompts the user to switch renderers. [PUBG settings](https://support.bluestacks.com/hc/en-us/articles/4405793595277-Recommended-settings-for-PUBG-Mobile-on-BlueStacks-5) · [Renderer selection by game](https://support.bluestacks.com/hc/en-us/articles/360059893151-How-to-use-a-graphics-renderer-on-BlueStacks-5)
 
 BlueStacks exposed an Adreno 650 name to its Android guest even when the Windows player log identified the Radeon 780M as the active OpenGL renderer. Both Android displays had a resolution of 1600 × 900. Android reported a density of 240 dpi on BlueStacks and 320 dpi on RustEmuDroid. The comparison therefore includes differences in the device configuration seen by the game.
+
+#### What REA and the running player show about the graphics path
+
+REA inspected the installed BlueStacks 5.22.166.1003 binaries on this Windows PC. The player executable imports Direct3D 11 device creation and DXGI. The renderer library exports GLES translation, renderer selection and synchronization fences. The native OpenGL library imports an ASTC texture decoder and its worker-thread launcher. These declarations identify capabilities of those specific builds. Their SHA-256 hashes, REA evidence IDs and selected symbols are available with the measurements. [Renderer evidence](../benchmarks/pubg-mobile/renderer-evidence.json)
+
+The Pie64 player log identified **Direct3D 11 for the Qt interface**, **OpenGL ES 3.0 backed by NVIDIA for the Android graphics renderer**, and **Hyper-V for CPU virtualization**. It also reported SSE4.1 and AVX support during ASTC initialization. REA independently read a 1600 × 900 Android display at 240 dpi. On the RustEmuDroid Android 17 run, PUBG reported ANGLE over Vulkan on the same RTX. Its emulator explicitly logged ASTC emulation enabled with CPU decoding off for PUBG. The Windows process inventory did not return a full loaded-module list for BlueStacks. These records do not measure whether a particular PUBG texture used ASTC or how much frame time a decoder, graphics API or ARM translator consumed.
 
 #### When the game's next frame is ready
 
