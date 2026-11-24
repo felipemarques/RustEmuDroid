@@ -67,6 +67,14 @@ def main():
         def adb_run(*args):
             return run(adb, *args, env=env)
         assert adb_run("devices").splitlines() == ["List of devices attached"], "Requires an idle runner"
+        # Exercise the real packaged window at phone density within the software renderer's budget.
+        config = avd / "config.ini"
+        values = {"hw.lcd.width": 540, "hw.lcd.height": 960, "hw.lcd.density": 210}
+        settings = config.read_text()
+        for key, value in values.items():
+            settings, count = re.subn(rf"^{re.escape(key)}=.+$", f"{key}={value}", settings, flags=re.M)
+            assert count == 1, key
+        config.write_text(settings)
         game = "org.rustemudroid.qa.games"
         maps = avd / "touch-maps.json"
         with maps.open("x") as output:
@@ -74,6 +82,7 @@ def main():
             json.dump({game: {"active": "On foot", "layouts": {"Driving": empty, "On foot": empty}}}, output)
         client = subprocess.Popen([app / "rustemudroid", "--lang", "en-us", "--state-dir", state, "ui", "--gpu", "swiftshader"], env=env)
         serial = None
+        last_tree = None
         seen = {}
         try:
             def owned_device():
@@ -103,9 +112,14 @@ def main():
                 str(int(geometry["WIDTH"]) // 2), str(int(geometry["HEIGHT"]) * 3 // 5))
             system_waits = 0
             def cards(kind):
-                guest("shell", "uiautomator", "dump", "/data/local/tmp/home-grid.xml")
-                dom = ET.fromstring(guest("shell", "cat", "/data/local/tmp/home-grid.xml"))
-                nonlocal system_waits
+                nonlocal system_waits, last_tree
+                path = "/data/local/tmp/home-grid.xml"
+                result = guest("shell", "uiautomator", "dump", path)
+                if path not in result:
+                    print(f"Waiting for an accessible Android window: {result}", flush=True)
+                    return []
+                last_tree = guest("shell", "cat", path)
+                dom = ET.fromstring(last_tree)
                 # A software-rendered cold boot on a hosted runner can briefly stall System UI.
                 # Only acknowledge that exact Android dialog, never a Home or game failure.
                 if any(n.get("resource-id") == "android:id/alertTitle" and
@@ -146,9 +160,9 @@ def main():
                 report = temp / "boot-report"
                 names = guest("shell", "cmd", "package", "query-activities", "--brief", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER")
                 print("Fixture launcher activities:", "\n".join(s for s in names.splitlines() if "org.rustemudroid.qa" in s)[:3000], flush=True)
-                tree = guest("shell", "cat", "/data/local/tmp/home-grid.xml")
-                (report / "home-grid.xml").write_text(tree)
-                print("Visible labels:", [(n.get("package"), n.get("text"), n.get("content-desc")) for n in ET.fromstring(tree).iter("node") if n.get("text") or n.get("content-desc")][:35], flush=True)
+                if last_tree:
+                    (report / "home-grid.xml").write_text(last_tree)
+                    print("Visible labels:", [(n.get("package"), n.get("text"), n.get("content-desc")) for n in ET.fromstring(last_tree).iter("node") if n.get("text") or n.get("content-desc")][:35], flush=True)
                 print(guest("shell", "dumpsys", "activity", "top-resumed")[:1000], flush=True)
                 messages = guest("logcat", "-d", "-t", "200", "AndroidRuntime:E", "ActivityManager:W", "*:S")
                 print(messages[-3000:], flush=True)
