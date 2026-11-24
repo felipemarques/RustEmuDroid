@@ -571,7 +571,13 @@ pub fn boot(
         }
         cmd
     } else {
-        Command::new(&sdk.emulator)
+        let mut cmd = Command::new(&sdk.emulator);
+        if embedded || headless {
+            // The SDK can block before ADB starts to ask about a previous crash.
+            // The launcher and QEMU both inherit this session-local setting.
+            cmd.env("ANDROID_EMU_ENABLE_CRASH_REPORTING", "0");
+        }
+        cmd
     };
     let sdk_root = runtime.unwrap_or(&sdk.root);
     hardware.apply(&mut command, gpu);
