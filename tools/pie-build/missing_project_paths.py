@@ -24,5 +24,7 @@ def missing_projects(log, project_paths, checkout):
 if __name__ == "__main__":
     log = Path(sys.argv[1]).read_text(errors="replace")
     manifest_paths = Path(sys.argv[2]).read_text().splitlines()
+    checked = set(Path(sys.argv[3]).read_text().splitlines())
     for item in missing_projects(log, manifest_paths, Path.cwd()):
-        print(item)
+        if item not in checked:
+            print(item)
