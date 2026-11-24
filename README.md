@@ -266,6 +266,8 @@ Use the same `--state-dir` for initialization, boot and UI. The default is `.rus
 
 ## Performance and troubleshooting
 
+To compare PUBG on your own PC, record the same scene in RustEmuDroid and BlueStacks. The collector reports how often Android presented a new game frame and how long the longest pause lasted. [Commands and measurement method](docs/game-testing.md#record-a-game-scene-on-your-own-pc)
+
 The [Radeon 780M benchmark](benchmarks/stk-1.5/radeon-780m/README.md) compares integrated graphics across RustEmuDroid, Kemu and BlueStacks. It includes per-run measurements and host GPU verification.
 
 For a repeatable graphics test on Windows, try **FPS WW2 URP → Start Game → Level 1**. Enable **Settings → Display FPS** to see the game's counter. For a second Vulkan workload, open **andar → Continue → Begin → Skip** and face the gate in the rain. Both scenes have measurements on the Radeon 780M and RTX 5070 Ti. [FPS WW2 URP results](docs/game-testing.md#radeon-780m-vulkan-compatibility) · [ANDAR results and download](docs/game-testing.md#andar) · [All game tests](docs/game-testing.md)

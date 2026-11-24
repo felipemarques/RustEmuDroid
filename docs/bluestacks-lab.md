@@ -210,6 +210,8 @@ The original boot archive contains an x86-64 kernel module at `boot/bstmods/bstv
 
 The R3/E hybrid used a Goldfish `4.4.124+` kernel. The original module targets a different kernel ABI, and the hybrid's HostCall service failed to open the message device. Its log omitted the error number. An independent port needs a compatible guest driver/kernel pair and a functioning host implementation of the expected board service. Neither has been validated together under QEMU. The installed-player integration uses BlueStacks' own implementation.
 
+The stock initramfs also contains VirtualBox Guest Additions. Its shared-folder driver depends on the VirtualBox guest driver for PCI `80ee:cafe`. The boot script loads them after its initial board configuration check. In the graphics probe, QEMU exposed PCI `1af4:1050` and the original guest produced no `/dev/dri/card0`. The OEM graphics module in that archive identifies `1af4:10f0`. Those results explain why recognizing the storage and PCI transport still left graphics and board messaging unresolved. QEMU documents a guest kernel driver requirement for its VirtIO GPU. BlueStacks documents restoring a copied data disk to the same BlueStacks version. [QEMU VirtIO GPU](https://www.qemu.org/docs/master/system/devices/virtio/virtio-gpu.html) · [BlueStacks backup and restore](https://support.bluestacks.com/hc/en-us/articles/360059480692-How-to-backup-and-restore-data-on-BlueStacks-5)
+
 The independent image still needs a complete Android boot, working shell, Home, touch and an installed game running inside RustEmuDroid.
 
 ## Opt-in data storage probe

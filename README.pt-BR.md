@@ -266,6 +266,8 @@ Use o mesmo `--state-dir` em `init`, `boot` e `ui`. O padrão é `.rustemudroid/
 
 ## Desempenho e solução de problemas
 
+Para comparar o PUBG no seu PC, meça a mesma cena no RustEmuDroid e no BlueStacks. O coletor informa quantos quadros novos o Android apresentou por segundo e quanto durou a maior pausa entre eles. [Comandos e método de medição, em inglês](docs/game-testing.md#record-a-game-scene-on-your-own-pc)
+
 O [benchmark da Radeon 780M, em inglês](benchmarks/stk-1.5/radeon-780m/README.md), compara a GPU integrada no RustEmuDroid, Kemu e BlueStacks. O relatório inclui os dados de cada corrida e a confirmação da GPU física.
 
 Para comparar as placas no Windows, abra **FPS WW2 URP → Start Game → Level 1**. Ative **Settings → Display FPS** para ver o contador do jogo. Para testar outra cena com Vulkan, abra **andar → Continue → Begin → Skip** e fique de frente para o portão na chuva. Medimos as duas cenas na Radeon 780M e na RTX 5070 Ti. [Resultados do FPS WW2 URP](docs/game-testing.md#radeon-780m-vulkan-compatibility) · [Resultados e download de ANDAR](docs/game-testing.md#andar) · [Todos os testes, em inglês](docs/game-testing.md)

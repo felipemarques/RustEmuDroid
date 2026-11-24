@@ -263,6 +263,8 @@ Usa el mismo `--state-dir` para inicializar, arrancar y abrir la interfaz. El di
 
 ## Rendimiento y diagnóstico
 
+Para comparar PUBG en tu PC, mide la misma escena en RustEmuDroid y BlueStacks. La herramienta indica cuántos fotogramas nuevos presentó Android por segundo y cuánto duró la pausa más larga entre ellos. [Comandos y método de medición, en inglés](docs/game-testing.md#record-a-game-scene-on-your-own-pc)
+
 Para comparar las tarjetas gráficas en Windows, abre **FPS WW2 URP → Start Game → Level 1**. Activa **Settings → Display FPS** para ver el contador del juego. Para probar otra escena con Vulkan, abre **andar → Continue → Begin → Skip** y mira hacia la verja bajo la lluvia. Medimos las dos escenas en la Radeon 780M y la RTX 5070 Ti. [Resultados de FPS WW2 URP](docs/game-testing.md#radeon-780m-vulkan-compatibility) · [Resultados y descarga de ANDAR](docs/game-testing.md#andar) · [Todas las pruebas, en inglés](docs/game-testing.md)
 
 - **FPS.** El contador del panel mide los fotogramas nuevos enviados al escritorio. En un menú estático puede indicar pocos FPS. Para comparar juegos, consulta el contador interno o el informe de fotogramas del juego.
