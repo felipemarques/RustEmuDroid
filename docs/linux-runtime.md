@@ -66,6 +66,10 @@ Use the `adb`, `serial` and AVD path check in **Repeat the boot** below. Read th
 
 On an idle test profile, write each resulting list using `"$adb" -s "$serial" shell settings put global KEY VALUE` and read both back before reopening BombSquad. Force-stop only BombSquad from its Android app info, reopen it and check the `net.froemling.bombsquad` entry in `"$adb" -s "$serial" shell dumpsys gpu --gpustats --app` after gameplay. To finish the trial, restore both original values, using `settings delete global KEY` for any originally absent key, verify them and restart the game. Both original settings in the table were restored after this test.
 
+## Boot with a runtime beside the executable
+
+The packaged v0.9.0 Linux client found Android Emulator, ADB and the Android 15 x86-64 AOSP image in a `runtime/` directory beside the executable. The hosted Ubuntu 24.04 test started from an empty profile with the SDK environment variables unset, observed `sys.boot_completed=1` under KVM with SwiftShader, then verified the serial disappeared from ADB after shutdown. [Boot job and logs](https://github.com/felipemarques/RustEmuDroid/actions/runs/45401096585/job/138472366178) · [Portable directory layout](../README.md#prepare-the-android-runtime)
+
 ## Repeat the boot
 
 Extract the Linux release, install the Linux Android SDK components shown in the [setup guide](../README.md#prepare-the-android-runtime), and verify that your Linux user can access `/dev/kvm`. From the directory containing the extracted executable, run the following commands. Set `sdk` to your Linux SDK path and choose an unused directory for `state` for a fresh boot.
