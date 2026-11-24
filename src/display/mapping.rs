@@ -494,7 +494,8 @@ impl Mapping {
                     .and_then(|i| self.draft.controls.get_mut(i))
             {
                 if let Some(direction) = self.direction_binding.take()
-                    && let Gesture::Dpad { directions, .. } = &mut binding.gesture
+                    && let Gesture::Dpad { directions, .. } | Gesture::FreeLook { directions, .. } =
+                        &mut binding.gesture
                     && let Some(slot) = directions.get_mut(direction)
                 {
                     *slot = input.to_owned();
@@ -701,6 +702,32 @@ impl Mapping {
                     }) || self.grabbed_at.is_some() =>
                 {
                     if let Some(key) = wheel_id(delta) {
+                        if !self.editing
+                            && self.grabbed_at.is_none()
+                            && !pointer_busy
+                            && pointer.is_some_and(|p| visible.contains(p))
+                            && let Some(override_wheel) = self.layout().and_then(|layout| {
+                                layout
+                                    .controls
+                                    .iter()
+                                    .find_map(|binding| match binding.gesture {
+                                        Gesture::Scroll { override_wheel, .. } => {
+                                            Some(override_wheel)
+                                        }
+                                        _ => None,
+                                    })
+                            })
+                        {
+                            let direction = if delta.x.abs() > delta.y.abs() {
+                                vec2(delta.x.signum(), 0.)
+                            } else {
+                                vec2(0., delta.y.signum())
+                            };
+                            self.gestures.queue_scroll(direction);
+                            if override_wheel {
+                                continue;
+                            }
+                        }
                         self.handle_input(key, true, &frame, &mut changes);
                         let directional = !self.editing
                             && self.layout().is_some_and(|layout| {
@@ -806,6 +833,13 @@ fn valid_layout(layout: &Layout) -> bool {
         && layout
             .controls
             .iter()
+            .filter(|binding| matches!(binding.gesture, Gesture::Scroll { .. }))
+            .take(2)
+            .count()
+            <= 1
+        && layout
+            .controls
+            .iter()
             .filter(|binding| matches!(binding.gesture, Gesture::EdgeScroll { .. }))
             .take(2)
             .count()
@@ -833,6 +867,23 @@ fn valid_layout(layout: &Layout) -> bool {
                         ..
                     } => directions.iter().all(|direction| input(direction)) && radius(*value),
                     Gesture::Aim { sensitivity, .. } => (0.05..=8.).contains(sensitivity),
+                    Gesture::FreeLook {
+                        directions,
+                        speed,
+                        reset_ms,
+                        ..
+                    } => {
+                        directions.iter().all(|key| input(key))
+                            && (0.20..=3.).contains(speed)
+                            && *reset_ms <= 1000
+                    }
+                    Gesture::Scroll {
+                        amplitude, speed, ..
+                    } => {
+                        binding.input.is_empty()
+                            && (0.02..=0.45).contains(amplitude)
+                            && (0.20..=3.).contains(speed)
+                    }
                     Gesture::Pinch {
                         from,
                         to,
@@ -929,6 +980,77 @@ fn label(input: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scroll_override_respects_the_game_canvas_and_existing_wheel_mapping() {
+        use egui::{Event, Modifiers, MouseWheelUnit, pos2};
+
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(pos2(0., 0.), vec2(900., 700.));
+        let rect = Rect::from_min_size(pos2(100., 100.), vec2(700., 500.));
+        let tick = |map: &mut Mapping, pointer| {
+            let events = vec![
+                Event::PointerMoved(pointer),
+                Event::MouseWheel {
+                    unit: MouseWheelUnit::Point,
+                    delta: vec2(0., 1.),
+                    modifiers: Modifiers::NONE,
+                },
+            ];
+            let mut contacts = Vec::new();
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events: events.clone(),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        contacts.extend(map.frame(ui, rect, &events));
+                    });
+                },
+            );
+            contacts
+        };
+        for override_wheel in [true, false] {
+            let mut map = Mapping::default();
+            map.pad_initialized = true;
+            map.profiles.insert(
+                "test.game".into(),
+                GameProfiles::from_layout(Layout {
+                    buttons: BTreeMap::from([(String::from("Wheel:Up"), [0.8, 0.8])]),
+                    controls: vec![Binding {
+                        input: String::new(),
+                        at: [0.5, 0.5],
+                        gesture: Gesture::Scroll {
+                            amplitude: 0.18,
+                            speed: 1.,
+                            override_wheel,
+                        },
+                    }],
+                    ..Default::default()
+                }),
+            );
+            map.select(Some("test.game"));
+            assert!(tick(&mut map, pos2(450., 40.)).is_empty());
+            let contacts = tick(&mut map, rect.center());
+            let positions: Vec<_> = contacts
+                .iter()
+                .map(|contact| (contact.pos, contact.down))
+                .collect();
+            if override_wheel {
+                assert_eq!(positions, [([0.5, 0.5], true)]);
+            } else {
+                assert_eq!(
+                    positions,
+                    [([0.8, 0.8], true), ([0.8, 0.8], false), ([0.5, 0.5], true)]
+                );
+            }
+            let released = map.release();
+            assert_eq!(released.len(), 1);
+            assert!(!released[0].down);
+        }
+    }
 
     #[test]
     fn edge_scroll_repeats_bounded_touch_drags_only_over_the_active_guest() {

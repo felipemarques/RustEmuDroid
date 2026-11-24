@@ -320,17 +320,20 @@ impl Mapping {
             pad(stick, layout.radius, ["W", "S", "A", "D"]);
         }
         for binding in &layout.controls {
-            if let Gesture::Dpad {
-                directions, radius, ..
-            } = &binding.gesture
-            {
-                pad(
+            match &binding.gesture {
+                Gesture::Dpad {
+                    directions, radius, ..
+                } => pad(
                     binding.at,
                     *radius,
                     directions.each_ref().map(String::as_str),
-                );
-            } else {
-                badge(pos(binding.at), binding.primary_input());
+                ),
+                Gesture::FreeLook {
+                    mouse: false,
+                    directions,
+                    ..
+                } => pad(binding.at, 0.10, directions.each_ref().map(String::as_str)),
+                _ => badge(pos(binding.at), binding.primary_input()),
             }
         }
     }

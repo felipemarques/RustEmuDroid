@@ -412,6 +412,8 @@ impl Mapping {
             ),
             locale.pick("Inclinar", "Tilt", "Inclinar"),
             locale.pick("Analógico MOBA", "MOBA joystick", "Palanca MOBA"),
+            locale.pick("Olhar livre", "Free look", "Vista libre"),
+            locale.pick("Rolagem", "Scroll", "Desplazamiento"),
         ];
         let width = ((ui.available_width() - 2. * ui.spacing().item_spacing.x) / 3.).max(46.);
         for row in (0..labels.len()).step_by(3) {
@@ -480,15 +482,20 @@ impl Mapping {
                 .selected_text(text)
                 .show_ui(ui, |ui| {
                     for (index, binding) in self.draft.controls.iter().enumerate() {
-                        let label = format!(
-                            "{} · {}",
-                            gesture_name(&binding.gesture, locale),
-                            if binding.primary_input().is_empty() {
+                        let name = gesture_name(&binding.gesture, locale);
+                        let primary = binding.primary_input();
+                        let label = if binding.gesture.needs_binding()
+                            || matches!(binding.gesture, Gesture::MobaMove { .. })
+                        {
+                            let input = if primary.is_empty() {
                                 locale.pick("Sem tecla", "Unbound", "Sin tecla")
                             } else {
-                                binding_input_name(binding.primary_input(), locale)
-                            }
-                        );
+                                binding_input_name(primary, locale)
+                            };
+                            format!("{name} · {input}")
+                        } else {
+                            name.to_owned()
+                        };
                         ui.selectable_value(&mut self.selected_control, Some(index), label);
                     }
                 })
@@ -510,6 +517,7 @@ impl Mapping {
         let mut set_binding = false;
         let mut set_endpoint = false;
         let mut remove = false;
+        let mut changed_look_mode = false;
         ui.vertical(|ui| {
             ui.spacing_mut().slider_width = 88.;
             if binding.input.starts_with("Wheel:") {
@@ -545,8 +553,40 @@ impl Mapping {
                     .selectable_label(self.await_binding && direction_binding.is_none(), input)
                     .clicked();
             }
+            let mut choose_direction = |ui: &mut egui::Ui, directions: &[String; 4]| {
+                ui.horizontal_wrapped(|ui| {
+                    for (direction, name) in [
+                        locale.pick("Cima", "Up", "Arriba"),
+                        locale.pick("Baixo", "Down", "Abajo"),
+                        locale.pick("Esquerda", "Left", "Izquierda"),
+                        locale.pick("Direita", "Right", "Derecha"),
+                    ].into_iter().enumerate() {
+                        let label = format!("{name} · {}", directions[direction]);
+                        if ui.selectable_label(self.await_binding && direction_binding == Some(direction), label).clicked() {
+                            direction_binding = Some(direction);
+                            set_binding = true;
+                        }
+                    }
+                });
+            };
             match &mut binding.gesture {
                 Gesture::Hold => {}
+                Gesture::FreeLook { mouse, directions, speed, reset_ms } => {
+                    changed_look_mode = ui.checkbox(mouse, locale.pick("Olhar com o mouse", "Look with the mouse", "Mirar con el ratón")).changed();
+                    if *mouse {
+                        ui.weak(locale.pick("Segure a tecla atribuída e mova o mouse.", "Hold the assigned key and move the mouse.", "Mantén pulsada la tecla asignada y mueve el ratón."));
+                    } else {
+                        choose_direction(ui, directions);
+                    }
+                    ui.add(egui::Slider::new(speed, 0.20..=3.).text(locale.pick("Velocidade", "Speed", "Velocidad")));
+                    ui.add(egui::Slider::new(reset_ms, 0..=1000).suffix(" ms").text(locale.pick("Pausa na borda", "Edge reset delay", "Pausa en el borde")));
+                }
+                Gesture::Scroll { amplitude, speed, override_wheel } => {
+                    ui.weak(locale.pick("Role a roda do mouse sobre o jogo para arrastar a partir deste ponto.", "Use the wheel over the game to drag from this point.", "Usa la rueda sobre el juego para arrastrar desde este punto."));
+                    ui.add(egui::Slider::new(amplitude, 0.02..=0.45).text(locale.pick("Amplitude", "Amplitude", "Amplitud")));
+                    ui.add(egui::Slider::new(speed, 0.20..=3.).text(locale.pick("Velocidade", "Speed", "Velocidad")));
+                    ui.checkbox(override_wheel, locale.pick("Substituir outras ações da roda", "Override other wheel mappings", "Sustituir otras acciones de la rueda"));
+                }
                 Gesture::EdgeScroll {
                     margin_x,
                     margin_y,
@@ -615,29 +655,7 @@ impl Mapping {
                     radius,
                     left_stick,
                 } => {
-                    ui.horizontal_wrapped(|ui| {
-                        for (direction, name) in [
-                            locale.pick("Cima", "Up", "Arriba"),
-                            locale.pick("Baixo", "Down", "Abajo"),
-                            locale.pick("Esquerda", "Left", "Izquierda"),
-                            locale.pick("Direita", "Right", "Derecha"),
-                        ]
-                        .into_iter()
-                        .enumerate()
-                        {
-                            let label = format!("{name} · {}", directions[direction]);
-                            if ui
-                                .selectable_label(
-                                    self.await_binding && direction_binding == Some(direction),
-                                    label,
-                                )
-                                .clicked()
-                            {
-                                direction_binding = Some(direction);
-                                set_binding = true;
-                            }
-                        }
-                    });
+                    choose_direction(ui, directions);
                     ui.add(
                         egui::Slider::new(radius, 0.035..=0.25)
                             .text(locale.pick("Raio", "Radius", "Radio")),
@@ -780,6 +798,9 @@ impl Mapping {
         if remove {
             self.draft.controls.remove(index);
             self.reset_placement();
+        } else if changed_look_mode {
+            self.await_binding = false;
+            self.direction_binding = None;
         } else if set_binding {
             self.await_binding = !self.await_binding || self.direction_binding != direction_binding;
             self.direction_binding = if self.await_binding {
@@ -919,6 +940,8 @@ fn gesture_name(gesture: &Gesture, locale: Locale) -> &'static str {
         Gesture::Aim { .. } => locale.pick("Mira ou câmera", "Aim or camera", "Mira o cámara"),
         Gesture::Moba { .. } => locale.pick("Habilidade MOBA", "MOBA ability", "Habilidad MOBA"),
         Gesture::MobaMove { .. } => locale.pick("Analógico MOBA", "MOBA joystick", "Palanca MOBA"),
+        Gesture::FreeLook { .. } => locale.pick("Olhar livre", "Free look", "Vista libre"),
+        Gesture::Scroll { .. } => locale.pick("Rolagem", "Scroll", "Desplazamiento"),
         Gesture::EdgeScroll { .. } => locale.pick(
             "Rolagem de borda",
             "Edge scroll",
@@ -957,7 +980,7 @@ impl FileAction {
     }
 }
 
-fn presets() -> [Gesture; 13] {
+fn presets() -> [Gesture; 15] {
     [
         Gesture::Hold,
         Gesture::Tap { duration_ms: 100 },
@@ -1012,6 +1035,23 @@ fn presets() -> [Gesture; 13] {
             hero: [0.5, 0.5],
             radius: 0.10,
             speed: 1.0,
+        },
+        Gesture::FreeLook {
+            mouse: false,
+            directions: [
+                egui::Key::ArrowUp,
+                egui::Key::ArrowDown,
+                egui::Key::ArrowLeft,
+                egui::Key::ArrowRight,
+            ]
+            .map(|key| key.name().to_owned()),
+            speed: 0.8,
+            reset_ms: 50,
+        },
+        Gesture::Scroll {
+            amplitude: 0.18,
+            speed: 1.,
+            override_wheel: true,
         },
     ]
 }

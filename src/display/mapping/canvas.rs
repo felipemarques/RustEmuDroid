@@ -622,6 +622,8 @@ fn gesture_icon(gesture: &Gesture) -> &'static str {
         Gesture::MobaMove { .. } => "⊕",
         Gesture::EdgeScroll { .. } => "⇆",
         Gesture::Tilt { .. } => "◇",
+        Gesture::FreeLook { .. } => "◈",
+        Gesture::Scroll { .. } => "↕",
     }
 }
 

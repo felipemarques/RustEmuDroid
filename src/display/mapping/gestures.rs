@@ -1,7 +1,7 @@
 use super::{Contact, Point};
 use eframe::egui::{Vec2, vec2};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct Binding {
@@ -85,17 +85,35 @@ pub(super) enum Gesture {
         axis: TiltAxis,
         degrees: f32,
     },
+    FreeLook {
+        mouse: bool,
+        directions: [String; 4],
+        speed: f32,
+        reset_ms: u32,
+    },
+    Scroll {
+        amplitude: f32,
+        speed: f32,
+        override_wheel: bool,
+    },
 }
 
 impl Gesture {
     pub(super) fn unique_tool(&self) -> bool {
-        matches!(self, Self::MobaMove { .. } | Self::EdgeScroll { .. })
+        matches!(
+            self,
+            Self::MobaMove { .. } | Self::EdgeScroll { .. } | Self::Scroll { .. }
+        )
     }
 
     pub(super) fn needs_binding(&self) -> bool {
         !matches!(
             self,
-            Self::Dpad { .. } | Self::EdgeScroll { .. } | Self::MobaMove { .. }
+            Self::Dpad { .. }
+                | Self::EdgeScroll { .. }
+                | Self::MobaMove { .. }
+                | Self::FreeLook { mouse: false, .. }
+                | Self::Scroll { .. }
         )
     }
 
@@ -128,8 +146,13 @@ impl Binding {
     pub(super) fn captures(&self, input: &str) -> bool {
         !input.is_empty()
             && match &self.gesture {
-                Gesture::Dpad { directions, .. } => directions.iter().any(|key| key == input),
-                Gesture::EdgeScroll { .. } => false,
+                Gesture::Dpad { directions, .. }
+                | Gesture::FreeLook {
+                    mouse: false,
+                    directions,
+                    ..
+                } => directions.iter().any(|key| key == input),
+                Gesture::EdgeScroll { .. } | Gesture::Scroll { .. } => false,
                 Gesture::MobaMove { .. } => input == "Mouse:Secondary" || input == self.input,
                 _ => self.input == input,
             }
@@ -144,6 +167,7 @@ pub(super) struct Gestures {
     deadlines: BTreeMap<usize, f64>,
     toggled: HashSet<usize>,
     edge_scrolling: bool,
+    scrolls: VecDeque<Vec2>,
     pub left: Vec2,
     pub right: Vec2,
     pub mouse: Vec2,
@@ -168,13 +192,25 @@ impl Gestures {
             || !self.active.is_empty()
             || !self.deadlines.is_empty()
             || !self.toggled.is_empty()
+            || !self.scrolls.is_empty()
+    }
+
+    pub(super) fn queue_scroll(&mut self, direction: Vec2) {
+        if self.scrolls.len() == 3 {
+            self.scrolls.pop_front();
+        }
+        self.scrolls.push_back(direction);
     }
 
     pub(super) fn aiming_mouse(&self, controls: &[Binding]) -> bool {
-        controls.iter().enumerate().any(|(index, binding)| {
-            matches!(binding.gesture, Gesture::Aim { mouse: true, .. })
-                && self.aiming(index, binding)
-        })
+        controls
+            .iter()
+            .enumerate()
+            .any(|(index, binding)| match binding.gesture {
+                Gesture::Aim { mouse: true, .. } => self.aiming(index, binding),
+                Gesture::FreeLook { mouse: true, .. } => self.held.contains(&binding.input),
+                _ => false,
+            })
     }
 
     fn aiming(&self, index: usize, binding: &Binding) -> bool {
@@ -207,6 +243,14 @@ impl Gestures {
             {
                 match binding.gesture {
                     Gesture::Dpad { .. } => self.update_dpad(i, binding, frame, changes),
+                    Gesture::FreeLook {
+                        mouse,
+                        ref directions,
+                        ..
+                    } if mouse || self.direction_vector(directions) == Vec2::ZERO => {
+                        self.stop(i, changes);
+                        self.deadlines.remove(&i);
+                    }
                     Gesture::Hold | Gesture::Repeat { .. } | Gesture::Aim { toggle: false, .. } => {
                         self.stop(i, changes);
                         self.deadlines.remove(&i);
@@ -296,6 +340,24 @@ impl Gestures {
     ) {
         let mouse = std::mem::take(&mut self.mouse);
         self.edge_scrolling = false;
+        let free_look_active = controls.iter().any(|binding| match &binding.gesture {
+            Gesture::FreeLook { mouse: true, .. } => self.held.contains(&binding.input),
+            Gesture::FreeLook {
+                mouse: false,
+                directions,
+                ..
+            } => directions.iter().any(|key| self.held.contains(key)),
+            _ => false,
+        });
+        if free_look_active {
+            for (index, _) in controls
+                .iter()
+                .enumerate()
+                .filter(|(_, binding)| matches!(binding.gesture, Gesture::Aim { .. }))
+            {
+                self.stop(index, changes);
+            }
+        }
         for (index, binding) in controls.iter().enumerate() {
             let has_contacts = self.active.contains_key(&index);
             let elapsed = self
@@ -348,6 +410,14 @@ impl Gestures {
                     }
                 }
                 Gesture::Dpad { .. } => self.update_dpad(index, binding, frame, changes),
+                Gesture::FreeLook { .. } => {
+                    self.update_free_look(index, binding, mouse, frame, changes)
+                }
+                Gesture::Scroll {
+                    amplitude, speed, ..
+                } => {
+                    self.update_scroll(index, binding.at, *amplitude, *speed, frame, changes);
+                }
                 Gesture::EdgeScroll {
                     margin_x,
                     margin_y,
@@ -368,7 +438,7 @@ impl Gestures {
                     right_stick,
                     ..
                 } => {
-                    if !self.aiming(index, binding) {
+                    if free_look_active || !self.aiming(index, binding) {
                         self.stop(index, changes);
                         continue;
                     }
@@ -455,6 +525,101 @@ impl Gestures {
         }
     }
 
+    fn update_free_look(
+        &mut self,
+        index: usize,
+        binding: &Binding,
+        mouse_delta: Vec2,
+        frame: &Frame<'_>,
+        changes: &mut Vec<Contact>,
+    ) {
+        let Gesture::FreeLook {
+            mouse,
+            directions,
+            speed,
+            reset_ms,
+        } = &binding.gesture
+        else {
+            return;
+        };
+        let digital = self.direction_vector(directions);
+        let enabled = if *mouse {
+            self.held.contains(&binding.input)
+        } else {
+            digital != Vec2::ZERO
+        };
+        if !enabled {
+            self.stop(index, changes);
+            self.deadlines.remove(&index);
+            return;
+        }
+        if self
+            .deadlines
+            .get(&index)
+            .is_some_and(|deadline| frame.time < *deadline)
+        {
+            return;
+        }
+        self.deadlines.remove(&index);
+        let speed = speed.clamp(0.20, 3.);
+        let delta = if *mouse {
+            mouse_delta / frame.size.x.min(frame.size.y) * speed
+        } else {
+            limited(digital, 1.) * speed * frame.dt.clamp(0., 0.05)
+        };
+        let current = self
+            .active
+            .get(&index)
+            .map_or(binding.at, |active| active.contacts[0].pos);
+        let next = offset(frame.size, current, limited(delta, 0.20));
+        if next == current {
+            return;
+        }
+        self.start(index, &[binding.at], frame, changes);
+        self.move_to(index, &[next], changes);
+        if (delta.x != 0. && !(0.001..0.999).contains(&next[0]))
+            || (delta.y != 0. && !(0.001..0.999).contains(&next[1]))
+        {
+            self.stop(index, changes);
+            self.deadlines
+                .insert(index, frame.time + f64::from((*reset_ms).min(1000)) / 1000.);
+        }
+    }
+
+    fn update_scroll(
+        &mut self,
+        index: usize,
+        anchor: Point,
+        amplitude: f32,
+        speed: f32,
+        frame: &Frame<'_>,
+        changes: &mut Vec<Contact>,
+    ) {
+        let amplitude = amplitude.clamp(0.02, 0.45);
+        if let Some(active) = self.active.get(&index) {
+            let target = active.target.expect("a scroll has an endpoint");
+            let length = (point(target) - point(anchor)) * frame.size;
+            let distance = length.length() / frame.size.x.min(frame.size.y);
+            let duration = f64::from((distance / speed.clamp(0.20, 3.)).max(0.02));
+            let progress = ((frame.time - active.started) / duration).clamp(0., 1.) as f32;
+            self.move_to(index, &[interpolate(anchor, target, progress)], changes);
+            if progress >= 1. {
+                self.stop(index, changes);
+            }
+        } else if let Some(&direction) = self.scrolls.front() {
+            let target = offset(frame.size, anchor, direction * amplitude);
+            if target == anchor {
+                self.scrolls.pop_front();
+            } else if self.start(index, &[anchor], frame, changes) {
+                self.scrolls.pop_front();
+                self.active
+                    .get_mut(&index)
+                    .expect("scroll just started")
+                    .target = Some(target);
+            }
+        }
+    }
+
     fn update_edge_scroll(
         &mut self,
         index: usize,
@@ -505,17 +670,12 @@ impl Gestures {
         else {
             return;
         };
-        let axes = [vec2(0., -1.), vec2(0., 1.), vec2(-1., 0.), vec2(1., 0.)];
         let analog = if *left_stick {
             deadzone(self.left)
         } else {
             Vec2::ZERO
         };
-        let movement = directions
-            .iter()
-            .zip(axes)
-            .filter(|(key, _)| self.held.contains(*key))
-            .fold(analog, |movement, (_, axis)| movement + axis);
+        let movement = analog + self.direction_vector(directions);
         if movement != Vec2::ZERO {
             let pos = offset(
                 frame.size,
@@ -527,6 +687,15 @@ impl Gestures {
         } else {
             self.stop(index, changes);
         }
+    }
+
+    fn direction_vector(&self, directions: &[String; 4]) -> Vec2 {
+        let axes = [vec2(0., -1.), vec2(0., 1.), vec2(-1., 0.), vec2(1., 0.)];
+        directions
+            .iter()
+            .zip(axes)
+            .filter(|(key, _)| self.held.contains(*key))
+            .fold(Vec2::ZERO, |movement, (_, axis)| movement + axis)
     }
 
     fn start(
@@ -598,9 +767,13 @@ impl Gestures {
 
     pub(super) fn cancel_aim(&mut self, controls: &[Binding], changes: &mut Vec<Contact>) {
         for (index, binding) in controls.iter().enumerate() {
-            if matches!(binding.gesture, Gesture::Aim { .. }) {
+            if matches!(
+                binding.gesture,
+                Gesture::Aim { .. } | Gesture::FreeLook { mouse: true, .. }
+            ) {
                 self.held.remove(&binding.input);
                 self.toggled.remove(&index);
+                self.deadlines.remove(&index);
                 self.stop(index, changes);
             }
         }
@@ -704,6 +877,122 @@ mod tests {
             cursor: Some([0.2, 0.8]),
             edge_cursor: None,
         }
+    }
+
+    #[test]
+    fn keyboard_free_look_restarts_at_anchor_after_the_edge_delay() {
+        let bindings = [Binding {
+            input: String::new(),
+            at: [0.98, 0.5],
+            gesture: Gesture::FreeLook {
+                mouse: false,
+                directions: ["I".into(), "K".into(), "J".into(), "L".into()],
+                speed: 3.,
+                reset_ms: 80,
+            },
+        }];
+        let mut gestures = Gestures::default();
+        let mut contacts = Vec::new();
+        gestures.input(&bindings, "L", true, &frame(1.), &mut contacts);
+        gestures.frame(&bindings, &frame(1.), &mut contacts);
+        assert_eq!(contacts.len(), 3);
+        assert_eq!(contacts[0].pos, bindings[0].at);
+        assert_eq!(contacts[1].pos, [1., 0.5]);
+        assert!(!contacts[2].down);
+        assert!(gestures.waiting());
+        contacts.clear();
+        gestures.frame(&bindings, &frame(1.04), &mut contacts);
+        assert!(contacts.is_empty());
+        gestures.frame(&bindings, &frame(1.09), &mut contacts);
+        assert_eq!(contacts[0].pos, bindings[0].at);
+        assert_eq!(contacts[1].pos, [1., 0.5]);
+        contacts.clear();
+        gestures.input(&bindings, "L", false, &frame(1.1), &mut contacts);
+        gestures.input(&bindings, "I", true, &frame(1.1), &mut contacts);
+        gestures.frame(&bindings, &frame(1.1), &mut contacts);
+        gestures.frame(&bindings, &frame(1.2), &mut contacts);
+        assert!(contacts[2].pos[1] < contacts[1].pos[1]);
+        gestures.input(&bindings, "I", false, &frame(1.3), &mut contacts);
+        gestures.frame(&bindings, &frame(1.3), &mut contacts);
+        assert!(!contacts.last().unwrap().down);
+        assert!(!gestures.waiting());
+    }
+
+    #[test]
+    fn mouse_free_look_releases_aim_before_moving_its_own_anchor() {
+        let bindings = [
+            Binding {
+                input: "V".into(),
+                at: [0.25, 0.5],
+                gesture: Gesture::FreeLook {
+                    mouse: true,
+                    directions: Default::default(),
+                    speed: 1.,
+                    reset_ms: 50,
+                },
+            },
+            Binding {
+                input: "Q".into(),
+                at: [0.5, 0.5],
+                gesture: Gesture::Aim {
+                    sensitivity: 1.,
+                    mouse: true,
+                    right_stick: false,
+                    toggle: true,
+                },
+            },
+        ];
+        let mut gestures = Gestures::default();
+        let mut contacts = Vec::new();
+        gestures.input(&bindings, "Q", true, &frame(1.), &mut contacts);
+        gestures.input(&bindings, "Q", false, &frame(1.), &mut contacts);
+        gestures.mouse = vec2(24., 0.);
+        gestures.frame(&bindings, &frame(1.), &mut contacts);
+        assert_eq!(contacts[0].pos, [0.5, 0.5]);
+        contacts.clear();
+        gestures.input(&bindings, "V", true, &frame(1.1), &mut contacts);
+        assert!(gestures.aiming_mouse(&bindings));
+        gestures.mouse = vec2(24., 0.);
+        gestures.frame(&bindings, &frame(1.1), &mut contacts);
+        assert_eq!(contacts.len(), 3);
+        assert!(!contacts[0].down);
+        assert_eq!(contacts[1].pos, [0.25, 0.5]);
+        assert!(contacts[2].pos[0] > 0.25);
+        contacts.clear();
+        gestures.input(&bindings, "V", false, &frame(1.2), &mut contacts);
+        gestures.mouse = vec2(24., 0.);
+        gestures.frame(&bindings, &frame(1.2), &mut contacts);
+        assert!(!contacts[0].down);
+        assert_eq!(contacts[1].pos, [0.5, 0.5]);
+        gestures.cancel_aim(&bindings, &mut contacts);
+        assert!(!gestures.aiming_mouse(&bindings));
+    }
+
+    #[test]
+    fn wheel_scroll_drags_in_both_directions_and_releases_between_strokes() {
+        let bindings = [Binding {
+            input: String::new(),
+            at: [0.5, 0.5],
+            gesture: Gesture::Scroll {
+                amplitude: 0.20,
+                speed: 1.,
+                override_wheel: true,
+            },
+        }];
+        let mut gestures = Gestures::default();
+        let mut contacts = Vec::new();
+        gestures.queue_scroll(vec2(0., 1.));
+        gestures.queue_scroll(vec2(0., -1.));
+        for time in [1., 1.1, 1.21, 1.22, 1.43] {
+            gestures.frame(&bindings, &frame(time), &mut contacts);
+        }
+        assert_eq!(contacts.iter().filter(|contact| !contact.down).count(), 2);
+        assert_eq!(contacts[0].pos, [0.5, 0.5]);
+        assert!((contacts[1].pos[1] - 0.60).abs() < 0.001);
+        assert!((contacts[3].pos[1] - 0.70).abs() < 0.001);
+        assert_eq!(contacts[4].pos, [0.5, 0.5]);
+        assert!((contacts.last().unwrap().pos[1] - 0.30).abs() < 0.001);
+        assert!(!gestures.waiting());
     }
 
     #[test]
