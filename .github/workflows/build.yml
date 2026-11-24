@@ -14,7 +14,7 @@ jobs:
   runtime:
     name: Build stock r61 runtime for both Android ABIs
     runs-on: ubuntu-22.04
-    timeout-minutes: 150
+    timeout-minutes: 300
     defaults:
       run:
         shell: bash
@@ -64,6 +64,17 @@ jobs:
           ln -s "$PWD/prebuilts/python/linux-x86/2.7.5/bin/python2.7" "$RUNNER_TEMP/pie-bin/python2"
           export PATH="$RUNNER_TEMP/pie-bin:$PATH"
           python --version
+          # The static r61 flex uses an older glibc locale format. Its C locale is built in.
+          flex=prebuilts/misc/linux-x86/flex/flex-2.5.39
+          mv "$flex" "$flex.stock"
+          cat > "$flex" <<'EOF'
+          #!/bin/sh
+          export LC_ALL=C LANG=C
+          exec "$0.stock" "$@"
+          EOF
+          chmod +x "$flex"
+          "$flex" -o"$RUNNER_TEMP/aidl-flex-probe.cpp" system/tools/aidl/aidl_language_l.ll
+          test -s "$RUNNER_TEMP/aidl-flex-probe.cpp"
           source build/envsetup.sh
           lunch sdk_phone_x86_64-userdebug
           report="$RUNNER_TEMP/pie-result"
