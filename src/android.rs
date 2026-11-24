@@ -779,6 +779,35 @@ fn apply_amd_uma_vulkan(
     }
 }
 
+fn should_configure_pubg_angle(boot_log: &Path, linux: bool) -> bool {
+    !linux
+        || !fs::read(boot_log)
+            .is_ok_and(|log| selected_vulkan_is_cpu(&String::from_utf8_lossy(&log)))
+}
+
+fn selected_vulkan_is_cpu(log: &str) -> bool {
+    // Host GLES may use a different adapter. Require the actual Vulkan selection
+    // and its matching physical device type from the same emulator boot.
+    let selected = log.lines().rev().find_map(|line| {
+        line.split_once("Selecting Vulkan device: ")
+            .map(|(_, selection)| selection)
+    });
+    let Some((selected, _)) = selected.and_then(|entry| entry.rsplit_once(", Version: ")) else {
+        return false;
+    };
+    let mut matching_types = log
+        .lines()
+        .filter_map(|line| {
+            let (_, device) = line.split_once("Found physical GPU '")?;
+            let (name, properties) = device.rsplit_once("', type: ")?;
+            let (device_type, _) = properties.split_once(',')?;
+            (selected == name).then_some(device_type)
+        })
+        .peekable();
+    matching_types.peek().is_some()
+        && matching_types.all(|kind| kind == "VK_PHYSICAL_DEVICE_TYPE_CPU")
+}
+
 fn matching_kemu_image(root: &Path, system: &Path) -> bool {
     root.join(KEMU_EMULATOR).is_file()
         && same_directory(&root.join(KEMU_IMAGE), system)
@@ -1102,6 +1131,7 @@ pub fn boot(
                         property(&meta, "SystemImage.TagId") == Some("google_apis_playstore")
                             && property(&meta, "SystemImage.Abi") == Some("x86_64")
                     })
+                && should_configure_pubg_angle(&log_path, cfg!(target_os = "linux"))
             {
                 // This guest's native EGL driver can crash on swapBuffers in PUBG.
                 // Use the guest's per-app GLES driver selection before exposing Home.
@@ -1515,6 +1545,42 @@ mod tests {
             (image.api.as_str(), image.tag.as_str()),
             ("android-35", "google_apis")
         );
+    }
+
+    #[test]
+    fn pubg_angle_skips_only_a_confirmed_linux_cpu_vulkan_selection() {
+        use super::should_configure_pubg_angle;
+
+        let folder = tempfile::tempdir().unwrap();
+        let log = folder.path().join("boot.log");
+        let cpu = "INFO | Found physical GPU 'llvmpipe (LLVM 21.1.8, 256 bits)', type: VK_PHYSICAL_DEVICE_TYPE_CPU, apiVersion: 1.4.363\n";
+        let amd = "INFO | Found physical GPU 'AMD Radeon 780M Graphics', type: VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU, apiVersion: 1.4.359\n";
+        let choose_cpu =
+            "INFO | Selecting Vulkan device: llvmpipe (LLVM 21.1.8, 256 bits), Version: 1.4.363\n";
+        let choose_amd =
+            "INFO | Selecting Vulkan device: AMD Radeon 780M Graphics, Version: 1.4.359\n";
+        let choose_unknown =
+            "INFO | Selecting Vulkan device: An unclassified device, Version: 1.3.0\n";
+
+        assert!(should_configure_pubg_angle(&log, true));
+        for (text, expected) in [
+            (format!("{cpu}{amd}{choose_cpu}"), false),
+            (format!("{cpu}{amd}{choose_amd}"), true),
+            (format!("{cpu}{amd}{choose_cpu}{choose_amd}"), true),
+            (format!("{cpu}{amd}{choose_amd}{choose_cpu}"), false),
+            (format!("{cpu}{choose_unknown}"), true),
+            (format!("{cpu}{choose_cpu}{choose_unknown}"), true),
+            (cpu.to_owned(), true),
+        ] {
+            fs::write(&log, &text).unwrap();
+            assert_eq!(should_configure_pubg_angle(&log, true), expected, "{text}");
+            assert!(should_configure_pubg_angle(&log, false), "{text}");
+        }
+
+        // A matching name with conflicting device types is inconclusive.
+        let conflict = cpu.replace("DEVICE_TYPE_CPU", "DEVICE_TYPE_DISCRETE_GPU");
+        fs::write(&log, format!("{cpu}{conflict}{choose_cpu}")).unwrap();
+        assert!(should_configure_pubg_angle(&log, true));
     }
 
     #[cfg(feature = "ui")]

@@ -33,6 +33,8 @@ MESA_D3D12_DEFAULT_ADAPTER_NAME='Radeon 780M' \
 
 The existing Android 17 AVD reached `sys.boot_completed=1` in 23.1 s on one startup. The emulator log and Android's `dumpsys SurfaceFlinger` both identified the OpenGL ES translator on the Radeon through D3D12. With BombSquad in the foreground, Android reported OpenGL ES 3.1. For Vulkan, the same emulator log identified a CPU device and the guest's `cmd gpu vkjson` listed only `Goldfish GFXStream (llvmpipe (LLVM 21.1.8, 256 bits))`. Vulkan games and games using ANGLE over Vulkan in this configuration still use a software Vulkan backend. Both API readings matter when interpreting a benchmark.
 
+Starting in v0.13.3, the Linux launcher skips adding the automatic ANGLE preference for PUBG MOBILE when the boot log identifies the selected Vulkan device as a CPU renderer. For existing profiles, read the per-app preferences below to verify which driver Android will use. Match the name on `Selecting Vulkan device` to its reported physical device type. The GLES renderer can use a different adapter.
+
 ### BombSquad in an active round
 
 In BombSquad 1.8.10, open **Settings → Advanced → Benchmarks**, then scroll to **Stress Test**. Both trials used the default random playlist, eight simulated players in the test settings, a 30-second round setting and a 1600 × 900 display. Screenshots taken before and after each sample showed play continuing in the same round. Samples crossing a scene transition were excluded.
