@@ -4,16 +4,17 @@ The RustEmuDroid runs used Android Emulator 37.3.10 with the Android 17 Google P
 
 ## SuperTuxKart release comparison
 
-The Black Forest replay in SuperTuxKart 1.5 averaged **59.94 game FPS on RustEmuDroid 0.2.4** and **60.01 on 0.3.0**. Both used the same Android 17 Google Play profile, native x86-64 game, embedded display, direct Vulkan renderer, RTX 5070 Ti and 60 FPS cap. The replay ran at 1600 × 900 with the High preset and 100% render scale. All 21 game-reported graphics fields matched.
+SuperTuxKart 1.5 ran the Black Forest replay in the embedded Windows display. All three builds used the same Android 17 Google Play profile, native x86-64 game, direct Vulkan renderer and RTX 5070 Ti. The High preset ran at 1600 × 900, 100% render scale and a 60 FPS cap. All 21 game-reported graphics fields matched.
 
-| Windows build | FPS, first replay | FPS, second replay | Main-loop P95, pooled |
-|---|---:|---:|---:|
-| 0.2.4, published binary | 59.88 | 60.01 | 19.24 ms |
-| 0.3.0, local release build | 60.08 | 59.93 | 19.12 ms |
+| Windows build | FPS, first replay | FPS, second replay | Mean game FPS | Main-loop P95, pooled |
+|---|---:|---:|---:|---:|
+| 0.2.4, published binary | 59.88 | 60.01 | 59.94 | 19.24 ms |
+| 0.3.0, local release build | 60.08 | 59.93 | 60.01 | 19.12 ms |
+| 0.4.0, local release build | 59.92 | 60.03 | 59.98 | 18.90 ms |
 
-The game recorded 2,283–2,288 frames per run. FPS is the frame count divided by the game's replay duration. P95 uses the positive main-loop timings from its own profiler. The two FPS ranges overlap at the frame cap. This check detected no loss in this replay. It covered the normal in-game mapping path with no control held. Uncapped throughput and active tilt or edge-scroll costs remain unmeasured.
+The game recorded 2,283–2,288 frames per run. FPS is the frame count divided by the game's replay duration. P95 uses the positive main-loop timings from its own profiler. The FPS ranges overlap at the frame cap, with no measurable loss in this replay. The check covered the normal in-game mapping path with no controls held. Uncapped throughput and the cost of actively using the new controls remain unmeasured.
 
-To repeat, verify the AVD path and GPU for each desktop version, then run `python benchmarks/stk-1.5/compare.py --adb <adb> --rust <serial> --rounds 2 --presets high-vulkan --output <new-folder>` with one emulator open. The 0.2.4 runs came first. The harness restored the game's configuration byte-for-byte after each run. [Replay harness](../benchmarks/stk-1.5/compare.py)
+To repeat, verify the AVD path and GPU for each desktop version, then run `python benchmarks/stk-1.5/compare.py --adb <adb> --rust <serial> --rounds 2 --presets high-vulkan --output <new-folder>` with one emulator open. The 0.2.4 and 0.3.0 runs took place in that order. The 0.4.0 runs followed in a separate session. The harness restored the game's configuration byte-for-byte after each run. [Replay harness](../benchmarks/stk-1.5/compare.py)
 
 ## PUBG MOBILE
 
