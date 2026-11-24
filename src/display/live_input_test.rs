@@ -437,3 +437,282 @@ fn edge_scroll_reaches_selected_android() {
         "Android input device {device}: two right-edge drags, one top-edge drag, all released"
     );
 }
+
+#[test]
+#[ignore = "requires a running selected idle AVD with getevent access and the RustEmuDroid Home"]
+fn moba_scroll_and_free_look_reach_selected_android() {
+    let (guest, console, rpc, device) = Guest::selected();
+    let restore = guest.open_device_info();
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("moba-scroll-free-look.json");
+    std::fs::write(
+        &file,
+        r#"{"com.android.settings":{"active":"Probe","layouts":{"Probe":{
+        "buttons":{},"stick":null,"controls":[
+          {"input":"X","at":[0.22,0.72],"gesture":{
+            "kind":"moba-move","hero":[0.5,0.5],"radius":0.1,"speed":1.0}},
+          {"input":"","at":[0.66,0.51],"gesture":{
+            "kind":"scroll","amplitude":0.18,"speed":1.0,"override_wheel":true}},
+          {"input":"","at":[0.46,0.58],"gesture":{
+            "kind":"free-look","mouse":false,"directions":["I","K","J","L"],
+            "speed":0.8,"reset_ms":50}},
+          {"input":"V","at":[0.60,0.58],"gesture":{
+            "kind":"free-look","mouse":true,"directions":["I","K","J","L"],
+            "speed":0.8,"reset_ms":50}}
+        ]}}}}"#,
+    )
+    .unwrap();
+    let ctx = egui::Context::default();
+    let mut display = Display::open(console, rpc, guest.expected.clone(), &ctx);
+    display.mapping.load(file);
+    display.set_package(Some(SETTINGS));
+    for key in [Key::X, Key::I, Key::V] {
+        assert!(display.mapping.captures(key), "unmapped key {key:?}");
+    }
+    assert!(
+        display
+            .mapping
+            .captures_pointer(egui::PointerButton::Secondary)
+    );
+
+    let screen = Rect::from_min_size(Pos2::ZERO, vec2(840., 840.));
+    let tick = |display: &mut Display, time, focused, events| {
+        let mut outer = Rect::NOTHING;
+        let _ = ctx.run(
+            RawInput {
+                time: Some(time),
+                focused,
+                events,
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ctx| {
+                CentralPanel::default().show(ctx, |ui| {
+                    outer = ui.available_rect_before_wrap();
+                    display.show(ui, true, Locale::default());
+                });
+            },
+        );
+        outer
+    };
+    let ready = Instant::now();
+    let (outer, view) = loop {
+        let outer = tick(&mut display, ready.elapsed().as_secs_f64(), true, vec![]);
+        if display.texture.is_some() {
+            let android = vec2(display.size[0] as f32, display.size[1] as f32);
+            let scale = (outer.width() / android.x).min(outer.height() / android.y);
+            break (
+                outer,
+                Rect::from_center_size(outer.center(), android * scale),
+            );
+        }
+        assert!(
+            ready.elapsed() < Duration::from_secs(20),
+            "no guest display frame"
+        );
+        thread::sleep(Duration::from_millis(50));
+    };
+    let letterbox = if outer.width() - view.width() > 8. {
+        egui::pos2(outer.left() + 2., view.center().y)
+    } else {
+        egui::pos2(view.center().x, outer.top() + 2.)
+    };
+    assert!(outer.contains(letterbox) && !view.contains(letterbox));
+    let point = |x, y| view.min + vec2(view.width() * x, view.height() * y);
+    let expected_direction = |delta| {
+        let (x, y) = display.coordinates(view.center(), view);
+        let (end_x, end_y) = display.coordinates(view.center() + delta, view);
+        (i64::from(end_x - x), i64::from(end_y - y))
+    };
+    let upper_left = expected_direction(vec2(-20., -20.));
+    let lower_right = expected_direction(vec2(20., 20.));
+    let down = expected_direction(vec2(0., 20.));
+    let up = expected_direction(vec2(0., -20.));
+    let right = expected_direction(vec2(20., 0.));
+    let anchor = display.coordinates(point(0.22, 0.72), view);
+    let axis_limits = guest.text(&["shell", "getevent", "-lp", &device]);
+    let absolute_axis = |name: &str, pixel: i32, pixel_max: usize| {
+        let axis = axis_limits
+            .lines()
+            .find(|line| line.split_whitespace().next() == Some(name))
+            .unwrap_or_else(|| panic!("missing {name} capability: {axis_limits}"));
+        let number = |field: &str| {
+            axis.split_whitespace()
+                .skip_while(|part| *part != field)
+                .nth(1)
+                .unwrap()
+                .trim_end_matches(',')
+                .parse::<f64>()
+                .unwrap()
+        };
+        let min = number("min");
+        let span = number("max") - min;
+        assert!(span > 0. && pixel_max > 0, "{axis}");
+        (
+            min + span * f64::from(pixel) / pixel_max as f64,
+            span * 0.04,
+        )
+    };
+    let [width, height] = display.size;
+    let (width, height) = if display.rotation % 2 == 0 {
+        (width, height)
+    } else {
+        (height, width)
+    };
+    let expected_anchor_x = absolute_axis("ABS_MT_POSITION_X", anchor.0, width - 1);
+    let expected_anchor_y = absolute_axis("ABS_MT_POSITION_Y", anchor.1, height - 1);
+    let key = |key, pressed| Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed,
+        repeat: false,
+        modifiers: Modifiers::NONE,
+    };
+    let secondary = |pos, pressed| Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Secondary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    let wheel = |delta| Event::MouseWheel {
+        delta: vec2(0., delta),
+        unit: egui::MouseWheelUnit::Point,
+        modifiers: Modifiers::NONE,
+    };
+
+    let capture = guest.capture_touch(&device);
+    thread::sleep(Duration::from_millis(300));
+    let mut time = ready.elapsed().as_secs_f64();
+    let mut step = |display: &mut Display, seconds, focused, events| {
+        time += seconds;
+        tick(display, time, focused, events);
+        thread::sleep(Duration::from_millis(32));
+    };
+    step(
+        &mut display,
+        0.02,
+        true,
+        vec![
+            Event::PointerMoved(letterbox),
+            secondary(letterbox, true),
+            secondary(letterbox, false),
+            wheel(1.),
+        ],
+    );
+    // The click is right of the touch joystick but left of the hero.
+    let left_of_hero = point(0.34, 0.34);
+    step(
+        &mut display,
+        0.02,
+        true,
+        vec![
+            Event::PointerMoved(left_of_hero),
+            secondary(left_of_hero, true),
+        ],
+    );
+    step(
+        &mut display,
+        0.02,
+        true,
+        vec![secondary(left_of_hero, false)],
+    );
+    step(&mut display, 0.80, true, vec![]);
+    // A stale MOBA contact would overlap the wheel drag.
+    step(&mut display, 0.02, true, vec![wheel(1.)]);
+    step(&mut display, 0.09, true, vec![]);
+    step(&mut display, 0.16, true, vec![]);
+
+    let lower_right_of_hero = point(0.76, 0.68);
+    step(
+        &mut display,
+        0.02,
+        true,
+        vec![
+            Event::PointerMoved(lower_right_of_hero),
+            secondary(lower_right_of_hero, true),
+        ],
+    );
+    step(
+        &mut display,
+        0.02,
+        true,
+        vec![secondary(lower_right_of_hero, false)],
+    );
+    step(
+        &mut display,
+        0.02,
+        true,
+        vec![key(Key::X, true), key(Key::X, false)],
+    );
+    // The wheel begins before the MOBA movement deadline. No overlap proves
+    // the stop binding released that contact.
+    step(&mut display, 0.02, true, vec![wheel(-1.)]);
+    step(&mut display, 0.09, true, vec![]);
+    step(&mut display, 0.16, true, vec![]);
+
+    step(&mut display, 0.03, true, vec![key(Key::I, true)]);
+    for _ in 0..5 {
+        step(&mut display, 0.03, true, vec![]);
+    }
+    step(&mut display, 0.02, true, vec![key(Key::I, false)]);
+    step(&mut display, 0.02, true, vec![key(Key::V, true)]);
+    step(
+        &mut display,
+        0.02,
+        true,
+        vec![Event::MouseMoved(vec2(40., 0.))],
+    );
+    step(&mut display, 0.02, false, vec![Event::WindowFocused(false)]);
+    step(&mut display, 0.02, false, vec![wheel(1.)]);
+
+    let result = capture.join().unwrap();
+    let log = String::from_utf8(result.stdout).unwrap();
+    let (peak, contacts) = parse_touch_events(&log);
+    restore.finish(&display);
+    assert_eq!(
+        peak,
+        1,
+        "{}\n{log}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let labels = [
+        ("MOBA timer", upper_left),
+        ("wheel up", down),
+        ("MOBA stop key", lower_right),
+        ("wheel down", up),
+        ("keyboard free look", up),
+        ("mouse free look", right),
+    ];
+    assert_eq!(contacts.len(), labels.len(), "{contacts:?}\n{log}");
+    for contact in [&contacts[0], &contacts[2]] {
+        for (axis, (expected, tolerance)) in [
+            (&contact.horizontal, expected_anchor_x),
+            (&contact.vertical, expected_anchor_y),
+        ] {
+            assert!(
+                axis.first()
+                    .is_some_and(|point| (f64::from(*point) - expected).abs() <= tolerance),
+                "MOBA contact did not start at the mapped joystick: {contact:?}\n{log}"
+            );
+        }
+    }
+    for (contact, (label, (expected_x, expected_y))) in contacts.iter().zip(labels) {
+        let (x, y) = contact.displacement();
+        let aligned = |actual: i64, expected: i64| {
+            if expected == 0 {
+                actual.abs() <= 1
+            } else {
+                actual.abs() > 20 && actual.signum() == expected.signum()
+            }
+        };
+        assert!(
+            contact.released && aligned(x, expected_x) && aligned(y, expected_y),
+            "{label}: {contact:?}\n{log}"
+        );
+        println!(
+            "Android {device}: {label}, tracking ID {}, start {:?}, displacement ({x}, {y}), contact released",
+            contact.id,
+            contact.horizontal.first().zip(contact.vertical.first())
+        );
+    }
+}
