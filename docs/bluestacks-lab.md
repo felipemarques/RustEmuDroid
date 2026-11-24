@@ -171,7 +171,18 @@ The Windows offline check of the actual `libgui.so` dynamic symbols identified a
 
 The next candidate uses the AOSP Pie Zygote implementation and preserves the copied framework's native method signatures. An offline comparison checked 168 JNI class registration tables per runtime. Tests with Android's x86 and x86-64 linkers exercised the copied native-library helper with small APK fixtures. The fixtures confirmed ABI selection while the default namespace retained the SDK runtime's SELinux binding. These checks ran outside a booted Android system.
 
-The platform source target is `android-9.0.0_r61`, manifest commit `3564dc0e96454f300e34543781448fa4185682c5`. The stock SDK boot control used API 28 revision 4, a different build. The full two-ABI source build and a boot test of the assembled R3 image are pending. The local handoff indexes the source manifest, build transcripts and fixture results. Before testing Home, confirm that enforcing SELinux transitions `system_server` into its own domain and that the guest shell can read `sys.boot_completed`.
+The stock AOSP build of `android-9.0.0_r61` produced x86 and x86-64 platform runtimes from manifest commit `3564dc0e96454f300e34543781448fa4185682c5`. A Windows replay of both stock GNU gold link commands reproduced the pre-strip ELFs byte for byte. Two privately linked runtimes retained the copied framework's JNI entry points. Each resolved 2,604 strong imports in the selected library set. [Public AOSP build and artifacts](https://github.com/felipemarques/RustEmuDroid/actions/runs/45449546204)
+
+**Independent Windows boot tests.** Each candidate started from a separate copy of the R2 disk and a fresh 6 GiB userdata fixture. We read back the deployed files, compared their SHA-256 hashes, checked ownership, modes and SELinux labels, validated the GPT and ran a read-only ext4 check before boot. The runs used Windows hardware acceleration and the RTX 5070 Ti. The kernel reported SELinux enforcing.
+
+| System image | Boot evidence | Last confirmed milestone |
+|---|---|---|
+| R3 with SDK Bionic, 214 files applied | `vold` received SIGSEGV, userdata failed to initialize and the Dalvik cache directory was unavailable. | The emulator console identified the test AVD. The guest ADB shell remained closed during 180 s of observation. |
+| R3 with Pie64 Bionic, 212 files applied | Keeping the original 32-bit and 64-bit `libc.so` recovered the encrypted mount on `dm-0` at 20.2 s. Zygote then started and exited with SIGABRT. | Both Zygotes repeatedly restarted. At 150 s the guest shell was still closed. A separate logcat run on the same image traced the abort to AssetManager initialization calling SystemProperties before its native methods were registered. |
+
+The third candidate (R3/C) moved the SystemProperties registration ahead of AssetManager on both architectures. The other 155 registrars kept their relative order. Android then created the system server. The SELinux audit reported its expected domain, `u:r:system_server:s0`, with enforcement active. During bootstrap the process tried to publish the Pie64 service `bstfilterapps`. The board had no service-specific label for this name, so the service manager rejected its registration and SystemServer restarted. Guest SurfaceFlinger identified the RTX 5070 Ti through the Android Emulator OpenGL ES Translator.
+
+The independent image still needs a complete Android boot, working shell, Home, touch and an installed game running inside RustEmuDroid. The Windows BlueStacks integration at the top of this page continues to launch the installed BlueStacks player.
 
 ## Opt-in data storage probe
 
