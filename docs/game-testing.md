@@ -152,7 +152,9 @@ RustEmuDroid 0.4.0 on Windows ran the ARM64 app in the Android 17 Google Play x8
 | Character standing in the starting area | 17.55 s | 59.94 | 18.65 ms |
 | Moving through the same level | 19.55 s | 59.85 | 18.53 ms |
 
-The movement sequence held up for 4.8 s, right for 3.6 s, up for 4.0 s and left for 3.6 s. Each row is one short observation of the game's SurfaceView. Count the intervals between guest presentation timestamps and divide by the time between the first and last. This measures displayed cadence. GPU utilization and the game's internal FPS were not measured. [Presentation timestamps](../benchmarks/godot-tps-demo/presentations.csv)
+The movement sequence held up for 4.8 s, right for 3.6 s, up for 4.0 s and left for 3.6 s. Each row is one short observation of the game's SurfaceView. Count the intervals between guest presentation timestamps and divide by the time between the first and last. The game did not expose an internal FPS counter during the test. [Presentation timestamps](../benchmarks/godot-tps-demo/presentations.csv)
+
+After a fresh boot, Windows' `GPU Engine` counters recorded the time that QEMU's 3D engine was active on the RTX 5070 Ti. At the idle Android Home it ran for 10,805 of 150,598,774 ticks (0.01%). At the start of the level, with the character stationary, it ran for 6,572,755 of 150,579,188 ticks (4.36%). Both counters use 100 ns units. The engine was selected by process ID and the adapter LUID from Windows' DirectX registry. These short samples exclude other processes and GPU engines. The starting scene left considerable 3D engine capacity available on this card at 900p.
 
 ![Playable robot in the industrial starting area of the Android Godot TPS demo, with the touch controls visible.](godot-tps-level.webp)
 
