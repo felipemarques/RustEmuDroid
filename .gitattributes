@@ -1,0 +1,2 @@
+# This script is sent verbatim to the guest's POSIX shell from Windows and Linux.
+android/*.sh text eol=lf

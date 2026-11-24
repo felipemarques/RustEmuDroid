@@ -755,6 +755,46 @@ pub fn boot(
                 ["shell", "getprop", "ro.build.version.release"],
             )
             .unwrap_or_else(|| "?".into());
+            if version.trim() == "17"
+                && matches!(gpu, Gpu::Auto | Gpu::Host)
+                && fs::read_to_string(system_dir.join("source.properties"))
+                    .ok()
+                    .is_some_and(|meta| {
+                        property(&meta, "SystemImage.TagId") == Some("google_apis_playstore")
+                            && property(&meta, "SystemImage.Abi") == Some("x86_64")
+                    })
+            {
+                // This guest's native EGL driver can crash on swapBuffers in PUBG.
+                // Use the guest's per-app GLES driver selection before exposing Home.
+                match adb_output(
+                    sdk,
+                    &serial,
+                    ["shell", include_str!("../android/pubg-angle.sh")],
+                )
+                .as_deref()
+                .map(str::trim)
+                {
+                    Some("applied") => notify(BootEvent::Message(
+                        sdk.locale
+                            .pick(
+                                "ANGLE sobre Vulkan ativado para o PUBG MOBILE.",
+                                "Enabled ANGLE over Vulkan for PUBG MOBILE.",
+                                "ANGLE sobre Vulkan activado para PUBG MOBILE.",
+                            )
+                            .into(),
+                    )),
+                    None => notify(BootEvent::Message(
+                        sdk.locale
+                            .pick(
+                                "Não foi possível configurar o driver gráfico do PUBG MOBILE.",
+                                "Could not configure the graphics driver for PUBG MOBILE.",
+                                "No se pudo configurar el controlador gráfico de PUBG MOBILE.",
+                            )
+                            .into(),
+                    )),
+                    _ => {}
+                }
+            }
             if hardware.arm_lite && is_kemu_image(&system_dir) && version.trim() == "16" {
                 let bridge = adb_output(
                     sdk,
