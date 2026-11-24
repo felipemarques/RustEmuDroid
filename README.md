@@ -76,15 +76,50 @@ After stopping Android, the session screen lets you start the same profile again
 
 ## Open an installed BlueStacks instance on Windows
 
-List the instances registered by BlueStacks 5, then start one by ID. Add the Android package name to open a game already installed in that instance.
+To open an installed game, you need BlueStacks 5 with at least one instance configured on Windows. The instance opens in the BlueStacks player with its own games and saves. These Windows PowerShell commands work without the Android SDK.
+
+RustEmuDroid’s embedded display, input mapping and FPS counter are available when playing in its native Android runtime.
+
+**If you downloaded the release ZIP**, choose **Extract All** and open the folder containing `rustemudroid.exe` in File Explorer. Click the address bar, type `powershell` and press **Enter**. In that window, set the executable path.
 
 ```powershell
-.\rustemudroid.exe bluestacks list
-.\rustemudroid.exe bluestacks open --instance Pie64
-.\rustemudroid.exe bluestacks open --instance Pie64 --package org.supertuxkart.stk
+$emu = '.\rustemudroid.exe'
 ```
 
-BlueStacks opens its own player window and uses that instance’s apps, saves and devices. RustEmuDroid’s embedded display, input mapping and FPS counter belong to its native Android runtime. Independent boot tests use private disk copies. See the [boot and device verification record](docs/bluestacks-lab.md).
+**If you cloned the repository**, open the folder containing `Cargo.toml` in File Explorer and type `powershell` in its address bar. The `Abrir RustEmuDroid.cmd` launcher builds the executable at this path.
+
+```powershell
+$emu = '.\target\integrado\release\rustemudroid.exe'
+```
+
+For a first build, run `cargo build --locked --release --features ui --target-dir target/integrado` in this folder. If you already used Cargo’s default release build directory, set `$emu = '.\target\release\rustemudroid.exe'`.
+
+**Check the path and list your instances.** Stay in the same PowerShell window. `Test-Path` should return `True`. If it returns `False` or PowerShell says the command is unrecognized, check the folder and the executable path you selected above. The `.\` prefix starts at the current folder.
+
+```powershell
+Test-Path -LiteralPath $emu -PathType Leaf
+& $emu bluestacks list
+```
+
+Example output from `list` on the test PC
+
+```text
+Pie64    BlueStacks App Player
+```
+
+The first column is the instance ID. To open the BlueStacks home screen, replace `Pie64` with the ID from your list.
+
+```powershell
+& $emu bluestacks open --instance Pie64
+```
+
+To open SuperTuxKart directly, use the following command if the game is installed in that instance. `--package` takes the game’s Android package ID.
+
+```powershell
+& $emu bluestacks open --instance Pie64 --package org.supertuxkart.stk
+```
+
+If the list is empty or an installation error appears, open the BlueStacks 5 Multi-instance Manager, confirm that an instance is installed and run `list` again. In the RustEmuDroid UI you can also choose **Open BlueStacks** from the session screen or Settings. To test booting copied disks with QEMU, follow the [separate Pie64 image diagnostic](docs/bluestacks-lab.md#boot-the-copied-disks-in-an-isolated-qemu-experiment).
 
 The crab moves during startup and shutdown, in About, and when Android Home has no matching items. The game view keeps the mascot off the rendering path.
 

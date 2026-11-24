@@ -76,15 +76,50 @@ Los perfiles de juego solicitan cuatro vCPU, 8 GiB de RAM y 1600 × 900 a 60 Hz.
 
 ## Abrir una instancia instalada de BlueStacks en Windows
 
-Enumera las instancias registradas en BlueStacks 5. Para abrir un juego ya instalado en una instancia, añade el nombre del paquete Android.
+Para abrir un juego instalado necesitas BlueStacks 5 con al menos una instancia configurada en Windows. La instancia se abre en la ventana de BlueStacks con sus juegos y partidas guardadas. Estos comandos de PowerShell para Windows funcionan sin el SDK de Android.
+
+La pantalla integrada, la asignación de controles y el contador de FPS de RustEmuDroid están disponibles al jugar en su propio entorno Android.
+
+**Si descargaste el ZIP de la versión publicada**, elige **Extraer todo** y abre en el Explorador de archivos la carpeta que contiene `rustemudroid.exe`. Haz clic en la barra de direcciones, escribe `powershell` y pulsa **Intro**. Indica en esa ventana la ruta del ejecutable.
 
 ```powershell
-.\rustemudroid.exe bluestacks list
-.\rustemudroid.exe bluestacks open --instance Pie64
-.\rustemudroid.exe bluestacks open --instance Pie64 --package org.supertuxkart.stk
+$emu = '.\rustemudroid.exe'
 ```
 
-BlueStacks abre su propia ventana con los datos y los dispositivos de la instancia seleccionada. La pantalla integrada, el contador de FPS y la asignación de controles de RustEmuDroid pertenecen a su entorno Android nativo. Las pruebas de arranque independiente se realizan con copias locales. [Registro de arranque y dispositivos](docs/bluestacks-lab.md)
+**Si clonaste el repositorio**, abre en el Explorador la carpeta que contiene `Cargo.toml` y escribe `powershell` en la barra de direcciones. El lanzador `Abrir RustEmuDroid.cmd` compila el ejecutable en esta ruta.
+
+```powershell
+$emu = '.\target\integrado\release\rustemudroid.exe'
+```
+
+Si es la primera compilación, ejecuta `cargo build --locked --release --features ui --target-dir target/integrado` en esa carpeta. Si ya utilizaste el directorio de compilación predeterminado de Cargo, usa `$emu = '.\target\release\rustemudroid.exe'`.
+
+**Comprueba la ruta y enumera tus instancias.** Continúa en la misma ventana de PowerShell. `Test-Path` debe devolver `True`. Si devuelve `False` o PowerShell indica que no reconoce el comando, comprueba la carpeta y la ruta del ejecutable elegida arriba. El prefijo `.\` parte de la carpeta actual.
+
+```powershell
+Test-Path -LiteralPath $emu -PathType Leaf
+& $emu bluestacks list
+```
+
+Ejemplo de salida de `list` en el equipo de prueba
+
+```text
+Pie64    BlueStacks App Player
+```
+
+La primera columna es el ID de la instancia. Para abrir la pantalla de inicio de BlueStacks, sustituye `Pie64` por el ID que aparezca en tu lista.
+
+```powershell
+& $emu bluestacks open --instance Pie64
+```
+
+Para abrir SuperTuxKart directamente, utiliza el siguiente comando si el juego está instalado en esa instancia. `--package` recibe el identificador del paquete Android del juego.
+
+```powershell
+& $emu bluestacks open --instance Pie64 --package org.supertuxkart.stk
+```
+
+Si la lista está vacía o aparece un error de instalación, abre el administrador de instancias de BlueStacks 5, confirma que hay una instancia instalada y vuelve a ejecutar `list`. En la interfaz de RustEmuDroid también puedes elegir **Abrir BlueStacks** en la pantalla de sesión o en los ajustes. Para probar el arranque de los discos copiados con QEMU, consulta el [diagnóstico de la imagen Pie64](docs/bluestacks-lab.md#boot-the-copied-disks-in-an-isolated-qemu-experiment).
 
 El cangrejo se mueve durante el arranque y el apagado, en la ventana de información y cuando la búsqueda de la pantalla de inicio queda vacía. La animación se detiene durante la partida.
 
