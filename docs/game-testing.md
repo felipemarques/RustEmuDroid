@@ -187,6 +187,12 @@ In the separate BlueStacks Radeon diagnostic pass, the game's render hardware in
 
 The raw BlueStacks scheduler events show the render hardware interface thread spending 61.3 ms runnable during that ready-to-ready interval. In the earlier RustEmuDroid 0.4.0 RTX recording with a first-close marker, the 1,674 ms producer gap included 1,293 ms of game-thread CPU, 93 ms of game-thread runnable wait and 4.8 ms of SurfaceFlinger main-thread CPU. These recordings cover different configurations and process warm-up states. They identify where time accumulated within each transition. A controlled trial changing just the ARM translator, game driver or Android image would be needed to assign a speed difference to that component.
 
+#### Android native-bridge CPU probe
+
+On the same Ryzen 9 8945HS and RTX 5070 Ti host, a separate JNI fixture ran on BlueStacks Pie64 Android 9 and RustEmuDroid 0.13.5 Android 17 Google Play with four vCPUs and 8 GiB each. Each guest ran x86-64, ARM64, ARM64 and x86-64 in fresh processes. The ARM64/x86-64 ratios of adjacent process medians for arithmetic thread CPU time averaged 0.956 in Pie64 and 0.999 in Android 17, using the geometric mean. The corresponding indexed-memory ratios were 0.972 and 1.000, with individual memory pairs ranging from 0.808 to 1.237 across the two guests.
+
+The fixture measures two warmed loops. It leaves first-use translation, rendering and game behavior outside its timing window, so assigning the PUBG Inventory pause to the native bridge still requires a workload that exercises that transition. [Benchmark method and results](../benchmarks/native-bridge/README.md#windows-results) · [Per-sample timings](../benchmarks/native-bridge/results.csv)
+
 ### PUBG startup on Kemu Android 16
 
 We tested the existing Original profile in RustEmuDroid 0.13.3 on Windows with Kemu Android 16, the RTX 5070 Ti, 1600 × 900 and the same ARM64 PUBG build 4.7.0 (21718). Each test had its own VM boot. We verified the selected GPU, game version, AVD and Berberis translation mode on each launch.

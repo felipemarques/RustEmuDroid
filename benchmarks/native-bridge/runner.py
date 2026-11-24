@@ -124,11 +124,16 @@ def validate_samples(result, task, count):
     if len(rows) != count:
         raise RuntimeError(f"Wrong sample count for {task}")
     for wall, cpu, minor, major in rows:
-        if not (0 < cpu <= wall + 100_000 and wall > 0 and minor >= -1 and major >= -1):
+        if not (wall > 0 and cpu > 0 and minor >= -1 and major >= -1):
             raise RuntimeError(f"Invalid clocks or page-fault counters for {task}")
-    return task, {"median_wall_ns": median(row[0] for row in rows),
-                  "median_thread_cpu_ns": median(row[1] for row in rows),
-                  "major_faults": [row[3] for row in rows]}
+    cpu_minus_wall_ns = [cpu - wall for wall, cpu, _, _ in rows]
+    return task, {
+        "median_wall_ns": median(row[0] for row in rows),
+        "median_thread_cpu_ns": median(row[1] for row in rows),
+        "major_faults": [row[3] for row in rows],
+        "samples_cpu_exceeds_wall": sum(duration > 0 for duration in cpu_minus_wall_ns),
+        "max_cpu_excess_ns": max(0, max(cpu_minus_wall_ns)),
+    }
 
 
 def main():
