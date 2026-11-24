@@ -227,7 +227,7 @@ jobs:
           export RUSTEMUDROID_TEST_SDK_PACKAGE='system-images;android-35;default;x86_64'
           export RUSTEMUDROID_TEST_RUNTIME_DEST="$GITHUB_WORKSPACE/.rustemudroid/qa/install-smoke"
           chmod +x "$RUNNER_TEMP/test-bin/runtime-install-test"
-          "$RUNNER_TEMP/test-bin/runtime-install-test" offline_installed_runtime_round_trip --ignored --nocapture |
+          "$RUNNER_TEMP/test-bin/runtime-install-test" offline_installed_runtime_round_trip --ignored --nocapture 2>&1 |
             tee "$RUNNER_TEMP/boot-report/runtime-install.txt"
           grep -F '1 passed; 0 failed' "$RUNNER_TEMP/boot-report/runtime-install.txt"
           mv "$RUSTEMUDROID_TEST_RUNTIME_DEST/runtime" "$app/runtime"

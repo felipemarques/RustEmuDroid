@@ -63,13 +63,7 @@ fn pack_directory(zip: &mut ZipWriter<File>, path: &Path, name: &str) -> Result<
     Ok(())
 }
 
-fn check_version(
-    binary: &Path,
-    arg: &str,
-    expected: &str,
-    work: &Path,
-    runtime: &Path,
-) -> Result<()> {
+fn check_tool(binary: &Path, arg: &str, expected: &str, work: &Path, runtime: &Path) -> Result<()> {
     let output = Command::new(binary)
         .arg(arg)
         .current_dir(work)
@@ -193,7 +187,7 @@ fn offline_installed_runtime_round_trip() -> Result<()> {
     let copied = Sdk::find_localized(Some(runtime.clone()), locale)?;
     let tools_work = work.join("version-checks");
     fs::create_dir(&tools_work)?;
-    check_version(
+    check_tool(
         &copied.adb,
         "version",
         "Android Debug Bridge version",
@@ -203,13 +197,14 @@ fn offline_installed_runtime_round_trip() -> Result<()> {
     let emulator = runtime
         .join("emulator")
         .join(format!("emulator{}", env::consts::EXE_SUFFIX));
-    check_version(
-        &emulator,
-        "-version",
-        "Android emulator version",
-        &tools_work,
-        &runtime,
-    )?;
+    // A Linux runner can use KVM before an X display is available. Exercise the same
+    // standalone accelerator check as the desktop doctor before the hosted boot test.
+    let (argument, expected) = if cfg!(target_os = "linux") {
+        ("-accel-check", "KVM")
+    } else {
+        ("-version", "Android emulator version")
+    };
+    check_tool(&emulator, argument, expected, &tools_work, &runtime)?;
     let profile = Profile::localized(work.join("profile"), locale);
     profile.init(SystemImage::from_sdk(&copied, &image_id)?)?;
     let system_dir = profile.system_dir(&copied)?;
