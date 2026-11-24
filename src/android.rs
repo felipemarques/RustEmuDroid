@@ -93,14 +93,19 @@ impl Sdk {
             return Ok(runtime);
         }
         let sdk = default
+            .filter(|root| root.exists())
             .ok_or_else(|| -> Box<dyn std::error::Error> {
-                locale
-                    .pick(
-                        "Informe --sdk ou configure ANDROID_HOME.",
-                        "Pass --sdk or set ANDROID_HOME.",
-                        "Indica --sdk o configura ANDROID_HOME.",
-                    )
-                    .into()
+                let command = if cfg!(windows) {
+                    r".\rustemudroid.exe runtime-setup --image google-play"
+                } else {
+                    "./rustemudroid runtime-setup --image google-play"
+                };
+                let message = locale.pick(
+                    "Runtime Android não encontrado. Execute o comando abaixo na pasta do programa para consultar os detalhes da instalação.",
+                    "Android runtime not found. Run the following command from the extracted application folder to review the installation.",
+                    "No se ha encontrado el entorno de Android. Ejecuta el siguiente comando desde la carpeta del programa para consultar los detalles de instalación.",
+                );
+                format!("{message}\n{command}").into()
             })
             .and_then(|root| Self::from_root(root, RuntimeKind::Sdk, locale));
         if sdk.is_ok() {
@@ -1384,6 +1389,33 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     struct TestRoot(PathBuf);
+
+    #[test]
+    fn first_run_points_to_runtime_setup_and_preserves_explicit_path_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("Android").join("Sdk");
+        for locale in [Locale::PtBr, Locale::EnUs, Locale::EsEs] {
+            let discover = |configured| {
+                Sdk::discover(configured, None, Some(missing.clone()), None, locale)
+                    .err()
+                    .unwrap()
+                    .to_string()
+            };
+            let automatic = discover(None);
+            let command = automatic.lines().last().unwrap();
+            assert_eq!(
+                command,
+                if cfg!(windows) {
+                    r".\rustemudroid.exe runtime-setup --image google-play"
+                } else {
+                    "./rustemudroid runtime-setup --image google-play"
+                }
+            );
+            let explicit = discover(Some(missing.clone()));
+            assert!(explicit.contains(missing.to_str().unwrap()));
+            assert!(!explicit.contains("runtime-setup"));
+        }
+    }
 
     impl TestRoot {
         fn new() -> Self {
