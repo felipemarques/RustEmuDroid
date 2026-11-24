@@ -9,6 +9,7 @@ mod controls;
 #[cfg(feature = "ui")]
 mod display;
 mod locale;
+mod runtime_install;
 #[cfg(feature = "ui")]
 mod toolbar;
 #[cfg(feature = "ui")]
@@ -71,6 +72,8 @@ enum Action {
 
     /// Localiza as ferramentas e verifica o hipervisor.
     Doctor,
+    /// Prepara o runtime Android gerenciado pelo RustEmuDroid.
+    RuntimeSetup(runtime_install::SetupArgs),
 
     /// Cria um AVD local a partir de uma imagem já instalada.
     Init {
@@ -175,6 +178,9 @@ fn run(cli: Cli) -> Result<()> {
     if matches!(cli.command, Action::GpuInventory) {
         return ui::print_gpu_inventory();
     }
+    if let Action::RuntimeSetup(args) = &cli.command {
+        return runtime_install::command(args, language);
+    }
     let state = cli
         .state_dir
         .unwrap_or_else(|| PathBuf::from(".rustemudroid").join(std::env::consts::OS));
@@ -188,6 +194,7 @@ fn run(cli: Cli) -> Result<()> {
     let profile = Profile::localized(state, language);
 
     match cli.command {
+        Action::RuntimeSetup(_) => unreachable!(),
         #[cfg(windows)]
         Action::BlueStacks { .. } => unreachable!(),
         #[cfg(feature = "ui")]

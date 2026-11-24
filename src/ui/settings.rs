@@ -318,6 +318,10 @@ fn camera_label(camera: Camera, locale: Locale) -> &'static str {
 pub(super) struct ProfileImages {
     sdk: Option<String>,
     original: Option<String>,
+    portable_original: Option<PathBuf>,
+    missing_original: bool,
+    original_state: PathBuf,
+    google_state: PathBuf,
     google: PathBuf,
     play_ready: bool,
     has_berberis_image: bool,
@@ -347,10 +351,43 @@ impl ProfileImages {
     fn refresh(&mut self, sdk_path: &str, base: &Path) {
         let explicit_sdk = sdk_path.trim();
         let sdk = Sdk::find((!explicit_sdk.is_empty()).then(|| explicit_sdk.into())).ok();
+        let managed = sdk
+            .as_ref()
+            .filter(|sdk| super::runtime_setup::managed(sdk));
+        let selected_state = |choice| {
+            let [primary, fallback] = super::runtime_setup::profile_dirs(base, choice);
+            if let Some(sdk) = managed {
+                let requested = super::runtime_setup::image_path(&sdk.root, choice.package());
+                if Profile::new(fallback.clone())
+                    .system_dir(sdk)
+                    .ok()
+                    .and_then(|p| p.canonicalize().ok())
+                    .is_some_and(|p| {
+                        requested
+                            .canonicalize()
+                            .is_ok_and(|requested| p == requested)
+                    })
+                {
+                    return fallback;
+                }
+            }
+            primary
+        };
+        self.original_state = selected_state(crate::runtime_install::ImageChoice::Original);
+        self.google_state = selected_state(crate::runtime_install::ImageChoice::GooglePlay);
+        let base = &self.original_state;
         let original_dir = sdk
             .as_ref()
             .and_then(|sdk| Profile::new(base.into()).system_dir(sdk).ok())
             .or_else(|| sdk.as_ref().and_then(default_kemu_image));
+        self.portable_original = managed
+            .map(|sdk| {
+                super::runtime_setup::image_path(&sdk.root, super::runtime_setup::ORIGINAL_ID)
+            })
+            .filter(|path| path.join("system.img").is_file());
+        self.missing_original = managed.is_some()
+            && self.portable_original.is_none()
+            && !base.join("avd/RustEmuDroid.ini").is_file();
         self.has_berberis_image = original_dir
             .as_deref()
             .is_some_and(crate::android::is_kemu_image);
@@ -364,10 +401,11 @@ impl ProfileImages {
                 "36" => "Android 16 · API 36".into(),
                 _ => format!("API {api}"),
             });
-        self.google = sdk
-            .as_ref()
-            .map_or(Path::new(sdk_path), |sdk| sdk.root.as_path())
-            .join("system-images/android-37.0/google_apis_playstore/x86_64");
+        self.google = super::runtime_setup::image_path(
+            sdk.as_ref()
+                .map_or(Path::new(sdk_path), |sdk| sdk.root.as_path()),
+            super::runtime_setup::GOOGLE_ID,
+        );
         self.play_ready = self.google.join("system.img").is_file();
         self.amd_uma_google_image = false;
         self.amd_uma_google_profile = false;
@@ -386,7 +424,7 @@ impl ProfileImages {
                     self.amd_uma_google_image
                 }
             };
-            self.amd_uma_google_profile = profile_supports_amd_uma(&base.join("google-play-37"));
+            self.amd_uma_google_profile = profile_supports_amd_uma(&self.google_state);
             self.amd_uma_original_profile = profile_supports_amd_uma(base);
         }
         self.sdk = Some(sdk_path.to_owned());
@@ -409,6 +447,7 @@ impl Launcher {
         let mut apply = false;
         let mut android_settings = false;
         let mut check_boot = false;
+        let mut setup = false;
         #[cfg(windows)]
         let mut open_bluestacks = false;
         let base_state = self.prefs_file.parent().unwrap_or(Path::new("."));
@@ -429,11 +468,17 @@ impl Launcher {
                 .show(ui, |ui| {
                     ui.add_space(4.);
                     ui.label(RichText::new(locale.pick("Perfil do Android", "Android profile", "Perfil de Android")).strong());
-                    let google = base_state.join("google-play-37");
+                    let base_state = self.images.original_state.as_path();
+                    let google = self.images.google_state.as_path();
                     ui.columns(2, |col| {
-                        if theme::profile_card(&mut col[0], "Original", self.images.original.as_deref().unwrap_or_else(|| locale.pick("Imagem padrão", "Default image", "Imagen predeterminada")), Path::new(&draft.state) == base_state).clicked() {
+                        let original_desc = if self.images.missing_original { locale.pick("Imagem não instalada", "Image not installed", "Imagen sin instalar") } else { self.images.original.as_deref().unwrap_or_else(|| locale.pick("Imagem padrão", "Default image", "Imagen predeterminada")) };
+                        if col[0].add_enabled_ui(!self.images.missing_original, |ui| theme::profile_card(ui, "Original", original_desc, Path::new(&draft.state) == base_state)).inner.clicked() {
                             draft.state = base_state.display().to_string();
-                            draft.image.clear();
+                            draft.image = if base_state.join("avd/RustEmuDroid.ini").is_file() {
+                                String::new()
+                            } else {
+                                self.images.portable_original.as_ref().map(|p| p.display().to_string()).unwrap_or_default()
+                            };
                         }
                         let desc = if self.images.play_ready {"Google Play Store"} else {locale.pick("Imagem não instalada", "Image not installed", "Imagen sin instalar")};
                         let pick = col[1].add_enabled_ui(self.images.play_ready, |ui|
@@ -444,6 +489,7 @@ impl Launcher {
                         }
                     });
                     theme::label(ui, locale.pick("Cada perfil tem seus próprios aplicativos e dados.", "Each profile has its own apps and data.", "Cada perfil tiene sus propias aplicaciones y datos."));
+                    setup = ui.add(theme::button(super::runtime_setup::install_label(locale))).clicked();
                     ui.add_space(7.);
                     let language = theme::label(ui, locale.pick("Idioma", "Language", "Idioma"));
                     theme::select(ui, "launcher-language", draft.locale.name(), |ui| {
@@ -473,7 +519,7 @@ impl Launcher {
                     });
                     if self.adapters.pending.is_some() { ui.weak(locale.pick("Consultando placas de vídeo…", "Searching for graphics cards…", "Buscando tarjetas gráficas…")); }
                     else if self.adapters.error { ui.weak(locale.pick("Consulta às placas indisponível. A seleção automática continua disponível.", "Graphics card detection failed. Automatic selection is still available.", "No se han detectado las tarjetas gráficas. La selección automática sigue disponible.")); }
-                    if self.images.supports_amd_uma(draft, base_state, &google) {
+                    if self.images.supports_amd_uma(draft, base_state, google) {
                         let mut enabled = draft.amd_uma_vulkan();
                         if ui.checkbox(&mut enabled, locale.pick(
                             "Memória Vulkan compartilhada (Radeon 780M)",
@@ -587,6 +633,9 @@ impl Launcher {
         }
         if check_boot {
             self.start(true);
+        }
+        if setup {
+            self.open_runtime_setup();
         }
     }
 }

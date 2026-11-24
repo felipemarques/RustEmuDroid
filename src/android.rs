@@ -46,13 +46,30 @@ impl Sdk {
         let portable = env::current_exe()
             .ok()
             .and_then(|exe| exe.parent().map(|parent| parent.join("runtime")));
-        Self::discover(
+        let managed = crate::runtime_install::default_destination().ok();
+        if let (Some(selected), Some(root)) = (&configured, &managed)
+            && same_directory(selected, root)
+        {
+            return Self::from_root(root.clone(), RuntimeKind::Portable, locale);
+        }
+        let allow_fallback = configured.is_none();
+        let found = Self::discover(
             configured,
             portable,
             default_sdk_path(),
             cfg!(windows).then(kemu_install_root).flatten(),
             locale,
-        )
+        );
+        found.or_else(|error| {
+            if allow_fallback
+                && let Some(root) = managed
+                && root.is_dir()
+            {
+                Self::from_root(root, RuntimeKind::Portable, locale)
+            } else {
+                Err(error)
+            }
+        })
     }
 
     fn discover(

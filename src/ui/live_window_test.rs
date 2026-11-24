@@ -34,7 +34,7 @@ fn native_window_uses_the_embedded_brand() {
     .unwrap();
 }
 
-struct WindowTest {
+pub(super) struct WindowTest {
     app: Launcher,
     output: Option<PathBuf>,
     step: usize,
@@ -191,7 +191,7 @@ impl WindowTest {
         ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::new(name)));
     }
 
-    fn save(directory: &Path, name: &str, image: &egui::ColorImage) {
+    pub(super) fn save(directory: &Path, name: &str, image: &egui::ColorImage) {
         let mut file = std::io::BufWriter::new(
             std::fs::File::create(directory.join(format!("{name}.ppm"))).unwrap(),
         );

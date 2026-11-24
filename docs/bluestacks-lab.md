@@ -167,6 +167,8 @@ Repeat with the stock SDK directory and a second state directory for the control
 
 ### R3 runtime work
 
+The Windows offline check of the actual `libgui.so` dynamic symbols identified a difference relevant to assembling R3. On both x86 and x86-64 the Pie64 R2 libraries export the `ScreenshotClient::capture` overload used by the r61 SurfaceControl source. Both API 28 revision 4 control libraries export only the earlier overload. Keep the compositor and its provider compatible when assembling the next image. This symbol check does not establish that Android has booted. [AOSP r61 SurfaceControl source](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-9.0.0_r61/core/jni/android_view_SurfaceControl.cpp)
+
 The next candidate uses the AOSP Pie Zygote implementation and preserves the copied framework's native method signatures. An offline comparison checked 168 JNI class registration tables per runtime. Tests with Android's x86 and x86-64 linkers exercised the copied native-library helper with small APK fixtures. The fixtures confirmed ABI selection while the default namespace retained the SDK runtime's SELinux binding. These checks ran outside a booted Android system.
 
 The platform source target is `android-9.0.0_r61`, manifest commit `3564dc0e96454f300e34543781448fa4185682c5`. The stock SDK boot control used API 28 revision 4, a different build. The full two-ABI source build and a boot test of the assembled R3 image are pending. The local handoff indexes the source manifest, build transcripts and fixture results. Before testing Home, confirm that enforcing SELinux transitions `system_server` into its own domain and that the guest shell can read `sys.boot_completed`.

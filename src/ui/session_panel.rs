@@ -15,7 +15,13 @@ impl Launcher {
                     ui.add_space(((ui.available_height() - 165.) * 0.5).max(0.));
                     mascot::show(ui, self.brand.id(), 72., self.config.animate_mascot, false);
                     ui.add_space(14.);
-                    ui.heading(if self.task.is_some() {
+                    ui.heading(if self.installer.as_ref().is_some_and(|w| w.installing()) {
+                        locale.pick(
+                            "Cancelando instalação…",
+                            "Cancelling installation…",
+                            "Cancelando la instalación…",
+                        )
+                    } else if self.task.is_some() {
                         locale.pick(
                             "Desligando Android…",
                             "Shutting down Android…",
@@ -221,6 +227,17 @@ impl Launcher {
                                         .clicked()
                                         {
                                             self.start(false);
+                                        }
+                                        if self.failed
+                                            && self.stage == BootStage::Preparing
+                                            && self.task.is_none()
+                                            && ui
+                                                .add(theme::button(
+                                                    super::runtime_setup::install_label(locale),
+                                                ))
+                                                .clicked()
+                                        {
+                                            self.open_runtime_setup();
                                         }
                                         if ui
                                             .add(theme::button(locale.pick(

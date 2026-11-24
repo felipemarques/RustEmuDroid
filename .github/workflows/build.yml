@@ -145,6 +145,14 @@ jobs:
             $reportedVersion = & (Join-Path $verify $binary) --version
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             if ($reportedVersion -cne "rustemudroid $env:VERSION") { throw "Unexpected executable version: $reportedVersion" }
+            $previewRoot = Join-Path $env:RUNNER_TEMP 'runtime-preview-only'
+            foreach ($profile in 'original', 'google-play') {
+              $plan = & (Join-Path $verify $binary) --lang en-us runtime-setup --image $profile --destination $previewRoot
+              if ($LASTEXITCODE -ne 0) { throw "Could not resolve $profile from Google's catalog" }
+              if ($plan[0] -notmatch '^system-images;android-.+;x86_64$' -or $plan[-1] -notmatch '--accept-license') { throw "Incomplete $profile preview" }
+              if (Test-Path -LiteralPath $previewRoot) { throw 'Preview wrote a runtime directory before consent' }
+              Write-Output "Setup preview: $($plan[0]), $($plan[2])"
+            }
             $python = if ($IsWindows) { 'python' } else { 'python3' }
             $labHelp = (& $python -B tools/bluestacks_data_probe.py --help) -join "`n"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -169,6 +177,27 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
+      - name: Collect the Linux runtime installation test
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -eu
+          for candidate in target/release/deps/rustemudroid-*; do
+            if [ -f "$candidate" ] && [ -x "$candidate" ] && "$candidate" --list | grep 'offline_installed_runtime_round_trip: test' >/dev/null; then
+              cp "$candidate" "$RUNNER_TEMP/runtime-install-test"
+              exit 0
+            fi
+          done
+          exit 1
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: runner.os == 'Linux'
+        with:
+          name: linux-runtime-install-test
+          path: ${{ runner.temp }}/runtime-install-test
+          retention-days: 1
+          if-no-files-found: error
+
   portable-linux:
     name: Boot the packaged Linux client
     needs: desktop
@@ -181,20 +210,30 @@ jobs:
         with:
           name: RustEmuDroid-Linux-x86_64
 
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: linux-runtime-install-test
+          path: ${{ runner.temp }}/test-bin
+
       - name: Prepare a portable Android 15 AOSP runtime
         shell: bash
         run: |
-          set -eu
+          set -eu -o pipefail
           sudo chgrp "$(id -gn)" /dev/kvm
           sudo chmod g+rw /dev/kvm
           test -r /dev/kvm && test -w /dev/kvm
           app="$RUNNER_TEMP/rustemudroid"
-          android_image=system-images/android-35/default/x86_64
-          mkdir -p "$app/runtime/$(dirname "$android_image")" "$RUNNER_TEMP/guest-home" "$RUNNER_TEMP/boot-report"
+          mkdir -p "$app" "$RUNNER_TEMP/guest-home" "$RUNNER_TEMP/boot-report" "$GITHUB_WORKSPACE/.rustemudroid/qa"
           tar -xzf "RustEmuDroid-v$VERSION-linux-x86_64.tar.gz" -C "$app"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install emulator platform-tools 'system-images;android-35;default;x86_64'
-          mv "$ANDROID_HOME/emulator" "$ANDROID_HOME/platform-tools" "$app/runtime/"
-          mv "$ANDROID_HOME/$android_image" "$app/runtime/$android_image"
+          export RUSTEMUDROID_TEST_SDK_SOURCE="$ANDROID_HOME"
+          export RUSTEMUDROID_TEST_SDK_PACKAGE='system-images;android-35;default;x86_64'
+          export RUSTEMUDROID_TEST_RUNTIME_DEST="$GITHUB_WORKSPACE/.rustemudroid/qa/install-smoke"
+          chmod +x "$RUNNER_TEMP/test-bin/runtime-install-test"
+          "$RUNNER_TEMP/test-bin/runtime-install-test" offline_installed_runtime_round_trip --ignored --nocapture |
+            tee "$RUNNER_TEMP/boot-report/runtime-install.txt"
+          grep -F '1 passed; 0 failed' "$RUNNER_TEMP/boot-report/runtime-install.txt"
+          mv "$RUSTEMUDROID_TEST_RUNTIME_DEST/runtime" "$app/runtime"
 
       - name: Check discovery, guest boot and shutdown
         shell: bash

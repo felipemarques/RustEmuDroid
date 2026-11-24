@@ -5,6 +5,7 @@ mod chrome;
 mod help;
 pub(crate) mod i18n;
 mod mascot;
+mod runtime_setup;
 mod session_panel;
 mod settings;
 pub(crate) mod theme;
@@ -130,6 +131,7 @@ struct Launcher {
     config: LaunchConfig,
     prefs_file: PathBuf,
     settings: Option<LaunchConfig>,
+    installer: Option<runtime_setup::Wizard>,
     adapters: settings::AdapterList,
     images: settings::ProfileImages,
     restart: bool,
@@ -184,6 +186,7 @@ impl Launcher {
             prefs_file,
             home_ready: false,
             settings: None,
+            installer: None,
             adapters: Default::default(),
             images: Default::default(),
             restart: false,
@@ -210,11 +213,15 @@ impl Launcher {
     }
 
     fn start(&mut self, check: bool) {
-        if self.closing || self.task.is_some() {
+        if self.closing || self.task.is_some() || self.installer.is_some() {
             return;
         }
         let sdk = self.config.sdk.trim().to_owned();
         let state = PathBuf::from(self.config.state.trim());
+        let base_state = self
+            .prefs_file
+            .parent()
+            .and_then(|p| std::path::absolute(p).ok());
         let image = self.config.image.trim().to_owned();
         let gpu = self.config.gpu;
         let hardware = self.config.hardware.clone();
@@ -242,11 +249,31 @@ impl Launcher {
                 if !image.is_empty() {
                     let path = PathBuf::from(image);
                     sdk.require_matching_image(&path)?;
-                    profile.init(SystemImage::from_dir_localized(path, language)?)?
+                    let matches = !needs_init
+                        && profile
+                            .system_dir(&sdk)
+                            .ok()
+                            .and_then(|current| current.canonicalize().ok())
+                            .is_some_and(|current| {
+                                path.canonicalize()
+                                    .is_ok_and(|selected| selected == current)
+                            });
+                    if !matches {
+                        profile.init(SystemImage::from_dir_localized(path, language)?)?
+                    }
                 } else if needs_init {
-                    let image = match default_kemu_image(&sdk) {
-                        Some(path) => SystemImage::from_dir_localized(path, language)?,
-                        None => SystemImage::preferred(&sdk)?,
+                    let image = if base_state.as_ref() == Some(&profile.root)
+                        && runtime_setup::managed(&sdk)
+                    {
+                        SystemImage::from_sdk(&sdk, runtime_setup::ORIGINAL_ID).map_err(|_| language.pick(
+                            "A imagem Original não está instalada. Abra as configurações para selecionar o perfil Google Play ou instale a imagem Original.",
+                            "The Original image is not installed. Open settings to select the Google Play profile or install the Original image.",
+                            "La imagen Original no está instalada. Abre los ajustes para seleccionar el perfil Google Play o instala la imagen Original."))?
+                    } else {
+                        match default_kemu_image(&sdk) {
+                            Some(path) => SystemImage::from_dir_localized(path, language)?,
+                            None => SystemImage::preferred(&sdk)?,
+                        }
                     };
                     profile.init(image)?
                 }
@@ -400,6 +427,12 @@ impl eframe::App for Launcher {
             self.request_stop();
             self.capture.stop();
             self.controls = None;
+            if let Some(wizard) = &self.installer {
+                wizard.cancel();
+            }
+        }
+        if let Some(wizard) = &mut self.installer {
+            wizard.poll();
         }
         self.poll_stop(ctx);
         self.receive(ctx, frame.gl().map(|gl| gl.as_ref()));
@@ -416,7 +449,10 @@ impl eframe::App for Launcher {
             ctx.request_repaint_after(Duration::from_millis(50));
         }
         if self.closing {
-            if self.task.is_some() || self.capture.busy() {
+            if self.task.is_some()
+                || self.capture.busy()
+                || self.installer.as_ref().is_some_and(|w| w.installing())
+            {
                 if close_requested {
                     ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 }
@@ -437,6 +473,7 @@ impl eframe::App for Launcher {
         if self.help_open {
             self.show_help(ctx);
         }
+        self.show_runtime_setup(ctx);
     }
 }
 
@@ -602,6 +639,9 @@ impl Launcher {
     }
 
     fn external_dialog_open(&self) -> bool {
+        if self.installer.is_some() {
+            return true;
+        }
         #[cfg(windows)]
         return self.blue.is_open();
         #[cfg(not(windows))]

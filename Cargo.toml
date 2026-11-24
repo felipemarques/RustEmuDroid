@@ -1,10 +1,10 @@
 [package]
 name = "rustemudroid"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2024"
 
 [features]
-ui = ["dep:eframe", "dep:tonic", "dep:prost", "dep:tokio", "dep:bytemuck", "dep:rfd", "dep:serde", "dep:serde_json", "dep:tempfile", "dep:ash", "dep:gilrs", "dep:png", "dep:raw-window-handle"]
+ui = ["dep:eframe", "dep:tonic", "dep:prost", "dep:tokio", "dep:bytemuck", "dep:rfd", "dep:serde", "dep:serde_json", "dep:ash", "dep:gilrs", "dep:png", "dep:raw-window-handle"]
 
 [dependencies]
 png = { version = "0.18", optional = true }
@@ -17,7 +17,12 @@ bytemuck = { version = "1", optional = true }
 rfd = { version = "0.15.4", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
-tempfile = { version = "3", optional = true }
+tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+zip = { version = "9.8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+roxmltree = "0.20"
+sha1 = "0.10"
+sha2 = "0.10"
 ash = { version = "0.38", optional = true, default-features = false, features = ["loaded", "std"] }
 gilrs = { version = "0.11", optional = true, default-features = false, features = ["xinput"] }
 

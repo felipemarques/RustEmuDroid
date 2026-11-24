@@ -86,6 +86,16 @@ fn cli_command(l: Locale) -> Command {
             "Isolated Android launcher for Windows and Linux",
             "Lanzador de Android aislado para Windows y Linux",
         ))
+        .mut_subcommand("runtime-setup", |cmd| {
+            arguments(cmd.about(l.pick(
+                "Consulte os pacotes e instale o runtime Android.", "Review and install the Android runtime packages.", "Consulta e instala los paquetes del entorno Android.",
+            )), [
+                ("image", l.pick("Perfil para instalar.", "Profile to install.", "Perfil que se instalará.")),
+                ("destination", l.pick("Pasta do runtime. O padrão é a área de dados do usuário.", "Runtime directory. Defaults to the user's data directory.", "Carpeta del entorno. Por defecto se usan los datos del usuario.")),
+                ("accept_license", l.pick("Aceite os termos apresentados e baixe os pacotes.", "Accept the displayed terms and download the packages.", "Acepta las condiciones mostradas y descarga los paquetes.")),
+                ("licenses_from", l.pick("Use a pasta de licenças do SDK com os aceites correspondentes.", "Use the SDK licenses directory containing matching prior acceptances.", "Usa la carpeta de licencias del SDK con las aceptaciones correspondientes.")),
+            ])
+        })
         .mut_subcommand("doctor", |cmd| {
             cmd.about(l.pick(
                 "Localiza as ferramentas e verifica o hipervisor.",

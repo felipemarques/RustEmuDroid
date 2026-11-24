@@ -12,7 +12,7 @@ RustEmuDroid runs Android games and apps in one desktop window on x86-64 Windows
 
 1. Open the [latest GitHub Release](https://github.com/felipemarques/RustEmuDroid/releases/latest) and find **Assets**.
 2. On Windows, extract `RustEmuDroid-vX.Y.Z-windows-x86_64.zip` into a writable directory. On Linux, extract `RustEmuDroid-vX.Y.Z-linux-x86_64.tar.gz` with `tar -xzf` to keep the execute permission. The filename includes the release version in place of `X.Y.Z`.
-3. Choose a runtime below. With Kemu already installed on Windows, double-click `rustemudroid.exe` to open the client. On Linux, run `./rustemudroid` in the extracted directory. The commands below also work from a terminal.
+3. On Windows, open `rustemudroid.exe`. On Linux, run `./rustemudroid` in the extracted directory. On a PC without a runtime, choose **Install Android runtime or image**.
 
 | Task | Windows PowerShell | Linux shell |
 |---|---|---|
@@ -29,7 +29,19 @@ The executable includes the RustEmuDroid Home APK. The runtime and Android image
 |---|---|---|
 | Hardware virtualization | Enable Intel VT-x or AMD-V in firmware and **Windows Hypervisor Platform** in Windows Features. | Enable CPU virtualization and give your user read/write access to `/dev/kvm`. Check with `test -r /dev/kvm && test -w /dev/kvm`. |
 | Desktop and graphics | Install the host GPU driver. | Use an X11 or Wayland session with working OpenGL. The APK picker uses the desktop file portal. |
-| Android runtime | Use an installed Kemu or the Windows Android Emulator with Platform-Tools and an x86-64 image. | Use the Linux Android Emulator, Platform-Tools and an x86-64 image. |
+| Android runtime | Use first-time setup, an existing Kemu installation or a compatible SDK. | Use first-time setup or a compatible x86-64 runtime. |
+
+### First-time setup in RustEmuDroid
+
+1. Choose **Original** for Android 15 AOSP or **Google Play** for Android 17 with the Play Store. Select **Review download** to see the destination, maximum download size and Google's terms.
+2. If you accept the terms, select the checkbox and **Download and install**. RustEmuDroid downloads the emulator, ADB and the image directly from Google and verifies each archive's size and checksum. Allow extra disk space for extraction.
+3. Select **Use and start this profile**. To add the other image later, open the same installer in Settings. The installer reuses existing managed components. Each profile has its own app data.
+
+![English setup dialog with the download size and license terms](docs/screenshots/en-us/setup.png)
+
+Setup works without a preinstalled Android SDK, Android Studio, Java or `sdkmanager`. It installs to `%LOCALAPPDATA%\RustEmuDroid\runtime` on Windows or `$XDG_DATA_HOME/RustEmuDroid/runtime` on Linux, which defaults to `~/.local/share/RustEmuDroid/runtime`.
+
+From a terminal, run the executable with `runtime-setup --image original` or `runtime-setup --image google-play` to review the terms and size. After review, repeat with `--accept-license` to download. Use `--licenses-from <licenses-directory>` to reuse an existing acceptance of the exact terms.
 
 **Windows with Kemu.** With Kemu in its default location, run `.\rustemudroid.exe ui` to boot the Original profile. For a custom installation, set `RUSTEMUDROID_KEMU_ROOT` to its directory. The standalone Kemu path uses its bundled ADB, Android image and engine with the Host or Auto GPU setting.
 
