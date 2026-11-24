@@ -181,14 +181,11 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          set -eu
-          for candidate in target/release/deps/rustemudroid-*; do
-            if [ -f "$candidate" ] && [ -x "$candidate" ] && "$candidate" --list | grep 'offline_installed_runtime_round_trip: test' >/dev/null; then
-              cp "$candidate" "$RUNNER_TEMP/runtime-install-test"
-              exit 0
-            fi
-          done
-          exit 1
+          set -euo pipefail
+          cargo +stable test --locked --release --features ui --no-run --message-format=json > "$RUNNER_TEMP/cargo-tests.jsonl"
+          harness=$(jq -ers '[.[] | select(.reason == "compiler-artifact" and .profile.test == true and .target.name == "rustemudroid") | .executable | select(type == "string")] | unique | if length == 1 then .[0] else error("Expected one RustEmuDroid test executable") end' "$RUNNER_TEMP/cargo-tests.jsonl")
+          install -m 755 "$harness" "$RUNNER_TEMP/runtime-install-test"
+          "$RUNNER_TEMP/runtime-install-test" --list --ignored offline_installed_runtime_round_trip
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: runner.os == 'Linux'
