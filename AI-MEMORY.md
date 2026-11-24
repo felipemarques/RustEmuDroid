@@ -11,6 +11,8 @@
 
 ## Verification history
 
+- The published Linux v0.7.0 binary booted Android 17 Google Play under WSLg and KVM. The bundled Home became the default, and BombSquad rendered and responded to a Play tap through ADB. This Ubuntu environment exposed CPU Vulkan and the Android test used SwiftShader. [Boot times, screenshot and repeat instructions](docs/linux-runtime.md)
+
 - Game schemes store independent X/Y multipliers for relative mouse movement in aim and free look. Legacy schemes use 1.00 on each axis. With X 2.00 and Y 0.50, equal raw mouse deltas produced the expected asymmetric contact on the Android 17 touchscreen and focus loss released it. The quick menu's device choice filters the visible hints. A D-pad can combine its direction keys with either analog stick.
 
 - The 0.6.1 desktop path uses the same decoded bytes for capture and OpenGL texture upload on GL/GLES 3+. In a Windows A/B test with the same live Unity scene, mean CPU preparation per frame fell from 1.22 to 0.21 ms. The native desktop panel used the Radeon 780M while the game used the RTX 5070 Ti. [Measurements](benchmarks/desktop-texture-upload/README.md)

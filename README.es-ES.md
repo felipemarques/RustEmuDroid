@@ -41,6 +41,8 @@ sdkmanager --install "emulator" "platform-tools" "system-images;android-37.0;goo
 
 Otra imagen compatible es `system-images;android-35;google_apis;x86_64`. Consulta los paquetes disponibles con `sdkmanager --list`. El cliente busca el SDK mediante `--sdk`, `ANDROID_HOME`, `ANDROID_SDK_ROOT` y, por último, `%LOCALAPPDATA%\Android\Sdk` o `~/Android/Sdk`. [SDK Manager](https://developer.android.com/tools/sdkmanager) · [Aceleración del emulador](https://developer.android.com/studio/run/emulator-acceleration)
 
+En Ubuntu 24.04 con WSL2, la versión de Linux arrancó Android 17 con Google Play mediante KVM y SwiftShader. [Resultados y comandos de la prueba, en inglés](docs/linux-runtime.md)
+
 ## Elegir un perfil
 
 En la barra de título, abre el engranaje. Cada perfil tiene su propio disco de datos, aplicaciones, cuentas y partidas guardadas.
@@ -221,7 +223,7 @@ Usa el mismo `--state-dir` para inicializar, arrancar y abrir la interfaz. El di
 
 ## Rendimiento y diagnóstico
 
-Las pruebas en Windows cubren los tirones en el inventario de PUBG MOBILE, la prueba de estrés con ocho jugadores de BombSquad, la escena Vulkan de Box3D y el arranque de War Thunder Mobile. [Resultados y pasos para repetir las pruebas, en inglés](docs/game-testing.md)
+Para comparar las tarjetas gráficas en Windows, abre **FPS WW2 URP → Start Game → Level 1**. Activa **Settings → Display FPS** para ver el contador del juego. Para probar otra escena con Vulkan, abre **andar → Continue → Begin → Skip** y mira hacia la verja bajo la lluvia. Medimos las dos escenas en la Radeon 780M y la RTX 5070 Ti. [Resultados de FPS WW2 URP](docs/game-testing.md#radeon-780m-vulkan-compatibility) · [Resultados y descarga de ANDAR](docs/game-testing.md#andar) · [Todas las pruebas, en inglés](docs/game-testing.md)
 
 - **FPS.** El contador del panel mide los fotogramas nuevos enviados al escritorio. En un menú estático puede indicar pocos FPS. Para comparar juegos, consulta el contador interno o el informe de fotogramas del juego.
 - **Mediciones.** En SuperTuxKart 1.5, repetición Black Forest, RustEmuDroid registró 59,93 FPS con los ajustes originales y 28,90 FPS en calidad alta en el equipo Windows con RTX 5070 Ti, Android 16 y OpenGL ES. Los informes comparan también Kemu y BlueStacks. [Mediciones con GPU integrada Radeon 780M](benchmarks/stk-1.5/radeon-780m/README.md) · [Pruebas y datos originales](benchmarks/stk-1.5/README.md)
