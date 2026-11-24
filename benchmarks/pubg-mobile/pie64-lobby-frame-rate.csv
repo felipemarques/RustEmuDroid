@@ -1,0 +1,2 @@
+lobby_graphics,lobby_frame_rate,player_cap,player_high_fps,display_reported_refresh_hz,static_seconds,static_presentations,static_presentations_per_second,static_p50_ms,route_seconds,route_presentations,route_presentations_per_second,route_p99_ms,route_over_250ms,first_close_presentation_gap_ms,first_close_ready_gap_candidates_ms,second_close_presentation_gap_ms,second_close_ready_gap_candidates_ms
+Balanced,high,60,0,60.000,10,300,30.000000,33.333332,48,1418,29.541667,66.666664,1,166.666660,166.692412,66.666664,68.706633

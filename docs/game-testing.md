@@ -113,6 +113,8 @@ BlueStacks exposed an Adreno 650 name to its Android guest even when the Windows
 
 #### When the game's next frame is ready
 
+The size of BlueStacks' advantage depends on the game and graphics path. On the same Radeon 780M, SuperTuxKart's own Black Forest replay at High averaged 59.99 FPS on BlueStacks Pie64 (OpenGL ES) and 59.71 FPS on RustEmuDroid Android 17 (Vulkan). Both were close to the game's 60 FPS limit. PUBG's Inventory produced a different result on that GPU. Its Android surface supplied new frames irregularly during menu transitions, even with the same 1600 × 900 resolution and matched in-game rate setting. [SuperTuxKart game reports and API settings](../benchmarks/stk-1.5/radeon-780m/README.md)
+
 We matched Android's buffer-ready and actual presentation timestamps for the same two frames around the longest gap after the first Inventory close. These are timestamps reported by the Android compositor for PUBG's SurfaceView. The RustEmuDroid tests cover two GPU configurations. Both used the Radeon for the game's Vulkan device. The Android compositor used RTX GLES for the mixed tests and Radeon GLES for the tests with both Android graphics paths on the integrated GPU. The desktop window's final Windows composition is outside this measurement.
 
 | Configuration | Run | Gap between ready frames | Gap between presentations |
@@ -180,6 +182,18 @@ We kept the RustEmuDroid 0.13.4 Android 17 guest at 1600 × 900 and changed only
 | 320 dpi, repeat in the A2 process | 26.67 | 234.92 ms | 10 | 432.15 ms | 432.47 ms |
 
 At 240 dpi, mean cadence fell between the two 320 dpi results. The first close paused for about 61–66 ms longer. We retained the original density. The last row repeats the route in the same process after four Inventory visits. Its first close took 73% less time than A2's, and the longest pause in the full route fell to 511 ms. Ten intervals still exceeded 250 ms. This establishes a benefit from revisiting Inventory in that session. The test does not distinguish which resources or translation work the first visits warmed up. The published CSV contains relative ready and presentation times for all four 48-second routes. [Density and warm-process timestamps](../benchmarks/pubg-mobile/rtx-density-inventory.csv)
+
+#### Higher Lobby frame rate on BlueStacks Pie64
+
+A follow-up on the RTX 5070 Ti used BlueStacks 5.22.166.1003, Android 9 Pie64 and PUBG MOBILE 4.7.0 (21718). The guest stayed at 1600 x 900 and 240 dpi. BlueStacks kept its 60 FPS limit and its High FPS switch stayed off. The Lobby used Balanced graphics, Classic style and Adaptive Graphics enabled. Enhancement, shadows, antialiasing and power saving were off.
+
+| Verified Lobby setting | Stable sample | Inventory route | Route P99 | First close, ready / presented |
+| --- | ---: | ---: | ---: | ---: |
+| High | 300 presentations in 10 s (30.00/s) | 1,418 in 48 s (29.54/s) | 66.67 ms | 166.69 / 166.67 ms |
+
+The stable sample had a median interval of 33.33 ms. SurfaceFlinger reported a refresh period of 16.67 ms. The measured High run used a fresh game process with its on-disk caches retained, after an earlier launch stayed on a dark splash screen. [High sample summary](../benchmarks/pubg-mobile/pie64-lobby-frame-rate.csv)
+
+The game showed an applied-settings message after selecting Extreme with Balanced graphics. The process exited shortly afterward. One subsequent process logged `SIGSEGV` during startup. A separate retry reached the Lobby and showed Extreme still selected in its settings, then logged `SIGSEGV` before a verified stable sample or Inventory route. Only the High run supplied a cadence measurement. The causes of the exits remain undetermined. We restored both original Lobby presets through the game menus.
 
 #### How CPU time was spent during a warm BlueStacks transition
 
