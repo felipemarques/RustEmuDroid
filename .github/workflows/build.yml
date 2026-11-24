@@ -64,6 +64,7 @@ jobs:
           lunch sdk_phone_x86_64-userdebug
           report="$RUNNER_TEMP/pie-result"
           repo list --all --path-only > "$RUNNER_TEMP/manifest-project-paths"
+          repo manifest -o "$RUNNER_TEMP/pie-manifest.xml"
           cp "$GITHUB_WORKSPACE/tools/pie-build/projects.txt" "$report/projects.txt"
           while true; do
             if m -j3 libandroid_runtime 2>&1 | tee "$RUNNER_TEMP/last-build.log"; then
@@ -73,7 +74,10 @@ jobs:
               "$RUNNER_TEMP/last-build.log" "$RUNNER_TEMP/manifest-project-paths" > "$RUNNER_TEMP/missing-projects"
             mapfile -t needed < "$RUNNER_TEMP/missing-projects"
             if (( ${#needed[@]} == 0 )); then
-              exit 1
+              python3 "$GITHUB_WORKSPACE/tools/pie-build/blueprint_providers.py" \
+                "$RUNNER_TEMP/last-build.log" "$RUNNER_TEMP/pie-manifest.xml" "$RUNNER_TEMP/module-index.json" > "$RUNNER_TEMP/missing-projects"
+              mapfile -t needed < "$RUNNER_TEMP/missing-projects"
+              (( ${#needed[@]} > 0 )) || exit 1
             fi
             printf 'Fetching missing source project: %s\n' "${needed[@]}"
             repo sync -c -j4 --retry-fetches=2 --no-tags --no-clone-bundle --fail-fast "${needed[@]}"
