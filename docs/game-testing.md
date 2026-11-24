@@ -149,6 +149,25 @@ The second presentation of the 450 ms BlueStacks gap in the first pass had two r
 
 Both primary BlueStacks Radeon passes and the mixed-GPU RustEmuDroid repeat restarted the game and retained its disk caches. The first mixed-GPU RustEmuDroid pass followed a fresh launch and in-game preset selection. Its collection restarted in the same game process after a surface-selection error, before the first Inventory tap.
 
+#### How much of the difference occurs around the Inventory taps?
+
+We counted the frames in the two seconds after each scheduled open and close. Each player ran the 48-second Balanced/High route twice per GPU. This gives 16 seconds after opens, 16 seconds after closes and 64 seconds elsewhere for each player and GPU. The numbers in each player column are Android presentations per second.
+
+| GPU | Part of route | BlueStacks Pie64 | RustEmuDroid Android 17 | Extra presentations on BlueStacks |
+|---|---|---:|---:|---:|
+| Radeon 780M | First 2 s after opening | 27.88 | 20.88 | 112 |
+| Radeon 780M | First 2 s after closing | 28.31 | 18.06 | 164 |
+| Radeon 780M | Rest of the route | 30.00 | 27.94 | 132 |
+| RTX 5070 Ti | First 2 s after opening | 28.13 | 19.00 | 146 |
+| RTX 5070 Ti | First 2 s after closing | 29.00 | 20.31 | 139 |
+| RTX 5070 Ti | Rest of the route | 29.97 | 27.89 | 133 |
+
+The first two seconds after the taps occupied one third of the route and accounted for 276 of 408 extra presentations on the Radeon (67.6%) and 285 of 418 on the RTX (68.2%). With a three-second window, these shares rose to 85.3% and 83.5%. Across the remaining 48 seconds, BlueStacks and RustEmuDroid respectively presented 30.02/s and 28.77/s on the Radeon, and 30.00/s and 28.56/s on the RTX. The frame deficit was concentrated around menu transitions on both cards.
+
+On the Radeon, the first close after each game launch accounted for 81 of the 164 extra presentations across all closes. The first two-second window contained 42 versus 10 presentations in the first run, then 53 versus four in the repeat (BlueStacks versus RustEmuDroid). This makes the first close a short, reproducible target for evaluating changes to the runtime.
+
+The windows use the collector's scheduled times, with the first open at 0 s and the first close at 7 s. The actual time the game consumed each tap was unavailable. As a timing check, anchoring each Radeon window at the midpoint of the corresponding ADB tap request put 280 of the 408 extra presentations in the two-second windows (68.6%). The same comparator counts distinct presentations in `[0, 48)` from each run and excludes the surrounding boundary samples. To reproduce the scheduled-window counts, run `python benchmarks/pubg-mobile/inventory-phases.py --seconds 2` with a width of 1, 2 or 3. [Counting script](../benchmarks/pubg-mobile/inventory-phases.py) · [Radeon frame times](../benchmarks/pubg-mobile/inventory-ready-timing.csv) · [RTX frame times](../benchmarks/pubg-mobile/bluestacks-pie64-inventory.csv)
+
 #### Does matching the BlueStacks display density help?
 
 We kept the RustEmuDroid 0.13.4 Android 17 guest at 1600 × 900 and changed only its logical display density from the original 320 dpi to 240 dpi, then back to 320. The RTX 5070 Ti rendered both the game through ANGLE/Vulkan and the compositor through GLES. The same account, Balanced/High Lobby preset, game build, VM and cached files were used throughout. Each of the first three runs started a fresh PUBG process. We verified the visible Inventory and close button after the density change. The same eight taps worked at both densities.
