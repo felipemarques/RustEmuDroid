@@ -11,7 +11,9 @@
 
 ## Verification history
 
-- The published Linux v0.7.0 binary booted Android 17 Google Play under WSLg and KVM. The bundled Home became the default, and BombSquad rendered and responded to a Play tap through ADB. This Ubuntu environment exposed CPU Vulkan and the Android test used SwiftShader. [Boot times, screenshot and repeat instructions](docs/linux-runtime.md)
+- On Windows v0.7.0, PUBG's Lobby Adaptive Graphics setting did not resolve the Inventory stalls. All three 48-second runs paused for over a second after the first close. The original settings were restored. [Adaptive Graphics comparison](docs/game-testing.md#does-disabling-adaptive-graphics-help-inventory)
+
+- The Linux v0.7.0 release booted Android 17 Google Play under WSLg and KVM, with the bundled Home as default. On Ubuntu 24.04 the selected Mesa D3D12 driver exposed the Radeon 780M to native GLES. BombSquad presented 60.00 frames/s in Death Match with its per-app driver set to `native`. The default ANGLE path presented 29.81/s in King of the Hill using CPU Vulkan. The random scenes differed. The test restored the original per-app settings. [Boot times, driver selection and game data](docs/linux-runtime.md)
 
 - Game schemes store independent X/Y multipliers for relative mouse movement in aim and free look. Legacy schemes use 1.00 on each axis. With X 2.00 and Y 0.50, equal raw mouse deltas produced the expected asymmetric contact on the Android 17 touchscreen and focus loss released it. The quick menu's device choice filters the visible hints. A D-pad can combine its direction keys with either analog stick.
 

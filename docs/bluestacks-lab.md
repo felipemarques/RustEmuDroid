@@ -90,6 +90,14 @@ Two diskless QEMU 8.2.2 runs started the original Pie64 Linux 4.19.195 kernel wi
 
 The copied Android userspace includes a DRM framebuffer composer that references `/dev/dri/card0` and links to `libdrm`. Its service is marked `disabled` in the supplied init file. The factory gralloc libraries, including the variants named `default` and `android_x86_64`, depend on the graphics encoders supplied with the image. The VGA result proves that this kernel can expose a basic framebuffer. Accelerated Android composition and game rendering still require a working path through those userspace components.
 
+The stock system’s `lib/modules/4.19.195/modules.builtin` lists 480 entries, including the generic framebuffer and its drawing helpers. Neither this list, the eight entries in `modules.dep`, nor the modules found in the system and boot ramdisks identify a driver for VMware SVGA, Bochs DRM, VBoxVideo, QXL, Cirrus DRM, VirtIO GPU or i915. The ramdisk’s `bstpgaipc` module declares PCI ID `1af4:10f0`, while the tested QEMU VirtIO GPU advertised `1af4:1050`. The original kernel contains no extractable `IKCONFIG` record to confirm individual build settings. On this evidence, changing the QEMU display model alone has no verified driver path to the supplied Android compositor.
+
+### Could the Android 9 SDK supply the missing drivers?
+
+Pie64 and the AOSP Pie emulator both target API 28 on x86-64. Their graphics components expect different interfaces. The copied Pie64 system declares `ro.treble.enabled=false`, stores its vendor files in `/system/vendor`, and uses a non-isolated linker namespace. Its device manifest declares the graphics allocator 2.0 as `passthrough` (loaded in the caller), and its framework manifest declares the composer 2.1 service. AOSP’s Pie Goldfish device manifest declares the allocator as `hwbinder` (a separate service) and puts the composer in the device manifest. The AOSP x86-64 board also specifies a separate vendor image and VNDK. [AOSP Pie Goldfish manifest](https://android.googlesource.com/device/generic/goldfish/+/refs/tags/android-9.0.0_r61/manifest.xml) · [AOSP Pie x86-64 board configuration](https://android.googlesource.com/platform/build/+/refs/tags/android-9.0.0_r61/target/board/generic_x86_64/BoardConfig.mk)
+
+Keeping the copied Android framework while changing boards would require integrating the graphics services, their native library dependencies and device policy. This comparison inspected manifests, properties and ELF dependencies offline. The comparison did not run `checkvintf` or boot a mixed image. Installing the complete SDK image would test a different Android system.
+
 ## Opt-in data storage probe
 
 Use an offline copy of the Pie64 `Data_orig.vhdx` alongside `fastboot.vdi`. The probe checks both files against the SHA-256 hashes of the verified fixtures. The regular `Data.vhdx` and Android root are outside this probe.

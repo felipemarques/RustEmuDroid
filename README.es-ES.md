@@ -41,7 +41,7 @@ sdkmanager --install "emulator" "platform-tools" "system-images;android-37.0;goo
 
 Otra imagen compatible es `system-images;android-35;google_apis;x86_64`. Consulta los paquetes disponibles con `sdkmanager --list`. El cliente busca el SDK mediante `--sdk`, `ANDROID_HOME`, `ANDROID_SDK_ROOT` y, por último, `%LOCALAPPDATA%\Android\Sdk` o `~/Android/Sdk`. [SDK Manager](https://developer.android.com/tools/sdkmanager) · [Aceleración del emulador](https://developer.android.com/studio/run/emulator-acceleration)
 
-En Ubuntu 24.04 con WSL2, la versión de Linux arrancó Android 17 con Google Play mediante KVM y SwiftShader. [Resultados y comandos de la prueba, en inglés](docs/linux-runtime.md)
+En Ubuntu 24.04 con WSL2, la versión de Linux arrancó Android 17 con Google Play mediante KVM. En WSLg, BombSquad presentó 60 fotogramas/s en una ronda de Death Match con OpenGL ES nativo en la Radeon 780M mediante Mesa D3D12. Vulkan utilizó la CPU en ese equipo. [Configuración, selección del controlador y mediciones, en inglés](docs/linux-runtime.md)
 
 ## Elegir un perfil
 
