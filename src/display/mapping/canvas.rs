@@ -203,6 +203,19 @@ impl Mapping {
             painter.circle_filled(end, 5., Color32::from_rgb(26, 34, 42));
             painter.circle_stroke(end, 5., (1.5, theme::ACCENT));
         }
+        if selected
+            && let Gesture::EdgeScroll {
+                margin_x, margin_y, ..
+            } = binding.gesture
+        {
+            let stroke = (1.0, theme::ACCENT.gamma_multiply(0.55));
+            for x in [margin_x, 1. - margin_x] {
+                painter.vline(rect.left() + x * rect.width(), rect.y_range(), stroke);
+            }
+            for y in [margin_y, 1. - margin_y] {
+                painter.hline(rect.x_range(), rect.top() + y * rect.height(), stroke);
+            }
+        }
         paint_key(
             painter,
             at,
@@ -342,8 +355,7 @@ impl Mapping {
                 }
                 Some(Marker::Control(index)) => {
                     self.selected_control = Some(index);
-                    self.await_binding =
-                        !matches!(self.draft.controls[index].gesture, Gesture::Dpad { .. });
+                    self.await_binding = self.draft.controls[index].gesture.needs_binding();
                     self.direction_binding = None;
                 }
                 Some(Marker::Endpoint(index) | Marker::Resize(index)) => {
@@ -367,6 +379,18 @@ impl Mapping {
 
     fn place_control(&mut self, at: Point) {
         self.reset_placement();
+        if matches!(self.preset, Gesture::EdgeScroll { .. })
+            && let Some((index, binding)) = self
+                .draft
+                .controls
+                .iter_mut()
+                .enumerate()
+                .find(|(_, binding)| matches!(binding.gesture, Gesture::EdgeScroll { .. }))
+        {
+            binding.at = at;
+            self.selected_control = Some(index);
+            return;
+        }
         if self.draft.controls.len() >= 64 {
             return;
         }
@@ -375,8 +399,7 @@ impl Mapping {
             *end = [at[0], (at[1] - 0.18).max(0.)];
         }
         self.selected_control = Some(self.draft.controls.len());
-        self.await_binding =
-            self.editor.preset_input.is_empty() && !matches!(gesture, Gesture::Dpad { .. });
+        self.await_binding = self.editor.preset_input.is_empty() && gesture.needs_binding();
         self.draft.controls.push(Binding {
             input: self.editor.preset_input.to_owned(),
             at,
@@ -587,6 +610,7 @@ fn gesture_icon(gesture: &Gesture) -> &'static str {
         Gesture::Pinch { .. } => "↔",
         Gesture::Rotate { .. } => "↻",
         Gesture::Moba { .. } => "◎",
+        Gesture::EdgeScroll { .. } => "⇆",
     }
 }
 
@@ -594,6 +618,45 @@ fn gesture_icon(gesture: &Gesture) -> &'static str {
 mod tests {
     use super::*;
     use egui::{Event, Key, Modifiers, PointerButton, pos2};
+
+    #[test]
+    fn edge_scroll_placement_keeps_one_keyless_anchor_in_the_scheme() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("touch-maps.json");
+        let mut mapping = Mapping::default();
+        mapping.load(path.clone());
+        mapping.select(Some("test.game"));
+        mapping.toggle();
+        mapping.preset = Gesture::EdgeScroll {
+            margin_x: 0.08,
+            margin_y: 0.12,
+            speed_x: 0.6,
+            speed_y: 0.9,
+        };
+        mapping.place_control([0.25, 0.6]);
+        assert_eq!(mapping.selected_control, Some(0));
+        assert!(!mapping.await_binding);
+        mapping.place_control([0.7, 0.3]);
+        mapping.save();
+
+        let mut loaded = Mapping::default();
+        loaded.load(path);
+        loaded.select(Some("test.game"));
+        let [binding] = loaded.layout().unwrap().controls.as_slice() else {
+            panic!("expected one saved edge scroll anchor");
+        };
+        assert_eq!(binding.at, [0.7, 0.3]);
+        assert!(binding.input.is_empty());
+        assert!(matches!(
+            binding.gesture,
+            Gesture::EdgeScroll {
+                margin_x: 0.08,
+                margin_y: 0.12,
+                speed_x: 0.6,
+                speed_y: 0.9,
+            }
+        ));
+    }
 
     #[test]
     fn directional_drop_rebind_move_and_resize_use_canvas_coordinates() {

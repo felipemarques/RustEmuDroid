@@ -156,6 +156,13 @@ pub(super) fn draw(painter: &Painter, center: Pos2, icon: usize, color: Color32)
             painter.rect_stroke(body, 5, stroke, StrokeKind::Middle);
             line(&[(0., -6.), (0., -2.)]);
         }
+        10 => {
+            line(&[(-9., -8.), (-9., 8.)]);
+            line(&[(9., -8.), (9., 8.)]);
+            line(&[(-6., 0.), (6., 0.)]);
+            line(&[(-3., -3.), (-6., 0.), (-3., 3.)]);
+            line(&[(3., -3.), (6., 0.), (3., 3.)]);
+        }
         _ => {}
     }
 }

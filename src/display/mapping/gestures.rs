@@ -51,6 +51,18 @@ pub(super) enum Gesture {
         radius: f32,
         quick_cast: bool,
     },
+    EdgeScroll {
+        margin_x: f32,
+        margin_y: f32,
+        speed_x: f32,
+        speed_y: f32,
+    },
+}
+
+impl Gesture {
+    pub(super) fn needs_binding(&self) -> bool {
+        !matches!(self, Self::Dpad { .. } | Self::EdgeScroll { .. })
+    }
 }
 
 impl Binding {
@@ -58,6 +70,7 @@ impl Binding {
         !input.is_empty()
             && match &self.gesture {
                 Gesture::Dpad { directions, .. } => directions.iter().any(|key| key == input),
+                Gesture::EdgeScroll { .. } => false,
                 _ => self.input == input,
             }
     }
@@ -70,6 +83,7 @@ pub(super) struct Gestures {
     /// Kept separate because a repeat can temporarily have no down contact.
     deadlines: BTreeMap<usize, f64>,
     toggled: HashSet<usize>,
+    edge_scrolling: bool,
     pub left: Vec2,
     pub right: Vec2,
     pub mouse: Vec2,
@@ -90,7 +104,10 @@ impl Gestures {
     }
 
     pub(super) fn waiting(&self) -> bool {
-        !self.active.is_empty() || !self.deadlines.is_empty() || !self.toggled.is_empty()
+        self.edge_scrolling
+            || !self.active.is_empty()
+            || !self.deadlines.is_empty()
+            || !self.toggled.is_empty()
     }
 
     pub(super) fn aiming_mouse(&self, controls: &[Binding]) -> bool {
@@ -196,6 +213,7 @@ impl Gestures {
         changes: &mut Vec<Contact>,
     ) {
         let mouse = std::mem::take(&mut self.mouse);
+        self.edge_scrolling = false;
         for (index, binding) in controls.iter().enumerate() {
             let has_contacts = self.active.contains_key(&index);
             let elapsed = self
@@ -239,6 +257,20 @@ impl Gestures {
                     }
                 }
                 Gesture::Dpad { .. } => self.update_dpad(index, binding, frame, changes),
+                Gesture::EdgeScroll {
+                    margin_x,
+                    margin_y,
+                    speed_x,
+                    speed_y,
+                } => {
+                    let velocity = frame.edge_cursor.map_or(Vec2::ZERO, |[x, y]| {
+                        vec2(
+                            edge_direction(x, *margin_x) * speed_x.clamp(0.20, 2.),
+                            edge_direction(y, *margin_y) * speed_y.clamp(0.20, 2.),
+                        )
+                    });
+                    self.update_edge_scroll(index, binding.at, velocity, frame, changes);
+                }
                 Gesture::Aim {
                     sensitivity,
                     mouse: use_mouse,
@@ -329,6 +361,41 @@ impl Gestures {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn update_edge_scroll(
+        &mut self,
+        index: usize,
+        anchor: Point,
+        velocity: Vec2,
+        frame: &Frame<'_>,
+        changes: &mut Vec<Contact>,
+    ) {
+        if velocity == Vec2::ZERO || offset(frame.size, anchor, velocity) == anchor {
+            self.stop(index, changes);
+            return;
+        }
+        self.edge_scrolling = true;
+        let current = self
+            .active
+            .get(&index)
+            .map_or(anchor, |active| active.contacts[0].pos);
+        let size = frame.size;
+        let displacement = (point(current) - point(anchor)) * size / size.x.min(size.y);
+        let next = displacement + velocity * frame.dt.clamp(0., 0.05);
+        let limit = 0.20;
+        let position = offset(size, anchor, limited(next, limit));
+        if position == current {
+            if frame.dt > 0. {
+                self.stop(index, changes);
+            }
+            return;
+        }
+        self.start(index, &[anchor], frame, changes);
+        self.move_to(index, &[position], changes);
+        if next.length_sq() >= limit * limit {
+            self.stop(index, changes);
         }
     }
 
@@ -455,6 +522,19 @@ pub(super) struct Frame<'a> {
     pub size: Vec2,
     pub taken: &'a [i32],
     pub cursor: Option<Point>,
+    pub edge_cursor: Option<Point>,
+}
+
+fn edge_direction(cursor: f32, margin: f32) -> f32 {
+    let margin = margin.clamp(0.01, 0.25);
+    // Drag the map against the edge so the camera moves toward it.
+    if cursor < margin {
+        1.
+    } else if cursor > 1. - margin {
+        -1.
+    } else {
+        0.
+    }
 }
 
 fn duration(ms: u32) -> f64 {
@@ -531,6 +611,7 @@ mod tests {
             size: vec2(1600., 900.),
             taken: &[1, 9],
             cursor: Some([0.2, 0.8]),
+            edge_cursor: None,
         }
     }
 

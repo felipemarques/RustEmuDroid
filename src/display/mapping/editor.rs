@@ -404,6 +404,11 @@ impl Mapping {
             locale.pick("Pinça de zoom", "Pinch zoom", "Zoom con pellizco"),
             locale.pick("Girar", "Rotate", "Girar"),
             locale.pick("Roda do mouse", "Mouse wheel", "Rueda del ratón"),
+            locale.pick(
+                "Rolagem de borda",
+                "Edge scroll",
+                "Desplazamiento en bordes",
+            ),
         ];
         let width = ((ui.available_width() - 2. * ui.spacing().item_spacing.x) / 3.).max(46.);
         for row in (0..labels.len()).step_by(3) {
@@ -521,7 +526,7 @@ impl Mapping {
                     .response
                     .labelled_by(label.id);
             }
-            if !matches!(binding.gesture, Gesture::Dpad { .. }) {
+            if binding.gesture.needs_binding() {
                 let input = if binding.input.starts_with("Wheel:") {
                     locale.pick("Alterar entrada", "Change input", "Cambiar entrada")
                 } else if binding.input.is_empty() {
@@ -539,6 +544,30 @@ impl Mapping {
             }
             match &mut binding.gesture {
                 Gesture::Hold => {}
+                Gesture::EdgeScroll {
+                    margin_x,
+                    margin_y,
+                    speed_x,
+                    speed_y,
+                } => {
+                    ui.weak(locale.pick(
+                        "Posicione sobre o mapa e mova o ponteiro até uma borda da tela do jogo.",
+                        "Place on the map, then move the pointer to an edge of the game display.",
+                        "Colócalo sobre el mapa y mueve el puntero hasta un borde de la pantalla del juego.",
+                    ));
+                    ui.add(egui::Slider::new(margin_x, 0.01..=0.25).fixed_decimals(2).text(
+                        locale.pick("Margem horizontal", "Horizontal margin", "Margen horizontal"),
+                    ));
+                    ui.add(egui::Slider::new(margin_y, 0.01..=0.25).fixed_decimals(2).text(
+                        locale.pick("Margem vertical", "Vertical margin", "Margen vertical"),
+                    ));
+                    ui.add(egui::Slider::new(speed_x, 0.20..=2.).fixed_decimals(2).text(
+                        locale.pick("Velocidade horizontal", "Horizontal speed", "Velocidad horizontal"),
+                    ));
+                    ui.add(egui::Slider::new(speed_y, 0.20..=2.).fixed_decimals(2).text(
+                        locale.pick("Velocidade vertical", "Vertical speed", "Velocidad vertical"),
+                    ));
+                }
                 Gesture::Tap { duration_ms } => {
                     ui.add(
                         egui::Slider::new(duration_ms, 10..=1000)
@@ -838,6 +867,11 @@ fn gesture_name(gesture: &Gesture, locale: Locale) -> &'static str {
         }
         Gesture::Aim { .. } => locale.pick("Mira ou câmera", "Aim or camera", "Mira o cámara"),
         Gesture::Moba { .. } => locale.pick("Habilidade MOBA", "MOBA ability", "Habilidad MOBA"),
+        Gesture::EdgeScroll { .. } => locale.pick(
+            "Rolagem de borda",
+            "Edge scroll",
+            "Desplazamiento en bordes",
+        ),
         Gesture::Pinch { .. } => {
             locale.pick("Pinça para zoom", "Pinch to zoom", "Pellizcar para ampliar")
         }
@@ -858,7 +892,7 @@ impl FileAction {
     }
 }
 
-fn presets() -> [Gesture; 10] {
+fn presets() -> [Gesture; 11] {
     [
         Gesture::Hold,
         Gesture::Tap { duration_ms: 100 },
@@ -898,6 +932,12 @@ fn presets() -> [Gesture; 10] {
         Gesture::Swipe {
             end: [0.75, 0.5],
             duration_ms: 220,
+        },
+        Gesture::EdgeScroll {
+            margin_x: 0.06,
+            margin_y: 0.06,
+            speed_x: 0.75,
+            speed_y: 0.75,
         },
     ]
 }

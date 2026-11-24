@@ -148,6 +148,8 @@ Open a game and click the keyboard icon in the sidebar to open **Game controls**
 
 Choose **Controls editor** from the menu or press **Ctrl+Shift+A**. Drag a control from the palette onto the game, then select it to bind an input and adjust its properties. For movement, drop a **D-pad** over the game's virtual joystick. Assign **Up**, **Down**, **Left**, and **Right** individually in **Control settings**, set the radius to match the game's joystick, and enable **Left stick** if you want to use a controller's analog stick. Click **Save** to apply the scheme.
 
+For maps that pan when dragged, drop **Edge scroll** on a clear spot in the map and save. Move the pointer to an edge of the game display to pan toward it. Adjust the horizontal and vertical margins and speeds in **Control settings**. Move the pointer away from the edge to stop.
+
 Use the scheme options to create or duplicate a layout and import or export it as JSON. Other controls include relative aim, timed swipes with a separate end point, pinch and rotation with two simultaneous contacts, and MOBA abilities that support directional dragging from the skill button.
 
 ![The controls editor showing a W, A, S, D D-pad over the SuperTuxKart main menu](docs/screenshots/en-us/editor.png)

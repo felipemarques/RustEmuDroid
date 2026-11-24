@@ -577,11 +577,12 @@ impl Mapping {
             self.gamepad = Gilrs::new().ok();
             self.pad_initialized = true;
         }
-        let (time, dt, pointer, modifiers) = ui.input(|input| {
+        let (time, dt, pointer, pointer_busy, modifiers) = ui.input(|input| {
             (
                 input.time,
                 input.stable_dt,
                 input.pointer.hover_pos(),
+                input.pointer.any_down() || input.pointer.any_released(),
                 input.modifiers,
             )
         });
@@ -596,6 +597,7 @@ impl Mapping {
                     ((p.y - rect.top()) / rect.height()).clamp(0., 1.),
                 ]
             }),
+            edge_cursor: None,
         };
         let text_input = self.editing
             && ui
@@ -708,15 +710,23 @@ impl Mapping {
             let advanced = Self::advanced_layout(&self.profiles, self.package.as_deref());
             let taken = self.taken();
             self.gestures.left = vec2(self.analog[0], self.analog[1]);
+            let aim = self.gestures.aiming_mouse(advanced);
+            let edge_visible = visible.intersect(ui.available_rect_before_wrap());
+            let edge_cursor =
+                if !aim && !pointer_busy && pointer.is_some_and(|p| edge_visible.contains(p)) {
+                    frame.cursor
+                } else {
+                    None
+                };
             self.gestures.frame(
                 advanced,
                 &Frame {
                     taken: &taken,
+                    edge_cursor,
                     ..frame
                 },
                 &mut changes,
             );
-            let aim = self.gestures.aiming_mouse(advanced);
             self.set_mouse_capture(aim.then_some((ui.ctx(), rect.center())));
             if aim {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::None);
@@ -743,6 +753,13 @@ fn valid_layout(layout: &Layout) -> bool {
     let radius = |value| (0.005..=0.40).contains(&value);
     layout.buttons.len() <= 64
         && layout.controls.len() <= 64
+        && layout
+            .controls
+            .iter()
+            .filter(|binding| matches!(binding.gesture, Gesture::EdgeScroll { .. }))
+            .take(2)
+            .count()
+            <= 1
         && layout.stick.is_none_or(point)
         && radius(layout.radius)
         && layout
@@ -781,6 +798,20 @@ fn valid_layout(layout: &Layout) -> bool {
                             && duration(*duration_ms)
                     }
                     Gesture::Moba { radius: value, .. } => radius(*value),
+                    Gesture::EdgeScroll {
+                        margin_x,
+                        margin_y,
+                        speed_x,
+                        speed_y,
+                    } => {
+                        binding.input.is_empty()
+                            && [margin_x, margin_y]
+                                .into_iter()
+                                .all(|margin| (0.01..=0.25).contains(margin))
+                            && [speed_x, speed_y]
+                                .into_iter()
+                                .all(|speed| (0.20..=2.).contains(speed))
+                    }
                 }
         })
 }
@@ -836,6 +867,111 @@ fn label(input: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edge_scroll_repeats_bounded_touch_drags_only_over_the_active_guest() {
+        use crate::display::{Display, Format, Frame, Input, Touch};
+        use egui::{Event, pos2};
+
+        let (input, mut received) = tokio::sync::mpsc::unbounded_channel();
+        let mut display = Display::new(Default::default(), input);
+        display.state.lock().unwrap().latest = Some(Frame {
+            format: Some(Format {
+                width: 160,
+                height: 96,
+                ..Default::default()
+            }),
+            pixels: vec![255; 160 * 96 * 4].into(),
+        });
+        display.mapping.pad_initialized = true;
+        let layout = Layout {
+            radius: default_radius(),
+            controls: vec![Binding {
+                input: String::new(),
+                at: [0.5, 0.5],
+                gesture: Gesture::EdgeScroll {
+                    margin_x: 0.06,
+                    margin_y: 0.06,
+                    speed_x: 0.75,
+                    speed_y: 0.50,
+                },
+            }],
+            ..Default::default()
+        };
+        assert!(valid_layout(&layout));
+        display
+            .mapping
+            .profiles
+            .insert("test.game".into(), GameProfiles::from_layout(layout));
+        display.set_package(Some("test.game"));
+        let ctx = egui::Context::default();
+        let mut time = 1.;
+        let mut render = |display: &mut Display, events: Vec<Event>| {
+            time += 1. / 60.;
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(960., 640.))),
+                    events,
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        display.show(ui, true, crate::ui::i18n::Locale::default());
+                    });
+                },
+            );
+            let mut contacts = Vec::<Touch>::new();
+            while let Ok(event) = received.try_recv() {
+                let Input::Touch(touches) = event else {
+                    panic!("edge scroll should send touch events");
+                };
+                contacts.extend(touches.touches);
+            }
+            contacts
+        };
+
+        let letterbox = pos2(943., 10.);
+        let right = pos2(943., 320.);
+        assert!(render(&mut display, vec![Event::PointerMoved(letterbox)]).is_empty());
+        let mut pan = render(&mut display, vec![Event::PointerMoved(right)]);
+        for _ in 0..35 {
+            pan.extend(render(&mut display, vec![]));
+        }
+        assert_eq!((pan[0].x, pan[0].y, pan[0].pressure), (80, 48, 1024));
+        assert!(pan.iter().any(|touch| touch.x <= 65));
+        assert!(pan.iter().any(|touch| touch.pressure == 0));
+        assert!(
+            pan.iter()
+                .all(|touch| touch.y == 48 && (60..=80).contains(&touch.x))
+        );
+        assert!(
+            pan.iter()
+                .filter(|touch| touch.x == 80 && touch.pressure > 0)
+                .count()
+                > 1
+        );
+
+        let release = render(&mut display, vec![Event::PointerMoved(letterbox)]);
+        assert_eq!(release.len(), 1);
+        assert_eq!(release[0].pressure, 0);
+        assert!(render(&mut display, vec![]).is_empty());
+
+        let top = pos2(480., 42.);
+        let mut vertical = render(&mut display, vec![Event::PointerMoved(top)]);
+        vertical.extend(render(&mut display, vec![]));
+        assert!(
+            vertical
+                .iter()
+                .any(|touch| touch.y > 48 && touch.pressure > 0)
+        );
+        let release = render(&mut display, vec![Event::WindowFocused(false)]);
+        assert_eq!(release.len(), 1);
+        assert_eq!(release[0].pressure, 0);
+
+        display.set_package(Some("other.game"));
+        assert!(render(&mut display, vec![Event::PointerMoved(right)]).is_empty());
+    }
 
     #[test]
     fn dpad_taps_in_one_frame_send_ordered_android_contacts() {

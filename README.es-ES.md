@@ -148,6 +148,8 @@ Abre el juego y pulsa el icono del teclado de la barra lateral para abrir **Cont
 
 Elige **Editor de controles** en el menú o pulsa **Ctrl+Mayús+A**. Arrastra un control de la paleta a la pantalla del juego y selecciónalo para asignarle una entrada y ajustar sus propiedades. Para el movimiento, suelta una **Cruceta** sobre la palanca virtual del juego. En **Ajustes del control**, asigna **Arriba**, **Abajo**, **Izquierda** y **Derecha** por separado, adapta el radio al tamaño de la palanca del juego y activa **Palanca izquierda** si quieres usar la palanca analógica del mando. Pulsa **Guardar** para aplicar el esquema.
 
+En mapas que se mueven al arrastrar, suelta **Desplazamiento en bordes** en una zona libre del mapa y guarda. Lleva el puntero a un borde de la pantalla del juego para mover la cámara en esa dirección. Ajusta el margen y la velocidad de cada eje en **Ajustes del control**. Aleja el puntero del borde para detener el movimiento.
+
 Usa las opciones del esquema para crear o duplicar un perfil e importarlo o exportarlo en JSON. Otros controles incluyen la mira relativa, los deslizamientos con un destino y una duración, el zoom y la rotación con dos contactos simultáneos, y las habilidades MOBA que permiten arrastrar desde el botón de la habilidad.
 
 ![Editor de controles con una cruceta W, A, S, D sobre el menú principal de SuperTuxKart](docs/screenshots/es-es/editor.png)
