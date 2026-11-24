@@ -490,7 +490,11 @@ fn show_terms(
                 if index > 0 {
                     ui.separator();
                 }
-                ui.add(egui::Label::new(license.as_str()).wrap().selectable(true));
+                ui.add(
+                    egui::Label::new(license.text.as_str())
+                        .wrap()
+                        .selectable(true),
+                );
             }
         });
     ui.checkbox(

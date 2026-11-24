@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use roxmltree::{Document, Node};
 
-use super::{Component, ImageChoice, InstallPlan, fetch_metadata};
+use super::{Component, ImageChoice, InstallPlan, LicenseTerms, fetch_metadata};
 use crate::{Result, locale::Locale};
 
 const REPOSITORY: &str = "https://dl.google.com/android/repository/";
@@ -112,7 +112,7 @@ fn package(
     id: &str,
     host: &str,
     locale: Locale,
-    licenses: &mut Vec<String>,
+    licenses: &mut Vec<LicenseTerms>,
 ) -> Result<Component> {
     let root = doc.root_element();
     let image = id.starts_with("system-images;");
@@ -175,6 +175,13 @@ fn package(
     for reference in refs {
         let key = reference
             .attribute("ref")
+            .filter(|id| {
+                (1..=128).contains(&id.len())
+                    && id.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
+                    && id
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || b"_.-".contains(&c))
+            })
             .ok_or_else(|| invalid(locale, id, "uses-license/ref"))?;
         let terms = root
             .children()
@@ -182,8 +189,12 @@ fn package(
             .and_then(|n| n.text())
             .filter(|s| !s.trim().is_empty())
             .ok_or_else(|| invalid(locale, id, key))?;
-        if !licenses.iter().any(|existing| existing == terms) {
-            licenses.push(terms.to_owned());
+        let license = LicenseTerms {
+            id: key.into(),
+            text: terms.into(),
+        };
+        if !licenses.contains(&license) {
+            licenses.push(license);
         }
     }
     Ok(Component {
@@ -280,7 +291,13 @@ mod tests {
             assert_eq!(item.bytes, 321);
             assert_eq!(item.checksum, HASH);
         }
-        assert_eq!(licenses, ["Agreement\n"]);
+        assert_eq!(
+            licenses,
+            [LicenseTerms {
+                id: "sdk".into(),
+                text: "Agreement\n".into()
+            }]
+        );
     }
 
     #[test]
@@ -293,13 +310,22 @@ mod tests {
             &archive("", "", "image.zip"),
         ));
         let doc = Document::parse(&xml).unwrap();
-        let mut licenses = vec!["Agreement\n".to_owned()];
+        let mut licenses = vec![LicenseTerms {
+            id: "sdk".into(),
+            text: "Agreement\n".into(),
+        }];
         let item = package(&doc, PLAY, id, "linux", Locale::EnUs, &mut licenses).unwrap();
         assert_eq!(
             item.relative,
             PathBuf::from("system-images/android-37.0/google_apis_playstore/x86_64")
         );
-        assert_eq!(licenses, ["Agreement\n"]);
+        assert_eq!(
+            licenses,
+            [LicenseTerms {
+                id: "sdk".into(),
+                text: "Agreement\n".into()
+            }]
+        );
         let missing = "system-images;android-37;google_apis_playstore;x86_64";
         let err = package(&doc, PLAY, missing, "linux", Locale::EnUs, &mut licenses)
             .err()

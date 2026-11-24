@@ -138,7 +138,10 @@ fn install_terms_require_an_explicit_click_and_remain_usable_in_all_languages() 
         wizard.phase = Phase::Terms(InstallPlan {
             image: ORIGINAL_ID.into(),
             total_bytes: 3 * 1024 * 1024,
-            licenses: vec!["Fixture license for layout and consent testing. ".repeat(200)],
+            licenses: vec![crate::runtime_install::LicenseTerms {
+                id: "fixture".into(),
+                text: "Fixture license for layout and consent testing. ".repeat(200),
+            }],
             components: vec![],
         });
         wizard.destination = root.path().join("runtime");

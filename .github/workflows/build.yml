@@ -169,6 +169,25 @@ jobs:
             Pop-Location
           }
 
+      - name: Install the Google Play runtime with the packaged Windows executable
+        if: runner.os == 'Windows' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag')
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:RUNNER_TEMP 'rustemudroid-extracted/rustemudroid.exe'
+          $runtime = Join-Path $env:RUNNER_TEMP 'runtime-play'
+          $profile = Join-Path $env:RUNNER_TEMP 'profile-play'
+          $licenses = Join-Path $env:ANDROID_HOME 'licenses'
+          & $exe --lang en-us runtime-setup --image google-play --licenses-from $licenses --destination $runtime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $exe --lang en-us --sdk $runtime --state-dir $profile init --image 'system-images;android-37.0;google_apis_playstore;x86_64'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $image = Join-Path $runtime 'system-images/android-37.0/google_apis_playstore/x86_64'
+          if (!(Test-Path -LiteralPath (Join-Path $image 'system.img') -PathType Leaf)) { throw 'Play image missing' }
+          $config = Get-Content -LiteralPath (Join-Path $profile 'avd/RustEmuDroid.avd/config.ini')
+          if (!($config -match '^image\.sysdir\.1=system-images[/\\]android-37\.0[/\\]google_apis_playstore[/\\]x86_64[/\\]?$')) { throw 'AVD did not select the downloaded Google Play image' }
+          Get-Content -LiteralPath (Join-Path $image 'source.properties') |
+            Select-String -Pattern '^Pkg.Revision=','^AndroidVersion.ApiLevel=','^SystemImage.TagId='
+
       - name: Upload desktop build
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -222,15 +241,15 @@ jobs:
           app="$RUNNER_TEMP/rustemudroid"
           mkdir -p "$app" "$RUNNER_TEMP/guest-home" "$RUNNER_TEMP/boot-report" "$GITHUB_WORKSPACE/.rustemudroid/qa"
           tar -xzf "RustEmuDroid-v$VERSION-linux-x86_64.tar.gz" -C "$app"
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install emulator platform-tools 'system-images;android-35;default;x86_64'
-          export RUSTEMUDROID_TEST_SDK_SOURCE="$ANDROID_HOME"
+          "$app/rustemudroid" --lang en-us runtime-setup --image original --licenses-from "$ANDROID_HOME/licenses" --destination "$app/runtime" 2>&1 |
+            tee "$RUNNER_TEMP/boot-report/runtime-download.txt"
+          export RUSTEMUDROID_TEST_SDK_SOURCE="$app/runtime"
           export RUSTEMUDROID_TEST_SDK_PACKAGE='system-images;android-35;default;x86_64'
           export RUSTEMUDROID_TEST_RUNTIME_DEST="$GITHUB_WORKSPACE/.rustemudroid/qa/install-smoke"
           chmod +x "$RUNNER_TEMP/test-bin/runtime-install-test"
           "$RUNNER_TEMP/test-bin/runtime-install-test" offline_installed_runtime_round_trip --ignored --nocapture 2>&1 |
             tee "$RUNNER_TEMP/boot-report/runtime-install.txt"
           grep -F '1 passed; 0 failed' "$RUNNER_TEMP/boot-report/runtime-install.txt"
-          mv "$RUSTEMUDROID_TEST_RUNTIME_DEST/runtime" "$app/runtime"
 
       - name: Check discovery, guest boot and shutdown
         shell: bash

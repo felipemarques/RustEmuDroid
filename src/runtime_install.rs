@@ -32,8 +32,14 @@ impl ImageChoice {
 pub(crate) struct InstallPlan {
     pub image: String,
     pub total_bytes: u64,
-    pub licenses: Vec<String>,
+    pub licenses: Vec<LicenseTerms>,
     pub(crate) components: Vec<Component>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct LicenseTerms {
+    pub id: String,
+    pub text: String,
 }
 
 #[derive(Debug)]
@@ -118,23 +124,52 @@ pub(crate) struct SetupArgs {
     licenses_from: Option<PathBuf>,
 }
 
-// sdklib saves the SHA-1 of each accepted license text as a line in its licenses directory.
-fn previously_accepted(licenses: &[String], dir: &Path) -> Result<bool> {
-    let mut recorded = std::collections::HashSet::new();
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        if entry.file_type()?.is_file() && entry.metadata()?.len() <= 1024 * 1024 {
-            recorded.extend(
-                fs::read_to_string(entry.path())?
-                    .split_whitespace()
-                    .map(str::to_owned),
-            );
+// Android repository XML uses TrimStringAdapter for license values before SDK License.getLicenseHash.
+fn sdk_license_hash(text: &str) -> String {
+    let mut unindented = String::with_capacity(text.len());
+    let mut previous_whitespace = false;
+    for ch in text.chars() {
+        if !(previous_whitespace && matches!(ch, ' ' | '\t')) {
+            unindented.push(ch);
+        }
+        previous_whitespace = matches!(ch, ' ' | '\t'..='\r');
+    }
+    let mut normalized = String::with_capacity(unindented.len());
+    let mut chars = unindented.chars().peekable();
+    let mut previous_newline = false;
+    while let Some(ch) = chars.next() {
+        let single_newline = ch == '\n' && !previous_newline && chars.peek() != Some(&'\n');
+        let value = if single_newline { ' ' } else { ch };
+        if value != ' ' || !normalized.ends_with(' ') {
+            normalized.push(value);
+        }
+        previous_newline = ch == '\n';
+    }
+    let value = normalized.trim_matches(|ch| ch <= '\u{20}');
+    format!("{:x}", Sha1::digest(value.as_bytes()))
+}
+
+fn previously_accepted(licenses: &[LicenseTerms], dir: &Path) -> Result<bool> {
+    for license in licenses {
+        // Catalog resolution restricts each license identifier to one SDK filename.
+        let path = dir.join(&license.id);
+        let info = match fs::symlink_metadata(&path) {
+            Ok(info) => info,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        if !info.is_file() || info.len() > 1024 * 1024 {
+            return Ok(false);
+        }
+        let expected = sdk_license_hash(&license.text);
+        if !fs::read_to_string(path)?
+            .lines()
+            .any(|line| line == expected)
+        {
+            return Ok(false);
         }
     }
-    Ok(!licenses.is_empty()
-        && licenses
-            .iter()
-            .all(|s| recorded.contains(&format!("{:x}", Sha1::digest(s.as_bytes())))))
+    Ok(!licenses.is_empty())
 }
 
 pub(crate) fn command(args: &SetupArgs, locale: Locale) -> Result<()> {
@@ -161,7 +196,7 @@ pub(crate) fn command(args: &SetupArgs, locale: Locale) -> Result<()> {
         }
     } else if !args.accept_license {
         for license in &plan.licenses {
-            println!("\n{license}");
+            println!("\n{}", license.text);
         }
         println!(
             "\n{}",
@@ -204,22 +239,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn existing_acceptance_covers_each_exact_license_text() {
+    fn existing_acceptance_uses_the_sdk_license_id_and_layout() {
         let folder = tempfile::tempdir().unwrap();
-        let terms = vec!["Terms A\n".to_owned(), "Terms B\n".to_owned()];
+        let terms = [
+            LicenseTerms {
+                id: "one".into(),
+                text: "  Terms\n A  \n\nB\n".into(),
+            },
+            LicenseTerms {
+                id: "two".into(),
+                text: "Terms B".into(),
+            },
+        ];
+        let first = format!("{:x}", Sha1::digest(b"Terms A \n\nB"));
+        let second = format!("{:x}", Sha1::digest(b"Terms B"));
         fs::write(
-            folder.path().join("first"),
-            format!("{:x}\r\n", Sha1::digest(&terms[0])),
+            folder.path().join("one"),
+            format!("{first}\r\n{second}\r\n"),
         )
         .unwrap();
         assert!(!previously_accepted(&terms, folder.path()).unwrap());
-        fs::write(
-            folder.path().join("second"),
-            format!("{:x}\n", Sha1::digest(&terms[1])),
-        )
-        .unwrap();
+        fs::write(folder.path().join("two"), format!("{second}\n")).unwrap();
         assert!(previously_accepted(&terms, folder.path()).unwrap());
-        assert!(!previously_accepted(&["Terms A".into()], folder.path()).unwrap());
+        let changed = [LicenseTerms {
+            id: "one".into(),
+            text: "Terms A \n\nC".into(),
+        }];
+        assert!(!previously_accepted(&changed, folder.path()).unwrap());
         assert!(!previously_accepted(&[], folder.path()).unwrap());
+    }
+
+    #[test]
+    #[ignore = "reads the live Google catalog and SDK licenses from RUSTEMUDROID_TEST_SDK_LICENSES"]
+    fn checks_live_terms_against_an_existing_sdk() -> Result<()> {
+        let directory = PathBuf::from(env::var("RUSTEMUDROID_TEST_SDK_LICENSES")?);
+        let plan = plan(ImageChoice::Original, Locale::EnUs)?;
+        assert!(previously_accepted(&plan.licenses, &directory)?);
+        for license in &plan.licenses {
+            println!("{} {}", license.id, sdk_license_hash(&license.text));
+        }
+        Ok(())
     }
 }

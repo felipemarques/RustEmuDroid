@@ -132,6 +132,25 @@ An offline analysis of the existing Android Perfetto traces compared the two lon
 
 The longest continuous runnable wait in either gap was 1.68 ms. Regular intervals included waits up to 6.02 ms in the static lobby and 10.13 ms on the route. These measurements give little reason to increase the vCPU count for this symptom. Windows processor affinity, host scheduling delays and CPU frequencies were outside the trace. Android also reported a dropped trace chunk. The remaining question is what work the game thread executed during the first Inventory close.
 
+### What wakes the render threads during the Inventory pauses?
+
+An offline comparison of the existing 55-second and 24-second traces followed scheduler wakeups through each recording's longest gap between PUBG buffer notifications. The 55-second trace identifies the first Inventory close from its tap marker. The 24-second trace records the navigation route without that marker.
+
+| Measurement within the longest producer gap | 55-second trace | 24-second trace |
+|---|---:|---:|
+| Producer gap | 1,674.2 ms | 2,168.6 ms |
+| RHI interruptible sleep ended by the render thread, total | 1,644.8 ms (98.2%) | 1,523.0 ms (70.2%) |
+| Render interruptible sleep ended by the async loader | 480.5 ms | 428.0 ms |
+| Game thread CPU during that render sleep | 407.4 ms | 380.5 ms |
+| Async loader CPU during that render sleep | 42.1 ms | 39.3 ms |
+| Recorded RHI time in `eglSwapBuffers` within the gap | 2.30 ms | 2.64 ms |
+
+In both gaps, `UEGameThread`, `FAsyncLoading`, then `UEGameThread` woke `RenderThread 1` from successive long sleeps while `RHIThread` remained asleep. In the 24-second recording, a later 599.9 ms render sleep ended with an RHI wake. The RHI and async loader used 483.2 and 499.5 ms of guest CPU, respectively, during that sleep. Those CPU times can overlap.
+
+Scheduler wakeups identify which thread made another runnable. The trace does not identify the operation behind the wait or establish which thread caused the entire pause. Recorded swap spans occurred at the edges of both producer gaps and measure time inside the instrumented API, with GPU execution outside their scope. The later render sleep had no recorded swap, present, buffer queue or image-acquire span on the RHI thread. Locating the work during these intervals requires an authorized profile with native stacks or publisher instrumentation. The comparison measures buffer delivery during Inventory navigation. Combat FPS remains unmeasured.
+
+To reproduce, use Perfetto Trace Processor 59.1 with either original trace and run `trace_processor query <trace.pftrace> -f benchmarks/pubg-mobile/inventory-wake-timing.sql`. For a new recording, use the PUBG lobby trace setup below. The query selects the most active thread for each engine thread name, clips each sleep to the longest producer gap and uses scheduler wakeups at the end of the sleep. It lists render sleeps of at least 50 ms, sums guest CPU by thread over those windows and lists the recorded API spans individually. [Perfetto SQL](../benchmarks/pubg-mobile/inventory-wake-timing.sql)
+
 ### Does the desktop frame copy affect the lobby?
 
 A local instrumented desktop build alternated the existing allocation-and-copy path with direct RGBA image construction in the same stationary lobby and guest session. Each kept block was about 18 seconds after trimming a second from both ends. The host timing measures elapsed time on the desktop UI thread while it prepares and submits an image to the texture queue. Its block statistic is the median of the reported one-second P95s.
