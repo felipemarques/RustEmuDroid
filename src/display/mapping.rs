@@ -931,12 +931,15 @@ impl Mapping {
                             && self.layout().is_some_and(|layout| {
                                 !layout.buttons.contains_key(key)
                                     && layout.controls.iter().any(|binding| {
-                                        matches!(binding.gesture, Gesture::Dpad { .. })
-                                            && binding.captures(key)
+                                        matches!(
+                                            binding.gesture,
+                                            Gesture::Dpad { .. }
+                                                | Gesture::FreeLook { mouse: false, .. }
+                                        ) && binding.captures(key)
                                     })
                             });
                         if directional {
-                            // Give the D-pad one frame to apply the wheel direction before releasing it.
+                            // Apply the wheel direction for one frame before releasing it.
                             self.wheel_releases.insert(key);
                         } else {
                             self.handle_input(key, false, &frame, &mut changes);
@@ -1001,7 +1004,7 @@ impl Mapping {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::None);
             }
         }
-        if self.gamepad.is_some() || self.gestures.waiting() {
+        if self.gamepad.is_some() || self.gestures.waiting() || !self.wheel_releases.is_empty() {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(16));
         }

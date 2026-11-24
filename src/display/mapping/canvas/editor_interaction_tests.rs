@@ -334,3 +334,66 @@ fn library_wheel_uses_vertical_canvas_input_and_respects_game_bindings() {
     ]);
     assert_eq!(window.display.take_library_wheel(), 0);
 }
+
+#[test]
+fn wheel_bound_free_look_moves_and_releases_after_reopening_profile() {
+    use crate::display::Input;
+
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("touch-maps.json");
+    crate::ui::write_json(
+        &path,
+        &serde_json::json!({
+            PACKAGE: {"buttons": {}, "stick": null,
+                "controls": [{"input": "", "at": CENTER, "gesture": {
+                    "kind": "free-look", "mouse": false, "directions": ["I", "K", "J", "L"],
+                    "speed": 2.0, "reset_ms": 180
+                }}]
+            }
+        }),
+    )
+    .unwrap();
+    let wheel_up = || Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: vec2(0., 1.),
+        modifiers: Modifiers::NONE,
+    };
+    let mut editor = EditorWindow::open(path.clone());
+    editor.open_editor();
+    let canvas = editor.canvas();
+    editor.click(screen(canvas, CENTER));
+    editor.click_label("Up · I");
+    editor.frame(vec![Event::PointerMoved(canvas.center()), wheel_up()]);
+    editor.save();
+
+    let mut game = EditorWindow::open(path);
+    let Gesture::FreeLook { directions, .. } =
+        &game.display.mapping.layout().unwrap().controls[0].gesture
+    else {
+        panic!("expected the saved free-look gesture");
+    };
+    assert_eq!(directions[0], "Wheel:Up");
+    let (input, mut guest) = tokio::sync::mpsc::unbounded_channel();
+    game.display.input = input;
+    game.frame(vec![Event::PointerMoved(canvas.center()), wheel_up()]);
+    assert_eq!(game.display.take_library_wheel(), 0);
+    let Ok(Input::Touch(start)) = guest.try_recv() else {
+        panic!("a wheel pulse should start a free-look touch");
+    };
+    let Ok(Input::Touch(movement)) = guest.try_recv() else {
+        panic!("the touch should move in the bound direction");
+    };
+    let (start, movement) = (&start.touches[0], &movement.touches[0]);
+    assert_eq!(start.identifier, movement.identifier);
+    assert_eq!(start.x, movement.x);
+    assert!(movement.y < start.y && movement.pressure > 0);
+
+    game.frame(vec![]);
+    let Ok(Input::Touch(release)) = guest.try_recv() else {
+        panic!("the touch should lift after the wheel pulse");
+    };
+    assert_eq!(release.touches[0].identifier, start.identifier);
+    assert_eq!(release.touches[0].pressure, 0);
+    game.frame(vec![]);
+    assert!(guest.try_recv().is_err());
+}
