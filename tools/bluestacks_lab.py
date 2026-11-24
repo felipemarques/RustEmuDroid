@@ -128,8 +128,9 @@ def run_probe(args):
             "-debugcon", f"file:{scratch / 'debug.log'}",
             "-qmp", f"unix:{scratch / 'qmp.sock'},server=on,wait=off",
             "-no-reboot", "-S",
-            "-device", "piix3-ide,id=legacy,addr=02.0", "-device", "ich9-ahci,id=sata",
         ]
+        if not args.virtio_blk:
+            command += ["-device", "piix3-ide,id=legacy,addr=02.0", "-device", "ich9-ahci,id=sata"]
         if args.firmware:
             command += ["-L", str(args.firmware.resolve())]
         if args.bios:
@@ -145,11 +146,18 @@ def run_probe(args):
             ]
         for label in DISKS:
             command += ["-drive", f"file={scratch / (label + '.qcow2')},if=none,format=qcow2,id={label}"]
-        command += [
-            "-device", "ide-hd,drive=boot,bus=legacy.0,bootindex=1",
-            "-device", "ide-hd,drive=root,bus=sata.0",
-            "-device", "ide-hd,drive=data,bus=sata.1",
-        ]
+        if args.virtio_blk:
+            command += [
+                "-device", "virtio-blk-pci,drive=boot,bootindex=1",
+                "-device", "virtio-blk-pci,drive=root",
+                "-device", "virtio-blk-pci,drive=data",
+            ]
+        else:
+            command += [
+                "-device", "ide-hd,drive=boot,bus=legacy.0,bootindex=1",
+                "-device", "ide-hd,drive=root,bus=sata.0",
+                "-device", "ide-hd,drive=data,bus=sata.1",
+            ]
         with (output / "qemu.log").open("wb") as host_log:
             process = subprocess.Popen(command, stdout=host_log, stderr=subprocess.STDOUT)
             monitor = None
@@ -190,6 +198,10 @@ def run_probe(args):
                     recorded = scratch / filename
                     if recorded.is_file():
                         shutil.copyfile(recorded, output / filename)
+        (output / "result.json").write_text(json.dumps({
+            "qemu_exit": process.returncode,
+            "observation_window_completed": (output / "status.json").is_file(),
+        }, indent=2) + "\n")
     print(f"Probe finished with QEMU exit {process.returncode}. Evidence: {output}")
     return int(process.returncode != 0)
 
@@ -206,6 +218,7 @@ def main():
     mode.add_argument("--remap-ide-dma", action="store_true", help="Set the PIIX3 bus-master I/O base to 0xd040")
     mode.add_argument("--direct-linux", action="store_true", help="Start the original kernel and initramfs with a serial console")
     parser.add_argument("--kernel-args", default="", help="Extra Linux parameters for the direct boot diagnostic")
+    parser.add_argument("--virtio-blk", action="store_true", help="Attach copies to VirtIO block devices for direct Linux boot")
     parser.add_argument("--accel", choices=("tcg", "kvm"), default="tcg")
     parser.add_argument("--seconds", type=int, default=40, help="Guest observation window in seconds (1–120)")
     args = parser.parse_args()
@@ -213,6 +226,8 @@ def main():
         parser.error("--seconds must be between 1 and 120")
     if args.kernel_args and not args.direct_linux:
         parser.error("--kernel-args requires --direct-linux")
+    if args.virtio_blk and not args.direct_linux:
+        parser.error("--virtio-blk requires --direct-linux")
     return run_probe(args)
 
 

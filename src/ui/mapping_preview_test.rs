@@ -2,6 +2,7 @@ use super::*;
 use crate::capture::Shot;
 
 const PACKAGE: &str = "org.supertuxkart.stk";
+const SCENES: [&str; 5] = ["games", "controls", "editor", "idle", "shutdown"];
 
 struct MappingPreview {
     app: Launcher,
@@ -12,25 +13,78 @@ struct MappingPreview {
     pending: bool,
     next: Instant,
     deadline: Instant,
+    shutdown: Option<std::sync::mpsc::Sender<()>>,
+}
+
+impl Drop for MappingPreview {
+    fn drop(&mut self) {
+        // Launcher joins its worker when the native window is destroyed.
+        drop(self.shutdown.take());
+    }
 }
 
 impl MappingPreview {
     fn prepare(&mut self) {
-        let locale = Locale::ALL[self.step / 2];
+        let scene = SCENES[self.step % SCENES.len()];
+        let locale = Locale::ALL[self.step / SCENES.len()];
         self.app.config.locale = locale;
-        let frame = self.output.join(locale.tag()).join("game-frame.png");
-        let mut display = Display::for_mapping_capture(
-            read_frame(&frame),
-            self.fixture.path().join("touch-maps.json"),
-        );
-        display.set_package(Some(PACKAGE));
-        if self.step % 2 == 0 {
-            display.toggle_controls_menu(140.);
-        } else {
-            display.toggle_mapping();
-            self.select_pad = 0..4;
+        if let Some(session) = self.app.task.take() {
+            drop(self.shutdown.take());
+            session.worker.join().unwrap().unwrap();
         }
-        self.app.display = Some(display);
+        self.app.closing = scene == "shutdown";
+        self.app.playing = matches!(scene, "games" | "controls" | "editor");
+        self.app.home_ready = self.app.playing;
+        self.app.stage = if self.app.playing {
+            BootStage::Booted
+        } else {
+            BootStage::Stopped
+        };
+        self.app.controls = None;
+        self.app.display = if self.app.playing {
+            let filename = if scene == "games" {
+                "home-frame.png"
+            } else {
+                "game-frame.png"
+            };
+            let frame = self.output.join(locale.tag()).join(filename);
+            let state = self.fixture.path();
+            let mut display =
+                Display::for_mapping_capture(read_frame(&frame), state.join("touch-maps.json"));
+            let package = if scene == "games" {
+                "org.rustemudroid.home"
+            } else {
+                PACKAGE
+            };
+            self.app.controls = Some(Controls::for_screenshot(package, state));
+            display.set_package(Some(package));
+            match scene {
+                "games" => {}
+                "controls" => {
+                    display.toggle_controls_menu(140.);
+                }
+                "editor" => {
+                    display.toggle_mapping();
+                    self.select_pad = 0..4;
+                }
+                _ => unreachable!(),
+            }
+            Some(display)
+        } else {
+            None
+        };
+        if self.app.closing {
+            let (finish, wait) = std::sync::mpsc::channel();
+            let (_, events) = std::sync::mpsc::channel();
+            self.shutdown = Some(finish);
+            self.app.task = Some(Session {
+                events,
+                worker: thread::spawn(move || {
+                    let _ = wait.recv();
+                    Ok(())
+                }),
+            });
+        }
         self.pending = false;
         self.next = Instant::now() + Duration::from_millis(550);
     }
@@ -40,7 +94,7 @@ impl App for MappingPreview {
     fn raw_input_hook(&mut self, _: &egui::Context, raw: &mut egui::RawInput) {
         raw.focused = true;
         raw.events
-            .retain(|event| !matches!(event, egui::Event::WindowFocused(false)));
+            .retain(|event| matches!(event, egui::Event::Screenshot { .. }));
         let pad = egui::pos2(227., 510.);
         match self.select_pad.next() {
             Some(0) => raw.events.push(egui::Event::PointerMoved(pad)),
@@ -56,14 +110,10 @@ impl App for MappingPreview {
         for event in &raw.events {
             if let egui::Event::Screenshot { image, .. } = event {
                 let dir = self.output.join(self.app.config.locale.tag());
-                let name = if self.step % 2 == 0 {
-                    "controls"
-                } else {
-                    "editor"
-                };
+                let name = SCENES[self.step % SCENES.len()];
                 WindowTest::save(&dir, name, image);
                 self.step += 1;
-                if self.step < Locale::ALL.len() * 2 {
+                if self.step < Locale::ALL.len() * SCENES.len() {
                     self.prepare();
                 }
             }
@@ -75,12 +125,12 @@ impl App for MappingPreview {
             Instant::now() < self.deadline,
             "timed out capturing controls"
         );
-        if self.step == Locale::ALL.len() * 2 {
+        if self.step == Locale::ALL.len() * SCENES.len() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
         self.app.update(ctx, frame);
-        assert!(self.app.task.is_none());
+        assert_eq!(self.app.task.is_some(), self.app.closing);
         if !self.pending && Instant::now() >= self.next {
             self.pending = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
@@ -113,8 +163,8 @@ fn read_frame(path: &Path) -> Shot {
 }
 
 #[test]
-#[ignore = "renders mapping UI on captured guest frames without starting Android"]
-fn capture_localized_control_panels() {
+#[ignore = "renders the session and its tools on captured guest frames without starting Android"]
+fn capture_localized_session_frames() {
     let output = PathBuf::from(
         std::env::var_os("RUSTEMUDROID_TEST_CAPTURES").expect("choose a capture directory"),
     );
@@ -140,7 +190,8 @@ fn capture_localized_control_panels() {
     .unwrap();
     let state = fixture.path().to_path_buf();
     let prefs = state.join("launcher.json");
-    let config = LaunchConfig::load(None, state, None, &prefs);
+    let mut config = LaunchConfig::load(None, state, None, &prefs);
+    config.show_fps = false;
     let (mut options, brand) = branded_window().unwrap();
     options.event_loop_builder = Some(Box::new(|builder| {
         builder.with_any_thread(true);
@@ -149,10 +200,7 @@ fn capture_localized_control_panels() {
         "RustEmuDroid",
         options,
         Box::new(move |cc| {
-            let mut app = Launcher::new(install_window(cc, brand), config, prefs, false);
-            app.playing = true;
-            app.home_ready = true;
-            app.stage = BootStage::Booted;
+            let app = Launcher::new(install_window(cc, brand), config, prefs, false);
             let now = Instant::now();
             let mut preview = MappingPreview {
                 app,
@@ -163,6 +211,7 @@ fn capture_localized_control_panels() {
                 pending: false,
                 next: now,
                 deadline: now + Duration::from_secs(25),
+                shutdown: None,
             };
             preview.prepare();
             Ok(Box::new(preview))

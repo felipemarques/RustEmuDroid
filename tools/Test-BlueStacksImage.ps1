@@ -6,7 +6,9 @@ param(
     [ValidateRange(1, 120)]
     [int] $Seconds = 40,
 
-    [switch] $VerifyHashes
+    [switch] $VerifyHashes,
+
+    [switch] $LegacyStorage
 )
 
 $ErrorActionPreference = 'Stop'
@@ -48,6 +50,9 @@ $run = "$lab/direct-linux-$(Get-Date -Format yyyyMMdd-HHmmss)-$([guid]::NewGuid(
 $wslArgs = @('--distribution', $Distribution, '--cd', $project, '--exec')
 $probeArgs = @('python3', 'tools/bluestacks_lab.py', '--images', $images,
     '--output', $run, '--direct-linux', '--seconds', "$Seconds")
+if (-not $LegacyStorage) {
+    $probeArgs += '--virtio-blk'
+}
 $qemu = "$tools/usr/bin/qemu-system-x86_64"
 $qemuImg = "$tools/usr/bin/qemu-img"
 $bios = "$tools/usr/share/seabios/bios-256k.bin"
@@ -66,7 +71,7 @@ $probeExit = $LASTEXITCODE
 $output = Join-Path $project $run
 if (Test-Path -LiteralPath $output -PathType Container) {
     Write-Host "Evidence folder $output"
-    foreach ($name in 'serial.log', 'qemu.log') {
+    foreach ($name in 'serial.log', 'qemu.log', 'result.json') {
         $log = Join-Path $output $name
         if (Test-Path -LiteralPath $log -PathType Leaf) {
             Write-Host $log
@@ -79,6 +84,9 @@ if ($probeExit -ne 0) {
 
 $serial = Join-Path $output 'serial.log'
 if ((Test-Path -LiteralPath $serial -PathType Leaf) -and
+    (Select-String -LiteralPath $serial -Pattern 'Cannot load module /boot/bstmods/bstinput\.ko' -Quiet)) {
+    Write-Host 'The kernel reached initramfs userspace. The BlueStacks input module failed to load. Android startup was not verified.'
+} elseif ((Test-Path -LiteralPath $serial -PathType Leaf) -and
     (Select-String -LiteralPath $serial -Pattern 'watchdog:.*soft lockup' -Quiet)) {
     Write-Host 'The guest kernel reported a watchdog soft lockup. Android startup was not verified.'
 } else {

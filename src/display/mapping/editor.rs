@@ -1,6 +1,6 @@
 mod tiles;
 
-use super::{Gesture, Mapping};
+use super::{Gesture, Mapping, SchemeError};
 use crate::ui::{i18n::Locale, theme};
 use eframe::egui;
 use std::{path::PathBuf, sync::mpsc};
@@ -13,7 +13,7 @@ pub(super) struct Editor {
     profile_name: String,
     confirm_delete: bool,
     file_picker: Option<FilePicker>,
-    file_notice: Option<(FileAction, Result<(), String>)>,
+    file_notice: Option<(FileAction, Result<(), SchemeError>)>,
 }
 
 #[derive(Clone, Copy)]
@@ -286,15 +286,11 @@ impl Mapping {
                     });
                 }
                 Err(error) => {
-                    ui.colored_label(
-                        egui::Color32::LIGHT_RED,
-                        locale.pick(
-                            "Falha ao transferir o esquema.",
-                            "Couldn't transfer the scheme.",
-                            "No se pudo transferir el esquema.",
-                        ),
-                    )
-                    .on_hover_text(error);
+                    let response =
+                        ui.colored_label(egui::Color32::LIGHT_RED, scheme_error(error, locale));
+                    if let SchemeError::File(details) = error {
+                        response.on_hover_text(details);
+                    }
                 }
             }
         }
@@ -771,6 +767,31 @@ impl Mapping {
             return;
         };
         ui.label(egui::RichText::new(hint).color(theme::ACCENT));
+    }
+}
+
+fn scheme_error(error: &SchemeError, locale: Locale) -> &'static str {
+    match error {
+        SchemeError::File(_) => locale.pick(
+            "Falha ao acessar o arquivo do esquema.",
+            "Couldn't access the scheme file.",
+            "No se pudo acceder al archivo del esquema.",
+        ),
+        SchemeError::TooLarge => locale.pick(
+            "O arquivo do esquema excede 256 KiB.",
+            "The scheme file exceeds 256 KiB.",
+            "El archivo del esquema supera los 256 KiB.",
+        ),
+        SchemeError::InvalidData => locale.pick(
+            "O esquema contém dados inválidos ou usa uma versão incompatível.",
+            "The scheme contains invalid data or uses an unsupported version.",
+            "El esquema contiene datos no válidos o utiliza una versión incompatible.",
+        ),
+        SchemeError::InvalidName => locale.pick(
+            "O nome do esquema é inválido ou já existe.",
+            "The scheme name is invalid or already exists.",
+            "El nombre del esquema no es válido o ya existe.",
+        ),
     }
 }
 

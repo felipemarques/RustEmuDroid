@@ -189,6 +189,8 @@ Usa el mismo `--state-dir` para inicializar, arrancar y abrir la interfaz. El di
 
 ## Rendimiento y diagnóstico
 
+Las pruebas en Windows cubren los menús de PUBG MOBILE, BombSquad y War Thunder Mobile. [Resultados y pasos para repetir las pruebas, en inglés](docs/game-testing.md)
+
 - **FPS.** El contador del panel mide los fotogramas nuevos enviados al escritorio. En un menú estático puede indicar pocos FPS. Para comparar juegos, consulta el contador interno o el informe de fotogramas del juego.
 - **Mediciones.** En SuperTuxKart 1.5, repetición Black Forest, RustEmuDroid registró 59,93 FPS con los ajustes originales y 28,90 FPS en calidad alta en el equipo Windows con RTX 5070 Ti, Android 16 y OpenGL ES. Los informes comparan también Kemu y BlueStacks. [Mediciones con GPU integrada Radeon 780M](benchmarks/stk-1.5/radeon-780m/README.md) · [Pruebas y datos originales](benchmarks/stk-1.5/README.md)
 - **Pantalla en negro.** Ejecuta `doctor`, comprueba el adaptador Vulkan y prueba el modo de GPU del equipo o automático. El modo por software permite aislar fallos del controlador.

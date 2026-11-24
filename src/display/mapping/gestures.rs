@@ -129,6 +129,7 @@ impl Gestures {
                 .filter(|(_, b)| b.captures(input))
             {
                 match binding.gesture {
+                    Gesture::Dpad { .. } => self.update_dpad(i, binding, frame, changes),
                     Gesture::Hold | Gesture::Repeat { .. } | Gesture::Aim { toggle: false, .. } => {
                         self.stop(i, changes);
                         self.deadlines.remove(&i);
@@ -157,7 +158,9 @@ impl Gestures {
             .enumerate()
             .filter(|(_, b)| b.captures(input))
         {
-            if matches!(binding.gesture, Gesture::Aim { toggle: true, .. }) {
+            if matches!(binding.gesture, Gesture::Dpad { .. }) {
+                self.update_dpad(i, binding, frame, changes);
+            } else if matches!(binding.gesture, Gesture::Aim { toggle: true, .. }) {
                 if !self.toggled.insert(i) {
                     self.toggled.remove(&i);
                     self.stop(i, changes);
@@ -235,38 +238,7 @@ impl Gestures {
                         self.stop(index, changes);
                     }
                 }
-                Gesture::Dpad {
-                    directions,
-                    radius,
-                    left_stick,
-                } => {
-                    let keyboard = [vec2(0., -1.), vec2(0., 1.), vec2(-1., 0.), vec2(1., 0.)];
-                    let movement = directions.iter().zip(keyboard).fold(
-                        if *left_stick {
-                            deadzone(self.left)
-                        } else {
-                            Vec2::ZERO
-                        },
-                        |movement, (key, axis)| {
-                            if self.held.contains(key) {
-                                movement + axis
-                            } else {
-                                movement
-                            }
-                        },
-                    );
-                    if movement != Vec2::ZERO {
-                        let pos = offset(
-                            frame.size,
-                            binding.at,
-                            limited(movement, 1.) * radius.clamp(0.02, 0.35),
-                        );
-                        self.start(index, &[binding.at], frame, changes);
-                        self.move_to(index, &[pos], changes);
-                    } else {
-                        self.stop(index, changes);
-                    }
-                }
+                Gesture::Dpad { .. } => self.update_dpad(index, binding, frame, changes),
                 Gesture::Aim {
                     sensitivity,
                     mouse: use_mouse,
@@ -357,6 +329,45 @@ impl Gestures {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn update_dpad(
+        &mut self,
+        index: usize,
+        binding: &Binding,
+        frame: &Frame<'_>,
+        changes: &mut Vec<Contact>,
+    ) {
+        let Gesture::Dpad {
+            directions,
+            radius,
+            left_stick,
+        } = &binding.gesture
+        else {
+            return;
+        };
+        let axes = [vec2(0., -1.), vec2(0., 1.), vec2(-1., 0.), vec2(1., 0.)];
+        let analog = if *left_stick {
+            deadzone(self.left)
+        } else {
+            Vec2::ZERO
+        };
+        let movement = directions
+            .iter()
+            .zip(axes)
+            .filter(|(key, _)| self.held.contains(*key))
+            .fold(analog, |movement, (_, axis)| movement + axis);
+        if movement != Vec2::ZERO {
+            let pos = offset(
+                frame.size,
+                binding.at,
+                limited(movement, 1.) * radius.clamp(0.02, 0.35),
+            );
+            self.start(index, &[binding.at], frame, changes);
+            self.move_to(index, &[pos], changes);
+        } else {
+            self.stop(index, changes);
         }
     }
 

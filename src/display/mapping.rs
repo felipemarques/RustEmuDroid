@@ -40,6 +40,14 @@ struct SchemeFile {
     layout: Layout,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum SchemeError {
+    File(String),
+    TooLarge,
+    InvalidData,
+    InvalidName,
+}
+
 impl Default for GameProfiles {
     fn default() -> Self {
         Self::from_layout(Layout {
@@ -261,23 +269,33 @@ impl Mapping {
         }
     }
 
-    fn import_profile(&mut self, path: &Path) -> Result<(), String> {
-        let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
-        if file.metadata().map_err(|error| error.to_string())?.len() > 262_144 {
-            return Err("Exceeded 256 KiB".into());
+    fn import_profile(&mut self, path: &Path) -> Result<(), SchemeError> {
+        let file =
+            std::fs::File::open(path).map_err(|error| SchemeError::File(error.to_string()))?;
+        let size = file
+            .metadata()
+            .map_err(|error| SchemeError::File(error.to_string()))?
+            .len();
+        if size > 262_144 {
+            return Err(SchemeError::TooLarge);
         }
-        let record: SchemeFile =
-            serde_json::from_reader(file).map_err(|error| error.to_string())?;
+        let record: SchemeFile = serde_json::from_reader(file).map_err(|error| {
+            if error.is_io() {
+                SchemeError::File(error.to_string())
+            } else {
+                SchemeError::InvalidData
+            }
+        })?;
         if record.version != 1 || !valid_layout(&record.layout) {
-            return Err("Unsupported or invalid mapping data".into());
+            return Err(SchemeError::InvalidData);
         }
         if !self.insert_profile(&record.name, record.layout) {
-            return Err("Invalid or duplicate profile name".into());
+            return Err(SchemeError::InvalidName);
         }
         Ok(())
     }
 
-    fn export_profile(&self, path: &Path) -> Result<(), String> {
+    fn export_profile(&self, path: &Path) -> Result<(), SchemeError> {
         crate::ui::write_json(
             path,
             &SchemeFile {
@@ -286,7 +304,7 @@ impl Mapping {
                 layout: self.draft.clone(),
             },
         )
-        .map_err(|error| error.to_string())
+        .map_err(|error| SchemeError::File(error.to_string()))
     }
     pub(super) fn toggle(&mut self) {
         self.editing = !self.editing;
@@ -474,6 +492,7 @@ impl Mapping {
             let advanced = Self::advanced_layout(&self.profiles, self.package.as_deref());
             if advanced.iter().any(|binding| binding.captures(input)) {
                 let taken = self.taken();
+                self.gestures.left = vec2(self.analog[0], self.analog[1]);
                 self.gestures.input(
                     advanced,
                     input,
@@ -819,6 +838,86 @@ mod tests {
     use super::*;
 
     #[test]
+    fn dpad_taps_in_one_frame_send_ordered_android_contacts() {
+        use crate::display::{Display, Format, Frame, Input};
+
+        let (input, mut received) = tokio::sync::mpsc::unbounded_channel();
+        let mut display = Display::new(Default::default(), input);
+        display.state.lock().unwrap().latest = Some(Frame {
+            format: Some(Format {
+                width: 160,
+                height: 96,
+                ..Default::default()
+            }),
+            pixels: vec![255; 160 * 96 * 4].into(),
+        });
+        display.mapping.pad_initialized = true;
+        display.mapping.profiles.insert(
+            "test.game".into(),
+            GameProfiles::from_layout(Layout {
+                controls: vec![Binding {
+                    input: String::new(),
+                    at: [0.5, 0.5],
+                    gesture: Gesture::Dpad {
+                        directions: ["I".into(), "K".into(), "J".into(), "L".into()],
+                        radius: 0.125,
+                        left_stick: true,
+                    },
+                }],
+                ..Default::default()
+            }),
+        );
+        display.set_package(Some("test.game"));
+        let events = [Key::I, Key::J]
+            .into_iter()
+            .flat_map(|key| {
+                [true, false].map(|pressed| egui::Event::Key {
+                    key,
+                    physical_key: Some(key),
+                    pressed,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                })
+            })
+            .collect();
+        let ctx = egui::Context::default();
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(960., 640.))),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    display.show(ui, true, crate::ui::i18n::Locale::default());
+                });
+            },
+        );
+
+        let mut contacts = Vec::new();
+        while let Ok(event) = received.try_recv() {
+            let Input::Touch(touch_event) = event else {
+                panic!("a mapped key was passed through to Android");
+            };
+            let [touch] = touch_event.touches.as_slice() else {
+                panic!("each phase of the same contact requires its own event");
+            };
+            contacts.push((touch.identifier, touch.x, touch.y, touch.pressure));
+        }
+        assert_eq!(
+            contacts,
+            [
+                (1, 80, 48, 1024),
+                (1, 80, 36, 1024),
+                (1, 80, 36, 0),
+                (1, 80, 48, 1024),
+                (1, 68, 48, 1024),
+                (1, 68, 48, 0),
+            ]
+        );
+    }
+
+    #[test]
     fn separate_contacts_for_keyboard_gamepad_and_analog_stick() {
         let mut map = Mapping::default();
         map.select(Some("test.game"));
@@ -891,15 +990,33 @@ mod tests {
         loaded.select(Some("other.game"));
         loaded.import_profile(&share_path).unwrap();
         assert_eq!(loaded.draft.controls.len(), 1);
-        assert!(loaded.import_profile(&share_path).is_err());
+        assert_eq!(
+            loaded.import_profile(&share_path),
+            Err(SchemeError::InvalidName)
+        );
         let original = std::fs::read_to_string(&share_path).unwrap();
         std::fs::write(
             &share_path,
             original.replace("0.72", "1.1").replace("Race", "Broken"),
         )
         .unwrap();
-        assert!(loaded.import_profile(&share_path).is_err());
+        assert_eq!(
+            loaded.import_profile(&share_path),
+            Err(SchemeError::InvalidData)
+        );
         assert_eq!(loaded.draft_profiles.active, "Race");
         assert_eq!(loaded.draft.controls[0].at, [0.72, 0.9]);
+
+        std::fs::write(&share_path, b"{").unwrap();
+        assert_eq!(
+            loaded.import_profile(&share_path),
+            Err(SchemeError::InvalidData)
+        );
+
+        std::fs::write(&share_path, vec![0; 262_145]).unwrap();
+        assert_eq!(
+            loaded.import_profile(&share_path),
+            Err(SchemeError::TooLarge)
+        );
     }
 }

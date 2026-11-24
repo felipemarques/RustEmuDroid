@@ -415,6 +415,14 @@ pub struct Controls {
 }
 
 impl Controls {
+    #[cfg(all(test, windows))]
+    pub(crate) fn for_screenshot(package: &str, root: &std::path::Path) -> Self {
+        let mut controls = Self::new(root.join("no-adb.exe"), 0, root.into());
+        controls.foreground = Some(package.into());
+        controls.next_foreground += std::time::Duration::from_secs(60);
+        controls
+    }
+
     #[cfg(test)]
     pub(crate) fn guest_output(&self, args: &[&str]) -> Result<String, String> {
         self.guest.command(args.iter().copied())
