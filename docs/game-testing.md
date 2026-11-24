@@ -52,7 +52,20 @@ The RustEmuDroid CLI opened the same APK in BlueStacks 5.22.166.1003, instance P
 
 The official ARM64 APK (`version_1.94-android`, version code 258) ran an offline Nürburgring GP race with three AI opponents in the Android 17 x86-64 profile. The game log identified the Vulkan renderer as Goldfish GFXStream with the GeForce RTX 5070 Ti. The Android release uses CPU mesh subdivision and applies relativistic vertex transformations. The workload includes ARM translation, simulation and rendering. [Developer's Android release](https://github.com/rchristie95/MinkowskiKart/releases/tag/version_1.94-android)
 
-At the initial kart position, while the AI racers progressed, the Android game surface presented 73 frames over a first-to-last span of 17.65 seconds. The 72 intervals averaged **4.08 presentations per second**, with a median interval of 244.86 ms and a P95 of 267.60 ms. This was a short sample in an offline Intermediate race at 1600 × 900 on a local instrumented 0.2.4 desktop build. It measures the guest's presentation cadence at that position. A sustained lap and GPU utilization were outside this measurement.
+Both samples used the Minkowski kart, Intermediate difficulty, three laps, VSync and the game's Custom graphics preset. The Android display was 1600 × 900 on a local instrumented 0.2.4 desktop build. The game's internal resolution scale controls how many pixels it renders inside that display.
+
+| Internal scale | Sampled scene | Presentations | Span | Presentations per second | Median interval | P95 interval |
+|---|---|---:|---:|---:|---:|---:|
+| 80% (original setting) | Opening sequence into the race | 73 | 17.65 s | 4.08 | 244.86 ms | 267.60 ms |
+| 100% | Active race at the starting position, AI racers moving | 71 | 17.30 s | 4.05 | 247.52 ms | 267.77 ms |
+
+At 100%, the game's own overlay read **4/5/5 FPS, 8,261 KTris** in the active race and **4/4/5 FPS, 8,773 KTris** while accelerating. The on-screen steering control accelerated the kart from rest. Race phases differed between samples, so the table does not isolate the effect of resolution. The in-game benchmark button was disabled in the tested configuration. Use **Singleplayer** for the playable test.
+
+Each sample's timestamps in the CSV start at its first observed presentation. Divide the number of intervals by the final timestamp in seconds to reproduce the rates. [Android 17 presentation timestamps](../benchmarks/minkowski-kart-1.94/android-17-presentations.csv)
+
+The same APK installed in BlueStacks 5.22.166.1003 Pie64 (Android 9). The RustEmuDroid 0.3.0 CLI opened the registered activity. Android recorded a native crash in the game process during SDL startup and returned to Home before the main menu. No comparable race measurement was available on that instance.
+
+![Minkowski Kart accelerating at Nürburgring GP. The game's overlay reads 4/4/5 FPS and 8,773 KTris.](minkowski-kart-race.png)
 
 ## Box3D for Godot
 
