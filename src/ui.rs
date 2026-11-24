@@ -272,7 +272,7 @@ impl Launcher {
         });
     }
 
-    fn receive(&mut self, ctx: &egui::Context) {
+    fn receive(&mut self, ctx: &egui::Context, gl: Option<&eframe::glow::Context>) {
         let Some(task) = &self.task else { return };
         let finished = task.worker.is_finished();
         for event in task.events.try_iter() {
@@ -289,7 +289,9 @@ impl Launcher {
                     let mut controls = Controls::new(adb, console, avd.clone());
                     controls.set_locale(self.config.locale);
                     self.controls = Some(controls);
-                    self.display = Some(Display::open(console, rpc, avd, ctx));
+                    let mut display = Display::open(console, rpc, avd, ctx);
+                    display.enable_native_texture(gl);
+                    self.display = Some(display);
                 }
                 event => {
                     let line = event.to_string();
@@ -381,7 +383,7 @@ impl Launcher {
 }
 
 impl eframe::App for Launcher {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let close_requested = ctx.input(|input| input.viewport().close_requested());
         if close_requested && !self.closing {
             self.closing = true;
@@ -392,7 +394,7 @@ impl eframe::App for Launcher {
             self.controls = None;
         }
         self.poll_stop(ctx);
-        self.receive(ctx);
+        self.receive(ctx, frame.gl().map(|gl| gl.as_ref()));
         if self.stop.load(Ordering::Acquire) {
             self.capture.stop();
             if self.closing {

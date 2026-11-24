@@ -11,6 +11,8 @@
 
 ## Verification history
 
+- The 0.6.1 desktop path uses the same decoded bytes for capture and OpenGL texture upload on GL/GLES 3+. In a Windows A/B test with the same live Unity scene, mean CPU preparation per frame fell from 1.22 to 0.21 ms. The native desktop panel used the Radeon 780M while the game used the RTX 5070 Ti. [Measurements](benchmarks/desktop-texture-upload/README.md)
+
 - On the Windows Radeon 780M with SDK 37.3.10, use the guest's Vulkan memory types to check which heaps are CPU-visible. The original configuration exposed only 256 MiB to CPU-visible allocations. Disabling the SDK's device-memory-only policy for the selected session also exposed a 16,240 MiB heap. FPS WW2 URP then entered Level 1 on native Vulkan with Max quality and Very High antialiasing. The opt-in preference belongs to the Android profile. [Measurements and memory-type evidence](docs/game-testing.md#radeon-780m-vulkan-compatibility)
 
 - On Windows, the SDK could block before ADB on a crash-report dialog after a previous VM failure. In 0.4.1 the SDK logged its reporter disabled and Android 17 booted in 23.5 s embedded and 24.6 s headless. The retained session log and Android boot property cover these two paths. The embedded SuperTuxKart replay averaged 60.02 game FPS at the 60 FPS cap across two runs. [Replay settings](docs/game-testing.md#supertuxkart-release-comparison)

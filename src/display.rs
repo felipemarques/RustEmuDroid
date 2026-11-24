@@ -2,6 +2,9 @@
 #[cfg(test)]
 mod live_input_test;
 mod mapping;
+mod native_texture;
+#[cfg(all(test, windows))]
+mod native_texture_test;
 #[cfg(all(test, windows))]
 mod preview;
 mod tilt;
@@ -262,6 +265,7 @@ pub struct Display {
     state: Arc<Mutex<Shared>>,
     input: mpsc::UnboundedSender<Input>,
     texture: Option<TextureHandle>,
+    native_texture: Option<native_texture::NativeTexture>,
     shot: Option<Shot>,
     shot_changed: bool,
     size: [usize; 2],
@@ -313,6 +317,7 @@ impl Display {
             state,
             input,
             texture: None,
+            native_texture: None,
             shot: None,
             shot_changed: false,
             size: [1, 1],
@@ -325,6 +330,12 @@ impl Display {
             tilt: None,
         }
     }
+    pub(crate) fn enable_native_texture(&mut self, gl: Option<&eframe::glow::Context>) {
+        if native_texture::supported(gl) {
+            self.native_texture = Some(native_texture::NativeTexture::default());
+        }
+    }
+
     pub fn press(&self, key: &str) {
         self.key(key, 2);
     }
@@ -445,8 +456,6 @@ impl Display {
         }
         self.size = size;
         self.rotation = rotation;
-        let mut pixels = vec![egui::Color32::TRANSPARENT; size[0] * size[1]];
-        bytemuck::cast_slice_mut(&mut pixels).copy_from_slice(&frame.pixels);
         // Capture the same pixels and orientation sent to the desktop texture.
         self.shot = Some(Shot {
             width: format.width,
@@ -454,15 +463,26 @@ impl Display {
             pixels: frame.pixels,
         });
         self.shot_changed = true;
-        let image = ColorImage::new(size, pixels);
-        if let Some(texture) = &mut self.texture {
-            if same_size {
-                texture.set_partial([0, 0], image, TextureOptions::LINEAR)
-            } else {
-                texture.set(image, TextureOptions::LINEAR)
-            }
+        if let Some(native) = &mut self.native_texture {
+            native.advance();
+            self.texture.get_or_insert_with(|| {
+                let placeholder = ColorImage::filled([1, 1], egui::Color32::TRANSPARENT);
+                ctx.load_texture("Android", placeholder, TextureOptions::LINEAR)
+            });
         } else {
-            self.texture = Some(ctx.load_texture("Android", image, TextureOptions::LINEAR));
+            let mut pixels = vec![egui::Color32::TRANSPARENT; size[0] * size[1]];
+            let shot = self.shot.as_ref().unwrap();
+            bytemuck::cast_slice_mut(&mut pixels).copy_from_slice(&shot.pixels);
+            let image = ColorImage::new(size, pixels);
+            if let Some(texture) = &mut self.texture {
+                if same_size {
+                    texture.set_partial([0, 0], image, TextureOptions::LINEAR)
+                } else {
+                    texture.set(image, TextureOptions::LINEAR)
+                }
+            } else {
+                self.texture = Some(ctx.load_texture("Android", image, TextureOptions::LINEAR));
+            }
         }
         self.count += 1;
         let elapsed = self.since.elapsed();
@@ -534,6 +554,11 @@ impl Display {
         });
         let scale = (viewport.width() / size.x).min(viewport.height() / size.y);
         let rect = Rect::from_center_size(viewport.center(), size * scale);
+        if ui.is_rect_visible(rect)
+            && let (Some(native), Some(shot)) = (&self.native_texture, &self.shot)
+        {
+            native.queue(ui.painter(), rect, texture.id(), shot);
+        }
         ui.painter().image(
             texture.id(),
             rect,
