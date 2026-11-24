@@ -85,6 +85,8 @@ Ao encerrar o Android, a tela da sessão permite iniciar o mesmo perfil novament
 
 ## Abrir uma instância instalada do BlueStacks no Windows
 
+**Já dá para jogar com a imagem Android do BlueStacks dentro da janela do RustEmuDroid?** A imagem ainda não chega à tela inicial. Neste PC, **Abrir BlueStacks** abriu o SuperTuxKart no player do BlueStacks. Em um teste separado, uma imagem híbrida com o framework copiado do Pie64 iniciou o serviço de sistema do Android (`system_server`) e parou antes da tela inicial. O boot de 29,5 segundos foi medido com a imagem padrão do Android 9. [Resultados do teste com Pie64, em inglês](docs/bluestacks-lab.md#r2-fstab-compatibility-test)
+
 Para abrir um jogo já instalado, o BlueStacks 5 precisa ter pelo menos uma instância configurada no Windows. Ela abre na janela do próprio BlueStacks, com os jogos e saves daquela instância. Os comandos abaixo usam o PowerShell do Windows e dispensam o Android SDK.
 
 A tela integrada, o mapeamento de controles e o contador de FPS do RustEmuDroid estão disponíveis ao jogar no Android do próprio RustEmuDroid.
@@ -185,6 +187,8 @@ Abra o jogo e clique no ícone de teclado da barra lateral para abrir **Controle
 **Use vários mapas de controles no mesmo jogo.** Clique em **Gerenciar perfis** no menu do teclado. Escolha **Novo perfil** para começar do zero ou **Duplicar** para copiar as posições e teclas atuais. Dê um nome, como *Veículo*, e clique em **Aplicar**. Em **Editar controles**, arraste os controles para os botões do jogo e clique em **Salvar**. Para trocar durante o jogo, selecione o mapa em **Perfil do jogo** no menu do teclado. Cada jogo lembra o último perfil usado, inclusive depois de fechar o emulador. Em **Gerenciar perfis** também é possível renomear, excluir, importar ou exportar um perfil.
 
 ![Gerenciador com dois perfis de controle para o SuperTuxKart](docs/screenshots/pt-br/profiles.png)
+
+Durante a partida, pressione **Ctrl+Shift+P** para ativar o próximo perfil salvo do jogo. Depois do último, o atalho volta ao primeiro. O nome aparece na tela para confirmar a troca.
 
 Selecione **Editor de controles** no menu ou pressione **Ctrl+Shift+A**. Arraste um controle da paleta para a tela do jogo e selecione-o para associar uma entrada e ajustar suas propriedades. Para movimento, solte um **Direcional** sobre o joystick virtual do jogo. Em **Configuração do controle**, associe **Cima**, **Baixo**, **Esquerda** e **Direita** individualmente. Clique no centro do direcional para selecioná-lo e arraste a alça no canto inferior direito para ajustar o raio ao tamanho do joystick. A alça e o painel ajustam o mesmo raio. Em **Analógico**, escolha **Esquerdo** ou **Direito** para usá-lo junto com as teclas de direção. Escolha **Desativado** para usar apenas as direções atribuídas. Clique em **Salvar** para aplicar o esquema.
 

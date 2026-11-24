@@ -110,7 +110,7 @@ impl App for ReplayWindow {
                     physical_key: Some(egui::Key::H),
                     pressed: true,
                     repeat: false,
-                    modifiers: crate::ui::capture_panel::CAPTURE_MODIFIERS,
+                    modifiers: crate::toolbar::PLAYER_MODIFIERS,
                 });
             });
         }

@@ -7,6 +7,8 @@ mod native_texture;
 mod native_texture_test;
 #[cfg(all(test, windows))]
 mod preview;
+#[cfg(test)]
+mod profile_shortcut_tests;
 mod tilt;
 
 use crate::{capture::Shot, ui::i18n::Locale};
@@ -273,6 +275,8 @@ pub struct Display {
     contact: Option<(i32, i32)>,
     library_wheel: i32,
     held: Vec<String>,
+    shortcut_modifiers: [bool; 2],
+    profile_notice: Option<(String, Instant)>,
     count: u32,
     since: Instant,
     fps: f32,
@@ -326,6 +330,8 @@ impl Display {
             contact: None,
             library_wheel: 0,
             held: vec![],
+            shortcut_modifiers: [false; 2],
+            profile_notice: None,
             count: 0,
             since: Instant::now(),
             fps: 0.0,
@@ -517,9 +523,52 @@ impl Display {
         let bounds = ui.available_rect_before_wrap();
         self.mapping.blocked_rect = self.mapping.panel_rect(bounds);
         let menu = self.mapping.quick.is_open();
-        let modal_keyboard = self.controls_open()
-            && (egui::Popup::is_any_open(ui.ctx()) || ui.input(|i| i.key_pressed(Key::Escape)));
+        let modal_keyboard = egui::Popup::is_any_open(ui.ctx())
+            || ui.memory(|m| m.top_modal_layer().is_some())
+            || (self.controls_open() && ui.input(|i| i.key_pressed(Key::Escape)));
+        let key = crate::toolbar::PROFILE_KEY;
+        let can_switch = interactive
+            && !self.controls_open()
+            && ui.input(|i| i.focused && i.key_pressed(key))
+            && !modal_keyboard
+            && !ui
+                .memory(|m| m.focused())
+                .is_some_and(|id| egui::TextEdit::load_state(ui.ctx(), id).is_some());
+        if crate::toolbar::consume_player_shortcut(ui.ctx(), key, can_switch) {
+            let (changed, message) = self.mapping.cycle_profile(locale);
+            if changed {
+                self.release();
+            }
+            self.shortcut_modifiers = [true; 2];
+            self.profile_notice = Some((message, Instant::now()));
+        }
+        let modifiers = ui.input(|i| i.modifiers);
+        self.shortcut_modifiers[0] &= modifiers.ctrl;
+        self.shortcut_modifiers[1] &= modifiers.shift;
         self.show_game(ui, interactive && !menu && !modal_keyboard, locale);
+        if let Some((message, since)) = &self.profile_notice {
+            let duration = Duration::from_secs(2);
+            if let Some(remaining) = duration.checked_sub(since.elapsed()) {
+                if interactive && !self.controls_open() {
+                    let painter = ui.painter();
+                    let text = painter.layout(
+                        message.clone(),
+                        egui::FontId::proportional(15.),
+                        egui::Color32::WHITE,
+                        (bounds.width() - 40.).clamp(1., 480.),
+                    );
+                    let rect = egui::Align2::CENTER_TOP.anchor_size(
+                        bounds.center_top() + egui::vec2(0., 14.),
+                        text.size() + egui::vec2(24., 14.),
+                    );
+                    painter.rect_filled(rect, 7., egui::Color32::from_rgb(28, 36, 49));
+                    painter.galley(rect.min + egui::vec2(12., 7.), text, egui::Color32::WHITE);
+                }
+                ui.ctx().request_repaint_after(remaining);
+            } else {
+                self.profile_notice = None;
+            }
+        }
         if interactive && self.controls_open() {
             self.mapping.floating_panel(ui.ctx(), bounds, locale);
         }
@@ -590,7 +639,10 @@ impl Display {
             self.release();
             return;
         }
-        let (events, modifiers, focused) = ui.input(|i| (i.events.clone(), i.modifiers, i.focused));
+        let (events, mut modifiers, focused) =
+            ui.input(|i| (i.events.clone(), i.modifiers, i.focused));
+        modifiers.ctrl &= !self.shortcut_modifiers[0];
+        modifiers.shift &= !self.shortcut_modifiers[1];
         if !focused
             || events
                 .iter()
@@ -600,7 +652,7 @@ impl Display {
             return;
         }
         let aiming_before = self.mapping.aims_pointer();
-        let changes = self.mapping.frame(ui, rect, &events, locale);
+        let changes = self.mapping.frame(ui, rect, &events, modifiers, locale);
         self.mapped(changes);
         if let Some(tilt) = &mut self.tilt {
             tilt.set(self.mapping.tilt_offset());

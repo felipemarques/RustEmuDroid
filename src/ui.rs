@@ -28,7 +28,8 @@ use std::{
     time::Duration,
 };
 
-use capture_panel::{consume_capture_shortcut, replay_popup_id};
+use crate::toolbar::consume_player_shortcut;
+use capture_panel::replay_popup_id;
 use eframe::egui::{self, Color32};
 use i18n::Locale;
 
@@ -509,7 +510,7 @@ impl Launcher {
                     .as_ref()
                     .is_some_and(|display| !display.controls_open());
             if tools_interactive
-                && consume_capture_shortcut(ctx, egui::Key::A)
+                && consume_player_shortcut(ctx, egui::Key::A, true)
                 && let Some(display) = &mut self.display
                 && !display.mapping.editing
             {
@@ -518,7 +519,7 @@ impl Launcher {
             let mut save_replay = false;
             if capture_interactive {
                 for (key, tool) in crate::toolbar::PLAYER_SHORTCUTS {
-                    if tool == Tool::Keymap || !consume_capture_shortcut(ctx, key) {
+                    if tool == Tool::Keymap || !consume_player_shortcut(ctx, key, true) {
                         continue;
                     }
                     match tool {

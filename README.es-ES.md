@@ -85,6 +85,8 @@ Los perfiles de juego solicitan cuatro vCPU, 8 GiB de RAM y 1600 × 900 a 60 Hz.
 
 ## Abrir una instancia instalada de BlueStacks en Windows
 
+**¿Puedo jugar con la imagen Android de BlueStacks dentro de la ventana de RustEmuDroid?** La imagen aún no llega a la pantalla de inicio. En este PC, **Abrir BlueStacks** abrió SuperTuxKart en el reproductor de BlueStacks. En una prueba independiente, una imagen híbrida con el framework copiado de Pie64 inició el servicio del sistema Android (`system_server`) y se detuvo antes de llegar a la pantalla de inicio. El arranque de 29,5 segundos se midió con la imagen estándar de Android 9. [Resultados de la prueba con Pie64, en inglés](docs/bluestacks-lab.md#r2-fstab-compatibility-test)
+
 Para abrir un juego instalado necesitas BlueStacks 5 con al menos una instancia configurada en Windows. La instancia se abre en la ventana de BlueStacks con sus juegos y partidas guardadas. Estos comandos de PowerShell para Windows funcionan sin el SDK de Android.
 
 La pantalla integrada, la asignación de controles y el contador de FPS de RustEmuDroid están disponibles al jugar en su propio entorno Android.
@@ -185,6 +187,8 @@ Abre el juego y pulsa el icono del teclado de la barra lateral para abrir **Cont
 **Usa varios perfiles de controles en un mismo juego.** Pulsa **Gestionar perfiles** en el menú del teclado. Elige **Nuevo perfil** para empezar de cero o **Duplicar** para copiar las posiciones y asignaciones actuales. Ponle un nombre, por ejemplo *Conducción*, y pulsa **Aplicar**. En **Editar controles**, arrastra los controles sobre los botones del juego y pulsa **Guardar**. Para cambiar de perfil durante la partida, selecciónalo en **Perfil del juego** en el menú del teclado. Cada juego recuerda el último perfil que usaste, incluso después de cerrar el emulador. También puedes renombrar, eliminar, importar o exportar un perfil en **Gestionar perfiles**.
 
 ![Gestor con dos perfiles de controles para SuperTuxKart](docs/screenshots/es-es/profiles.png)
+
+Durante la partida, pulsa **Ctrl+Mayús+P** para activar el siguiente perfil guardado del juego. Después del último vuelves al primero. El nombre aparece en pantalla para confirmar el cambio.
 
 Elige **Editor de controles** en el menú o pulsa **Ctrl+Mayús+A**. Arrastra un control de la paleta a la pantalla del juego y selecciónalo para asignarle una entrada y ajustar sus propiedades. Para el movimiento, suelta una **Cruceta** sobre la palanca virtual del juego. En **Ajustes del control**, asigna **Arriba**, **Abajo**, **Izquierda** y **Derecha** por separado. Haz clic en el centro de la cruceta para seleccionarla y arrastra el tirador de la esquina inferior derecha para adaptar el radio al tamaño de la palanca. El tirador y el panel ajustan el mismo radio. En **Palanca**, elige **Izquierda** o **Derecha** para usarla junto con las teclas de dirección. Elige **Desactivada** para usar solo las direcciones asignadas. Pulsa **Guardar** para aplicar el esquema.
 

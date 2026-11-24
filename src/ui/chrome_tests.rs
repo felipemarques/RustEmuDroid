@@ -1,4 +1,5 @@
-use super::{capture_panel::CAPTURE_MODIFIERS, *};
+use super::*;
+use crate::toolbar::PLAYER_MODIFIERS;
 use eframe::App;
 use egui::{
     Event, FullOutput, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape, ViewportCommand, vec2,
@@ -428,17 +429,17 @@ fn capture_shortcut_consumes_activation_and_repeat_before_android_input() {
     let out = ctx.run(
         RawInput {
             events: vec![
-                send(egui::Key::R, true, CAPTURE_MODIFIERS),
-                send(egui::Key::R, true, CAPTURE_MODIFIERS),
-                send(egui::Key::R, false, CAPTURE_MODIFIERS),
+                send(egui::Key::R, true, PLAYER_MODIFIERS),
+                send(egui::Key::R, true, PLAYER_MODIFIERS),
+                send(egui::Key::R, false, PLAYER_MODIFIERS),
                 send(egui::Key::J, true, egui::Modifiers::NONE),
             ],
             ..Default::default()
         },
         |ctx| {
-            assert!(consume_capture_shortcut(ctx, egui::Key::R));
-            assert!(!consume_capture_shortcut(ctx, egui::Key::R));
-            assert!(!consume_capture_shortcut(ctx, egui::Key::J));
+            assert!(consume_player_shortcut(ctx, egui::Key::R, true));
+            assert!(!consume_player_shortcut(ctx, egui::Key::R, true));
+            assert!(!consume_player_shortcut(ctx, egui::Key::J, true));
             assert!(ctx.input(|input| input.events.iter().any(|event| matches!(
                 event,
                 Event::Key {
@@ -466,23 +467,23 @@ fn replay_shortcut_consumes_the_chord_and_preserves_plain_h_and_forward_jxl() {
         modifiers,
     };
     let plain_h = send(egui::Key::H, true, egui::Modifiers::NONE);
-    let plain_h_release = send(egui::Key::H, false, CAPTURE_MODIFIERS);
+    let plain_h_release = send(egui::Key::H, false, PLAYER_MODIFIERS);
     let _ = ctx.run(
         RawInput {
             events: vec![
-                send(egui::Key::H, true, CAPTURE_MODIFIERS),
-                send(egui::Key::H, true, CAPTURE_MODIFIERS),
+                send(egui::Key::H, true, PLAYER_MODIFIERS),
+                send(egui::Key::H, true, PLAYER_MODIFIERS),
                 send(egui::Key::H, false, egui::Modifiers::NONE),
-                send(egui::Key::J, true, CAPTURE_MODIFIERS),
+                send(egui::Key::J, true, PLAYER_MODIFIERS),
                 plain_h.clone(),
                 plain_h_release.clone(),
             ],
             ..Default::default()
         },
         |ctx| {
-            assert!(consume_capture_shortcut(ctx, egui::Key::H));
-            assert!(!consume_capture_shortcut(ctx, egui::Key::H));
-            assert!(consume_capture_shortcut(ctx, egui::Key::J));
+            assert!(consume_player_shortcut(ctx, egui::Key::H, true));
+            assert!(!consume_player_shortcut(ctx, egui::Key::H, true));
+            assert!(consume_player_shortcut(ctx, egui::Key::J, true));
             ctx.input(|i| assert_eq!(i.events, [plain_h.clone(), plain_h_release.clone()]));
         },
     );

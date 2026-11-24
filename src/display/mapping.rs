@@ -227,6 +227,96 @@ impl Mapping {
         }
     }
 
+    fn activate_saved_profile(&mut self, name: &str) -> crate::Result<()> {
+        let Some(package) = &self.package else {
+            return Ok(());
+        };
+        let Some(game) = self.profiles.get(package) else {
+            return Ok(());
+        };
+        if self.load_failed || game.active == name || !game.layouts.contains_key(name) {
+            return Ok(());
+        }
+        let mut next = self.profiles.clone();
+        next.get_mut(package).unwrap().active = name.to_owned();
+        crate::ui::write_json(&self.path, &next)?;
+        self.profiles = next;
+        self.reset_draft();
+        self.error = None;
+        Ok(())
+    }
+
+    pub(super) fn cycle_profile(&mut self, locale: Locale) -> (bool, String) {
+        if self.load_failed {
+            return (
+                false,
+                locale
+                    .pick(
+                        "Não foi possível carregar os perfis",
+                        "Could not load control profiles",
+                        "No se pudieron cargar los perfiles",
+                    )
+                    .into(),
+            );
+        }
+        if self.package.is_none() && !self.profiles.is_empty() {
+            return (
+                false,
+                locale
+                    .pick(
+                        "Identificando o jogo…",
+                        "Identifying the game…",
+                        "Identificando el juego…",
+                    )
+                    .into(),
+            );
+        }
+        let game = self.package.as_ref().and_then(|p| self.profiles.get(p));
+        let name = game.map_or("Default", |g| g.active.as_str());
+        let Some(game) = game.filter(|g| g.layouts.len() > 1) else {
+            return (
+                false,
+                format!(
+                    "{} · {}",
+                    editor::profile_name(name, locale),
+                    locale.pick(
+                        "Único perfil deste jogo",
+                        "Only profile for this game",
+                        "Único perfil de este juego"
+                    )
+                ),
+            );
+        };
+        // BTreeMap iteration matches the displayed order, including wraparound.
+        let next = game
+            .layouts
+            .keys()
+            .find(|key| key.as_str() > name)
+            .unwrap_or_else(|| game.layouts.first_key_value().unwrap().0)
+            .clone();
+        match self.activate_saved_profile(&next) {
+            Ok(()) => (
+                true,
+                format!(
+                    "{} · {}",
+                    locale.pick("Perfil ativo", "Active profile", "Perfil activo"),
+                    editor::profile_name(&next, locale)
+                ),
+            ),
+            Err(error) => (
+                false,
+                format!(
+                    "{} · {error}",
+                    locale.pick(
+                        "Falha ao salvar o perfil",
+                        "Could not save profile",
+                        "No se pudo guardar el perfil"
+                    )
+                ),
+            ),
+        }
+    }
+
     fn create_profile(&mut self, name: &str) -> bool {
         self.insert_profile(
             name,
@@ -690,6 +780,7 @@ impl Mapping {
         ui: &mut egui::Ui,
         rect: Rect,
         events: &[egui::Event],
+        modifiers: egui::Modifiers,
         locale: Locale,
     ) -> Vec<Contact> {
         let mut changes = vec![];
@@ -715,13 +806,12 @@ impl Mapping {
             self.gamepad = Gilrs::new().ok();
             self.pad_initialized = true;
         }
-        let (time, dt, pointer, pointer_busy, modifiers) = ui.input(|input| {
+        let (time, dt, pointer, pointer_busy) = ui.input(|input| {
             (
                 input.time,
                 input.stable_dt,
                 input.pointer.hover_pos(),
                 input.pointer.any_down() || input.pointer.any_released(),
-                input.modifiers,
             )
         });
         let frame = Frame {
@@ -1122,7 +1212,8 @@ mod tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        contacts.extend(map.frame(ui, rect, &events, Locale::EnUs));
+                        let modifiers = ui.input(|i| i.modifiers);
+                        contacts.extend(map.frame(ui, rect, &events, modifiers, Locale::EnUs));
                     });
                 },
             );

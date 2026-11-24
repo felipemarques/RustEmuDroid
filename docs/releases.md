@@ -5,6 +5,8 @@
 3. Push or merge the version increase to `main`. **Desktop builds** verifies both archives. A Linux runner extracts the packaged executable, places an Android 15 AOSP runtime beside it, and checks discovery, KVM, `sys.boot_completed=1` and shutdown. The workflow then tags the tested commit as `vX.Y.Z` and publishes a [GitHub Release](https://github.com/felipemarques/RustEmuDroid/releases) with both archives. The `Linux-portable-boot` Actions artifact contains the guest startup log and CLI output.
 4. Check that the release includes `RustEmuDroid-vX.Y.Z-windows-x86_64.zip` and `RustEmuDroid-vX.Y.Z-linux-x86_64.tar.gz`.
 
+The hosted Linux job also opens the packaged desktop client in a virtual X11 display with a disposable Android profile. It installs game and app fixtures, sends mouse-wheel input to the desktop window and checks which cards Android shows in each tab. The `Linux-portable-boot` artifact includes the results in `home-wheel.txt`.
+
 Pushes that keep the Cargo version, pull requests, and manual workflow runs produce Actions artifacts. If a build or publish step fails, rerun the failed jobs. The publish step can resume an incomplete draft for the same commit.
 
 ## Manual tag fallback

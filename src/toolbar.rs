@@ -32,6 +32,9 @@ pub enum Tool {
     Close,
 }
 
+pub(crate) const PROFILE_KEY: egui::Key = egui::Key::P;
+pub(crate) const PLAYER_MODIFIERS: egui::Modifiers =
+    egui::Modifiers::CTRL.plus(egui::Modifiers::SHIFT);
 pub(crate) const FULLSCREEN_KEY: egui::Key = egui::Key::F11;
 pub(crate) const PLAYER_SHORTCUTS: [(egui::Key, Tool); 5] = [
     (egui::Key::A, Tool::Keymap),
@@ -47,6 +50,53 @@ pub(crate) fn chord(key: egui::Key, locale: Locale) -> String {
         locale.pick("Shift", "Shift", "Mayús"),
         key.name()
     )
+}
+
+pub(crate) fn consume_player_shortcut(ctx: &egui::Context, key: egui::Key, enabled: bool) -> bool {
+    if !ctx.input(|input| {
+        input.events.iter().any(
+            |event| matches!(event, egui::Event::Key { key: event_key, .. } if *event_key == key),
+        )
+    }) {
+        return false;
+    }
+    let id = egui::Id::new(("player-shortcut-held", key));
+    let mut consumed = ctx.data(|data| data.get_temp(id).unwrap_or(false));
+    let activated = ctx.input_mut(|input| {
+        let mut activated = false;
+        input.events.retain(|event| {
+            let egui::Event::Key {
+                key: event_key,
+                modifiers,
+                pressed,
+                repeat,
+                ..
+            } = event
+            else {
+                return true;
+            };
+            if *event_key != key {
+                return true;
+            }
+            if !*pressed {
+                return !std::mem::take(&mut consumed);
+            }
+            if !*repeat {
+                consumed = enabled && modifiers.matches_exact(PLAYER_MODIFIERS);
+                activated |= consumed;
+            }
+            !consumed
+        });
+        activated
+    });
+    ctx.data_mut(|data| {
+        if consumed {
+            data.insert_temp(id, true);
+        } else {
+            data.remove::<bool>(id);
+        }
+    });
+    activated
 }
 
 impl Tool {

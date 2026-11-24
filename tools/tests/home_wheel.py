@@ -1,4 +1,5 @@
-"""Exercise X11 wheel input against both grids in the packaged client on a disposable CI AVD."""
+"""Exercise library scrolling and the per-game profile shortcut through the packaged X11 window."""
+import json
 import os
 from pathlib import Path
 import re
@@ -66,6 +67,11 @@ def main():
         def adb_run(*args):
             return run(adb, *args, env=env)
         assert adb_run("devices").splitlines() == ["List of devices attached"], "Requires an idle runner"
+        game = "org.rustemudroid.qa.games"
+        maps = avd / "touch-maps.json"
+        with maps.open("x") as output:
+            empty = {"buttons": {}, "stick": None}
+            json.dump({game: {"active": "On foot", "layouts": {"Driving": empty, "On foot": empty}}}, output)
         client = subprocess.Popen([app / "rustemudroid", "--lang", "en-us", "--state-dir", state, "ui", "--gpu", "swiftshader"], env=env)
         serial = None
         seen = {}
@@ -126,6 +132,15 @@ def main():
                 run("xdotool", "click", "--repeat", "22", "--delay", "70", "4")
                 wait_for(f"{kind} to return to the start", lambda: 0 in cards(kind), 15)
                 print(f"{kind}: first visible fixture card 0 -> {first} -> 0 via desktop wheel", flush=True)
+            guest("shell", "am", "start", "-W", "-n", game + "/.Card0")
+            wait_for("fixture in foreground", lambda: any(game in line for line in
+                guest("shell", "dumpsys", "window").splitlines() if "mCurrentFocus=" in line))
+            # The desktop refreshes the foreground Android package once per second.
+            time.sleep(1.5)
+            for expected in ("Driving", "On foot"):
+                run("xdotool", "key", "--clearmodifiers", "ctrl+shift+p")
+                wait_for(f"saved profile {expected}", lambda: json.loads(maps.read_text())[game]["active"] == expected, 7)
+            print("Game profiles: On foot -> Driving -> On foot via Ctrl+Shift+P", flush=True)
         except Exception:
             if serial:
                 report = temp / "boot-report"

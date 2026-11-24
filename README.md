@@ -85,6 +85,8 @@ After stopping Android, the session screen lets you start the same profile again
 
 ## Open an installed BlueStacks instance on Windows
 
+**Can I play with the BlueStacks Android image inside the RustEmuDroid window?** This remains experimental. On this PC, **Open BlueStacks** launched SuperTuxKart in the BlueStacks player. In a separate boot experiment, a hybrid built from the copied Pie64 framework reached Android's system service (`system_server`) and stopped before Home. The 29.5-second boot and working Home were measured with the stock Android 9 reference image. [Pie64 boot results](docs/bluestacks-lab.md#r2-fstab-compatibility-test)
+
 To open an installed game, you need BlueStacks 5 with at least one instance configured on Windows. The instance opens in the BlueStacks player with its own games and saves. These Windows PowerShell commands work without the Android SDK.
 
 RustEmuDroid’s embedded display, input mapping and FPS counter are available when playing in its native Android runtime.
@@ -185,6 +187,8 @@ Open a game and click the keyboard icon in the sidebar to open **Game controls**
 **Keep several layouts for one game.** Click **Manage profiles** in the keyboard menu. Choose **New profile** for an empty layout or **Duplicate** to copy the current positions and bindings. Enter a name, such as *Driving*, and click **Apply**. Choose **Edit controls**, drag the controls onto the game's buttons and click **Save**. To switch while playing, select a saved layout under **Game profile** in the keyboard menu. Each game remembers its last selection when you reopen it. You can also rename, delete, import or export profiles in **Manage profiles**.
 
 ![The profile manager showing two control layouts for SuperTuxKart](docs/screenshots/en-us/profiles.png)
+
+During gameplay, press **Ctrl+Shift+P** to switch to the next saved profile for the current game. After the last, the shortcut returns to the first. The name on screen confirms the selection.
 
 Choose **Controls editor** from the menu or press **Ctrl+Shift+A**. Drag a control from the palette onto the game, then select it to bind an input and adjust its properties. For movement, drop a **D-pad** over the game's virtual joystick. Assign **Up**, **Down**, **Left**, and **Right** individually in **Control settings**. Click the center of the D-pad to select it and drag the lower-right handle to match the game's joystick. The handle and panel adjust the same radius. Under **Controller stick**, choose **Left** or **Right** to steer with that stick alongside the direction keys. Choose **Off** to use only the assigned directions. Click **Save** to apply the scheme.
 

@@ -6,9 +6,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(super) const CAPTURE_MODIFIERS: egui::Modifiers =
-    egui::Modifiers::CTRL.plus(egui::Modifiers::SHIFT);
-
 pub(super) fn replay_popup_id() -> egui::Id {
     egui::Id::new("capture-replay-menu")
 }
@@ -375,53 +372,6 @@ impl Launcher {
                 });
             });
     }
-}
-
-pub(super) fn consume_capture_shortcut(ctx: &egui::Context, key: egui::Key) -> bool {
-    if !ctx.input(|input| {
-        input.events.iter().any(
-            |event| matches!(event, egui::Event::Key { key: event_key, .. } if *event_key == key),
-        )
-    }) {
-        return false;
-    }
-    let id = egui::Id::new(("capture-shortcut-held", key));
-    let mut consumed = ctx.data(|data| data.get_temp(id).unwrap_or(false));
-    let activated = ctx.input_mut(|input| {
-        let mut activated = false;
-        input.events.retain(|event| {
-            let egui::Event::Key {
-                key: event_key,
-                modifiers,
-                pressed,
-                repeat,
-                ..
-            } = event
-            else {
-                return true;
-            };
-            if *event_key != key {
-                return true;
-            }
-            if !*pressed {
-                return !std::mem::take(&mut consumed);
-            }
-            if !*repeat {
-                consumed = modifiers.matches_exact(CAPTURE_MODIFIERS);
-                activated |= consumed;
-            }
-            !consumed
-        });
-        activated
-    });
-    ctx.data_mut(|data| {
-        if consumed {
-            data.insert_temp(id, true);
-        } else {
-            data.remove::<bool>(id);
-        }
-    });
-    activated
 }
 
 fn open_capture_dir(path: &Path) -> std::io::Result<()> {
