@@ -66,6 +66,7 @@ Gaming profiles request four vCPUs, 8 GiB of guest RAM and 1600 × 900 at 60 Hz.
 | Task | How to do it |
 |---|---|
 | Find and install apps | Search under **Games** or **Apps**. Long-press a card to change its category. The install button on the right accepts a single APK and refreshes the library. |
+| Scroll the Android library | With the pointer over the cards in **Games** or **Apps**, use the mouse wheel or a vertical two-finger scroll on a touchpad. |
 | Navigate Android | The four-square button opens Apps. The title bar also contains **Back**, **Home** and **Recent apps**. Home returns to Games. Click to tap and drag to swipe. |
 | Map a keyboard or controller | Open a game and click the keyboard icon. Choose **Button**, click a touch target, then press the physical key or controller button. For WASD or the left stick, choose **Directional control**, click the center of the virtual stick and adjust its radius. Right-click a marker to remove it. **Save** stores relative coordinates for that Android package. Windows gamepads use XInput. |
 | Adjust media | The right toolbar controls Android media volume, mute and screen rotation. Hold a volume button to change several levels. |

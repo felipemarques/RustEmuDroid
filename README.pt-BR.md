@@ -66,6 +66,7 @@ A configuração de jogos solicita quatro vCPUs, 8 GiB de RAM para o Android e 1
 | Ação | Como usar |
 |---|---|
 | Encontrar e instalar apps | Busque nas abas **Jogos** e **Aplicativos**. Pressione e segure um cartão para mudar sua categoria. O botão de instalação da barra direita aceita um APK e atualiza a biblioteca. |
+| Rolar a biblioteca do Android | Com o ponteiro sobre os cartões em **Jogos** ou **Aplicativos**, gire a roda do mouse ou deslize dois dedos na vertical no touchpad. |
 | Navegar no Android | O botão de quatro quadrados abre Aplicativos. A barra superior também traz **Voltar**, **Início** e **Aplicativos recentes**. Início retorna à aba Jogos. Clique para tocar e arraste para deslizar. |
 | Mapear teclado ou controle | Abra o jogo e clique no ícone de teclado. Em **Botão**, clique no ponto de toque e pressione a tecla ou botão físico. Para usar WASD ou o analógico esquerdo, escolha **Direcional**, clique no centro do joystick virtual e ajuste o raio. Clique com o botão direito para remover uma marca. **Salvar** guarda as posições relativas para aquele pacote Android. No Windows, os controles usam XInput. |
 | Ajustar mídia | A barra direita permite subir ou baixar o volume de mídia, silenciar, reativar e girar a tela. Segure um botão de volume para alterar vários níveis. |

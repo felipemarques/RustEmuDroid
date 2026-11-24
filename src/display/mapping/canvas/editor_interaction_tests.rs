@@ -286,3 +286,51 @@ fn quick_menu_can_duplicate_edit_and_restore_a_game_profile() {
     assert_eq!(unaffected.layouts.len(), 1);
     assert_radius(unaffected.layout().unwrap(), 0.21);
 }
+
+#[test]
+fn library_wheel_uses_vertical_canvas_input_and_respects_game_bindings() {
+    use egui::MouseWheelUnit;
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("touch-maps.json");
+    crate::ui::write_json(
+        &path,
+        &serde_json::json!({
+            PACKAGE: {"buttons": {"Wheel:Up": [0.2, 0.4]}, "stick": null}
+        }),
+    )
+    .unwrap();
+    let mut window = EditorWindow::open(path);
+    let canvas = window.canvas();
+    let wheel = |unit, x, y| Event::MouseWheel {
+        unit,
+        delta: vec2(x, y),
+        modifiers: Modifiers::NONE,
+    };
+    window.frame(vec![
+        Event::PointerMoved(canvas.center()),
+        wheel(MouseWheelUnit::Line, 0., 1.),
+    ]);
+    assert_eq!(window.display.take_library_wheel(), 0);
+    window.display.set_package(Some("org.rustemudroid.home"));
+    window.frame(vec![wheel(MouseWheelUnit::Line, 0., -1.)]);
+    assert_eq!(window.display.take_library_wheel(), 1200);
+    window.frame(vec![wheel(
+        MouseWheelUnit::Point,
+        0.,
+        canvas.height() * 0.1,
+    )]);
+    assert_eq!(window.display.take_library_wheel(), -1000);
+    window.frame(vec![wheel(MouseWheelUnit::Line, 1., 0.)]);
+    assert_eq!(window.display.take_library_wheel(), 0);
+    window.frame(vec![
+        Event::PointerMoved(egui::pos2(1075., 400.)),
+        wheel(MouseWheelUnit::Page, 0., 1.),
+    ]);
+    assert_eq!(window.display.take_library_wheel(), 0);
+    window.display.toggle_controls_menu(145.);
+    window.frame(vec![
+        Event::PointerMoved(canvas.center()),
+        wheel(MouseWheelUnit::Page, 0., -1.),
+    ]);
+    assert_eq!(window.display.take_library_wheel(), 0);
+}

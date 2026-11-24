@@ -224,6 +224,21 @@ jobs:
           if grep -q "^$serial[[:space:]]" "$report/devices-after.txt"; then exit 1; fi
           cat "$report/boot.txt" >> "$GITHUB_STEP_SUMMARY"
 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/tests
+
+      - name: Scroll both Android Home grids with the desktop mouse wheel
+        shell: bash
+        run: |
+          set -eu -o pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends xvfb xauth xdotool libgl1-mesa-dri libxkbcommon-x11-0
+          export LIBGL_ALWAYS_SOFTWARE=1
+          xvfb-run -a -s '-screen 0 1280x800x24' python3 -u tools/tests/home_wheel.py | tee "$RUNNER_TEMP/boot-report/home-wheel.txt"
+          cat "$RUNNER_TEMP/boot-report/home-wheel.txt" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

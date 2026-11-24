@@ -6,7 +6,7 @@ use crate::ui::i18n::Locale;
 
 const HOME_PACKAGE: &str = "org.rustemudroid.home";
 const HOME_ACTIVITY: &str = "org.rustemudroid.home/.HomeActivity";
-const HOME_APK_VERSION: u32 = 3;
+const HOME_APK_VERSION: u32 = 4;
 
 pub enum Action {
     Louder,
@@ -247,7 +247,7 @@ impl Guest {
         }
     }
 
-    fn perform(&self, action: Action) -> Result<Update, String> {
+    fn verify_session(&self) -> Result<(), String> {
         let avd = self.command(["emu", "avd", "path"])?;
         if avd
             .lines()
@@ -266,6 +266,11 @@ impl Guest {
                 )
                 .into());
         }
+        Ok(())
+    }
+
+    fn perform(&self, action: Action) -> Result<Update, String> {
+        self.verify_session()?;
         let notice = match action {
             Action::PrepareHome(locale) => return self.prepare_home(locale),
             Action::SetHomeLocale(locale) => return self.set_home_locale(locale),
@@ -412,6 +417,8 @@ pub struct Controls {
     foreground: Option<String>,
     foreground_query: Option<mpsc::Receiver<Option<String>>>,
     next_foreground: std::time::Instant,
+    library_delta: i32,
+    library_scroll_worker: Option<thread::JoinHandle<Result<(), String>>>,
 }
 
 impl Controls {
@@ -441,6 +448,8 @@ impl Controls {
             foreground: None,
             foreground_query: None,
             next_foreground: std::time::Instant::now(),
+            library_delta: 0,
+            library_scroll_worker: None,
         }
     }
     pub fn set_locale(&mut self, locale: Locale) {
@@ -453,12 +462,71 @@ impl Controls {
         self.pending.is_some()
     }
 
+    pub(crate) fn library_wheel(&mut self, delta: i32, interactive: bool, ctx: &egui::Context) {
+        if self
+            .library_scroll_worker
+            .as_ref()
+            .is_some_and(|w| w.is_finished())
+            && let Some(worker) = self.library_scroll_worker.take()
+            && let Ok(Err(error)) = worker.join()
+        {
+            self.message = Some(Err(error));
+        }
+        if !interactive {
+            self.library_delta = 0;
+            return;
+        }
+        self.library_delta = (self.library_delta + delta).clamp(-30_000, 30_000);
+        if self.library_delta == 0 || self.library_scroll_worker.is_some() {
+            return;
+        }
+        // A first wheel action also resolves the foreground on a fresh install with no mappings.
+        // Keep it pending during the lookup. Games with their own wheel bindings never reach here.
+        let can_scroll = self
+            .foreground_package(ctx)
+            .is_none_or(|package| package == HOME_PACKAGE);
+        if self.foreground_query.is_some() {
+            return;
+        }
+        let distance = std::mem::take(&mut self.library_delta);
+        if can_scroll {
+            let guest = self.guest.clone();
+            let ctx = ctx.clone();
+            self.library_scroll_worker = Some(thread::spawn(move || {
+                let result = guest.verify_session().and_then(|()| {
+                    guest
+                        .command([
+                            "shell",
+                            "am",
+                            "broadcast",
+                            "--user",
+                            "current",
+                            "--receiver-registered-only",
+                            "--receiver-foreground",
+                            "-p",
+                            HOME_PACKAGE,
+                            "-a",
+                            "org.rustemudroid.home.SCROLL_LIBRARY",
+                            "--ei",
+                            "distance",
+                            &distance.to_string(),
+                        ])
+                        .map(|_| ())
+                });
+                ctx.request_repaint();
+                result
+            }));
+        }
+    }
+
     pub fn foreground_package(&mut self, ctx: &egui::Context) -> Option<&str> {
         if let Some(query) = &self.foreground_query {
             match query.try_recv() {
                 Ok(package) => {
                     self.foreground = package;
                     self.foreground_query = None;
+                    self.next_foreground =
+                        std::time::Instant::now() + std::time::Duration::from_secs(1);
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
                     self.foreground = None;

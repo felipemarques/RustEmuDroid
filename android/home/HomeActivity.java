@@ -32,6 +32,20 @@ public final class HomeActivity extends Activity {
   private Resources localized;
   private SharedPreferences homePreferences;
   private AlertDialog categoryDialog;
+  private static final String SCROLL_LIBRARY = "org.rustemudroid.home.SCROLL_LIBRARY";
+  private final BroadcastReceiver libraryWheel = new BroadcastReceiver() {
+    @Override
+    public void onReceive(Context context, Intent intent) {
+      if (!SCROLL_LIBRARY.equals(intent.getAction()) || !resumed || !hasWindowFocus()
+          || grid.getVisibility() != View.VISIBLE || categoryDialog != null && categoryDialog.isShowing())
+        return;
+      int fraction = Math.max(-30000, Math.min(30000, intent.getIntExtra("distance", 0)));
+      int pixels = Math.round(grid.getHeight() * (fraction / 10000f));
+      if (pixels != 0)
+        grid.scrollListBy(pixels);
+      setResultCode(Activity.RESULT_OK);
+    }
+  };
   private final SharedPreferences.OnSharedPreferenceChangeListener localeChanged = (prefs, key) -> {
     if (HomeLocaleReceiver.EXTRA.equals(key))
       refreshLocale();
@@ -177,12 +191,14 @@ public final class HomeActivity extends Activity {
   protected void onResume() {
     super.onResume();
     resumed = true;
+    registerReceiver(libraryWheel, new IntentFilter(SCROLL_LIBRARY), "android.permission.DUMP", null);
     updateEmptyState();
   }
 
   @Override
   protected void onPause() {
     resumed = false;
+    unregisterReceiver(libraryWheel);
     updateEmptyState();
     super.onPause();
   }

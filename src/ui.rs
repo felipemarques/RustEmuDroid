@@ -572,6 +572,13 @@ impl Launcher {
                     {
                         let rotation = display.rotation();
                         display.show(ui, interactive, locale);
+                        if let Some(controls) = &mut self.controls {
+                            controls.library_wheel(
+                                display.take_library_wheel(),
+                                interactive && !display.controls_open() && ctx.input(|i| i.focused),
+                                ctx,
+                            );
+                        }
                         if rotation != display.rotation() {
                             self.capture.reset_replay();
                         }

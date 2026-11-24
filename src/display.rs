@@ -271,6 +271,7 @@ pub struct Display {
     size: [usize; 2],
     rotation: i32,
     contact: Option<(i32, i32)>,
+    library_wheel: i32,
     held: Vec<String>,
     count: u32,
     since: Instant,
@@ -323,6 +324,7 @@ impl Display {
             size: [1, 1],
             rotation: 0,
             contact: None,
+            library_wheel: 0,
             held: vec![],
             count: 0,
             since: Instant::now(),
@@ -511,6 +513,7 @@ impl Display {
         }
     }
     pub fn show(&mut self, ui: &mut egui::Ui, interactive: bool, locale: Locale) {
+        self.library_wheel = 0;
         let bounds = ui.available_rect_before_wrap();
         self.mapping.blocked_rect = self.mapping.panel_rect(bounds);
         let menu = self.mapping.quick.is_open();
@@ -630,6 +633,30 @@ impl Display {
         }
         for event in events {
             match event {
+                egui::Event::MouseWheel {
+                    unit,
+                    delta,
+                    modifiers,
+                } if !modifiers.any()
+                    && self.contact.is_none()
+                    && !self.mapping.owns_wheel(delta)
+                    && ui.input(|i| {
+                        !i.pointer.any_down()
+                            && i.pointer
+                                .hover_pos()
+                                .is_some_and(|p| rect.intersect(ui.clip_rect()).contains(p))
+                    }) =>
+                {
+                    // Fractions of the visible list height, in ten-thousandths.
+                    let fraction = match unit {
+                        egui::MouseWheelUnit::Line => delta.y * 0.12,
+                        egui::MouseWheelUnit::Point => delta.y / rect.height().max(1.),
+                        egui::MouseWheelUnit::Page => delta.y,
+                    };
+                    self.library_wheel = (self.library_wheel
+                        - (fraction.clamp(-3., 3.) * 10_000.).round() as i32)
+                        .clamp(-30_000, 30_000);
+                }
                 egui::Event::PointerButton {
                     pos,
                     button: egui::PointerButton::Primary,
@@ -681,6 +708,9 @@ impl Display {
                 _ => {}
             }
         }
+    }
+    pub(crate) fn take_library_wheel(&mut self) -> i32 {
+        std::mem::take(&mut self.library_wheel)
     }
     fn coordinates(&self, p: Pos2, rect: Rect) -> (i32, i32) {
         let max_x = self.size[0] as i32 - 1;

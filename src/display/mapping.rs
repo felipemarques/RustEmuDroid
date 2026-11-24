@@ -425,6 +425,17 @@ impl Mapping {
         self.grabbed_at.is_some() || self.captures_input(pointer_id(button))
     }
 
+    pub(super) fn owns_wheel(&self, delta: Vec2) -> bool {
+        self.aims_pointer()
+            || wheel_id(delta).is_some_and(|input| self.captures_input(input))
+            || self.layout().is_some_and(|layout| {
+                layout
+                    .controls
+                    .iter()
+                    .any(|binding| matches!(binding.gesture, Gesture::Scroll { .. }))
+            })
+    }
+
     pub(super) fn aims_pointer(&self) -> bool {
         self.grabbed_at.is_some()
     }
