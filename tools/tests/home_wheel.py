@@ -95,8 +95,9 @@ def main():
             def cards(kind):
                 guest("shell", "uiautomator", "dump", "/data/local/tmp/home-grid.xml")
                 dom = ET.fromstring(guest("shell", "cat", "/data/local/tmp/home-grid.xml"))
-                return [int(n.attrib["content-desc"].split()[-1]) for n in dom.iter("node")
-                        if n.get("content-desc", "").startswith(f"AA {kind} ")]
+                return sorted({int(match[1]) for node in dom.iter("node")
+                    for key in ("text", "content-desc")
+                    if (match := re.search(rf"AA {kind} (\d+)", node.get(key, "")))})
             for kind in ("Games", "Apps"):
                 guest("shell", "am", "start", "-W", "-n", home + "/.HomeActivity", "--ez", "apps", str(kind == "Apps").lower())
                 wait_for(f"first {kind} card", lambda: 0 in cards(kind))
@@ -110,6 +111,12 @@ def main():
                 print(f"{kind}: first visible fixture card 0 -> {first} -> 0 via desktop wheel", flush=True)
         except Exception:
             if serial:
+                report = temp / "boot-report"
+                names = guest("shell", "cmd", "package", "query-activities", "--brief", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER")
+                print("Fixture launcher activities:", "\n".join(s for s in names.splitlines() if "org.rustemudroid.qa" in s)[:3000], flush=True)
+                tree = guest("shell", "cat", "/data/local/tmp/home-grid.xml")
+                (report / "home-grid.xml").write_text(tree)
+                print("Visible labels:", [(n.get("package"), n.get("text"), n.get("content-desc")) for n in ET.fromstring(tree).iter("node") if n.get("text") or n.get("content-desc")][:35], flush=True)
                 print(guest("shell", "dumpsys", "activity", "top-resumed")[:1000], flush=True)
                 messages = guest("logcat", "-d", "-t", "200", "AndroidRuntime:E", "ActivityManager:W", "*:S")
                 print(messages[-3000:], flush=True)
