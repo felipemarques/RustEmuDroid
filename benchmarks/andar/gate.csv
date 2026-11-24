@@ -1,0 +1,4 @@
+gpu,guest_presentations,guest_interval_count,guest_span_s,guest_presentations_per_s,guest_median_ms,guest_p95_ms,guest_maximum_ms,host_qemu_3d_elapsed_100ns,host_qemu_3d_running_100ns,host_qemu_3d_active_pct
+RTX 5070 Ti A1,668,667,21.53183760,30.97738,33.20330,36.12764,53.18170,180489065,7046021,3.90385
+Radeon 780M B,511,510,21.46352500,23.76124,41.35135,49.36680,99.14980,180486293,26975900,14.94623
+RTX 5070 Ti A2,679,678,21.53397030,31.48514,33.19405,36.25552,50.63530,196906373,7664628,3.89252
