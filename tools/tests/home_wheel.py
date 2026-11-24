@@ -69,11 +69,9 @@ def main():
         # Exercise the real packaged window at phone density within the software renderer's budget.
         config = avd / "config.ini"
         values = {"hw.lcd.width": 540, "hw.lcd.height": 960, "hw.lcd.density": 210}
-        settings = config.read_text()
-        for key, value in values.items():
-            settings, count = re.subn(rf"^{re.escape(key)}=.+$", f"{key}={value}", settings, flags=re.M)
-            assert count == 1, key
-        config.write_text(settings)
+        settings = [line for line in config.read_text().splitlines() if line.partition("=")[0].strip() not in values]
+        settings.extend(f"{key}={value}" for key, value in values.items())
+        config.write_text("\n".join(settings) + "\n")
         client = subprocess.Popen([app / "rustemudroid", "--lang", "en-us", "--state-dir", state, "ui", "--gpu", "swiftshader"], env=env)
         serial = None
         last_tree = None
