@@ -81,6 +81,24 @@ The CSV gives each presentation's estimated time relative to the first scheduled
 
 On the Radeon 780M, RustEmuDroid 0.5.0 also opened the same Android 17 PUBG lobby with shared Vulkan memory enabled. One 48-second route with four Inventory opens and closes produced 1,194 guest presentations (24.88/s), a P95 interval of 49.76 ms and a longest gap of 1.72 s. This setting let the Unity game below enter its level. PUBG's long Inventory pause was still present. [Radeon Inventory timestamps](../benchmarks/pubg-mobile/radeon-780m-inventory.csv)
 
+### PUBG Inventory on BlueStacks and RustEmuDroid
+
+On November 24, 2026 we ran the same PUBG MOBILE 4.7.0 build (21718, ARM64) on a Windows 11 PC with a Ryzen 9 8945HS and an RTX 5070 Ti. Each emulator used four virtual CPUs, 8 GiB of guest RAM and a 1600 × 900 display. RustEmuDroid 0.13.0 used Android 17 Google Play with ANGLE and `libndk_translation`. BlueStacks 5.22.166.1003 used its Pie64 player with Android 9 and Houdini. We ran one VM at a time.
+
+Each emulator ran **Balanced → Smooth → Balanced** under **Customize → Lobby**. Lobby frame rate was High, style was Classic, Adaptive Graphics was enabled, and Lobby Graphics Enhancement, anti-aliasing and power saving were disabled. Shadows were disabled wherever the preset exposed them. We started a fresh game process for each of these six runs and retained the game's caches. After reaching the lobby and waiting eight seconds, we opened Inventory at 0, 12, 24 and 36 seconds, then closed it seven seconds after each open.
+
+| Lobby setting | RustEmuDroid presentations/s | BlueStacks presentations/s | RustEmuDroid P99 | BlueStacks P99 | Longest gap, RustEmuDroid / BlueStacks | Gaps over 250 ms, RustEmuDroid / BlueStacks |
+|---|---:|---:|---:|---:|---:|---:|
+| Balanced, first | 25.10 | 29.52 | 218 ms | 67 ms | 1,097 / 333 ms | 12 / 1 |
+| Smooth | 25.29 | 29.54 | 147 ms | 67 ms | 1,333 / 300 ms | 11 / 1 |
+| Balanced, repeat | 25.19 | 29.48 | 246 ms | 67 ms | 1,081 / 317 ms | 12 / 1 |
+
+Pooling the two Balanced runs for each emulator gives **29.50 presentations/s on BlueStacks and 25.15 on RustEmuDroid**, a difference of 4.35/s (17.3% relative to RustEmuDroid). Over the same 96 seconds, BlueStacks had 2 intervals above 250 ms and RustEmuDroid had 24. On the first return from Inventory, the two Balanced runs paused for 1.097 s and 1.081 s on RustEmuDroid, compared with 183 ms and 167 ms on BlueStacks. BlueStacks recorded its longest gap during the first Inventory opening on all three custom runs.
+
+We measured distinct presentations on PUBG's Android SurfaceView using column two of `dumpsys SurfaceFlinger --latency`. The 48-second window includes the menu transitions. BlueStacks' presentation times fell on multiples of a 16.67 ms display refresh. Its frame-ready timestamps advanced independently. The game accounts and languages differed. The private mid-run captures confirm Inventory in each run, with differences in the visible clothing panel. These runs measure the lobby and Inventory on this PC. Combat FPS and the game's internal render rate require separate measurements. [Relative timestamps for all seven routes](../benchmarks/pubg-mobile/bluestacks-pie64-inventory.csv)
+
+One additional BlueStacks pass kept its original global Balanced preference, HD lobby and Lobby Graphics Enhancement enabled. It returned 29.85 presentations/s with a 117 ms maximum gap. This warm pass included an Inventory check before the run. The averages in the table use only the matched custom runs.
+
 ### Does disabling Adaptive Graphics help Inventory?
 
 RustEmuDroid 0.7.0 ran PUBG MOBILE 4.7.0 on the RTX 5070 Ti at 1600 × 900. Under **Customize → Lobby**, the trials kept graphics on **Balanced**, the frame rate on **High** and Lobby Graphics Enhancement off. Only **Adaptive Graphics** changed. Each 48-second trial started from the lobby after a fresh game launch with the cache retained. Four cycles opened Inventory every 12 seconds and closed it seven seconds after opening.
