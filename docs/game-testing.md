@@ -141,6 +141,21 @@ To repeat, choose **Start Race → Sunset**, keep the red car, press **Start** a
 
 ![Xtreme Rally on Sunset Dream with the car in fourth gear.](xtreme-rally-sunset.webp)
 
+## Godot TPS Demo for Android
+
+Sikgames' free Android port of the Godot third-person shooter demo launched as **GodotDemoLevel**. Choose it in **Games**, press **PLAY** on the main menu and hold the directional buttons at the lower left to move the character through the industrial level. The APK ran with the default game settings and requested no Android permissions. [Author's download page](https://sikgames.itch.io/godot-32-gles2-tps-demo-for-android)
+
+RustEmuDroid 0.4.0 on Windows ran the ARM64 app in the Android 17 Google Play x86-64 profile at 1600 × 900. The Godot 3.2.1 log reported an OpenGL ES 2.0 renderer backed by the GeForce RTX 5070 Ti. The version 1.0 APK had SHA-256 `0882c6db431d8c259714af8cb439423515e6974074b2d09dd725aa09d00a4cf3`.
+
+| Scene | Observed span | Guest presentations/s | P95 interval |
+|---|---:|---:|---:|
+| Character standing in the starting area | 17.55 s | 59.94 | 18.65 ms |
+| Moving through the same level | 19.55 s | 59.85 | 18.53 ms |
+
+The movement sequence held up for 4.8 s, right for 3.6 s, up for 4.0 s and left for 3.6 s. Each row is one short observation of the game's SurfaceView. Count the intervals between guest presentation timestamps and divide by the time between the first and last. This measures displayed cadence. GPU utilization and the game's internal FPS were not measured. [Presentation timestamps](../benchmarks/godot-tps-demo/presentations.csv)
+
+![Playable robot in the industrial starting area of the Android Godot TPS demo, with the touch controls visible.](godot-tps-level.webp)
+
 ## Box3D for Godot
 
 The developer's Android sample APK from release v0.6.0 ran as native x86-64. Its Godot 4.7.2 log identified Vulkan 1.3, the Forward Mobile renderer and the RTX 5070 Ti through gfxstream. The **Samples → Toys → Ball Flood** scene renders three streams of colored balls falling into a glass tank. **Pause Emitters** holds the body count steady while physics and rendering continue. [Android demo and release](https://github.com/Stink-O/box3d-godot/releases/tag/v0.6.0) · [Scene implementation](https://github.com/Stink-O/box3d-godot/blob/v0.6.0/godot/demo/samples/ball_flood.gd)
@@ -151,6 +166,10 @@ The developer's Android sample APK from release v0.6.0 ran as native x86-64. Its
 | 10,220 | 18.33 s | 60.00 | 18.50 ms |
 
 Both runs used the initial camera position and paused emitters. Resting bodies can sleep, so the displayed count includes bodies with little ongoing physics work. This scene exercises both rendering and physics. These samples do not establish peak GPU throughput.
+
+## Wukong: King, Thief, Guardian
+
+The developer's Android release includes a standalone ARM64 APK for an offline Unreal Engine game with three chapters. Version 1.0 (`com.megajam.monkeykingthreetowns`, SHA-256 `281a7395ecd53345ef60711328038ae93155c50e3bd833b10965fdb43ad936d8`) installed on the RustEmuDroid 0.4.0 Android 17 Google Play profile. On the RTX 5070 Ti the activity opened to a black screen, the QEMU process exited and the Android device disconnected. The native launcher remained open. The emulator log ended with `Failed to find ColorBuffer`. The failure occurred before any playable scene or frame-rate measurement. Its cause has not been isolated. [Developer's APK, control guide and requirements](https://pinaxxolada.itch.io/wukong-king-thief-guardian)
 
 ## War Thunder Mobile
 

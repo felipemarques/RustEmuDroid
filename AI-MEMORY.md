@@ -11,6 +11,8 @@
 
 ## Verification history
 
+- On Windows with RustEmuDroid 0.4.0, Windows PnP and the emulator's webcam list identified the same UGREEN Camera 4K (USB `EBA4:6579`) at `webcam0`. With that device selected as the rear camera in the Android 17 Google Play profile, Camera2 delivered 45 nonuniform 640 × 480 YUV images over 1,466 ms. The sampled image values changed across all 44 consecutive pairs. The probe retained counts only. Re-enumerate the host devices before reusing a numeric index on another machine.
+
 - Game measurements on the integrated Radeon 780M include each emulator, game presets, individual runs and adapter verification. [Benchmark and measurements](benchmarks/stk-1.5/radeon-780m/README.md)
 - On the RTX 5070 Ti, both RustEmuDroid and BlueStacks presented about 60 frames per second during short BombSquad stress-test samples. The PUBG Showroom stayed near 29 on RustEmuDroid after a 900p/720p/900p resolution change. In a separate inventory trace, PUBG's game thread ran for 1.32 s during a 2.17 s gap in its own buffer stream. A desktop frame-copy A/B produced no repeatable improvement. War Thunder Mobile did not reach gameplay. [Game test conditions and results](docs/game-testing.md)
 - Refer to the [Windows and Linux workflow](.github/workflows/build.yml) for the current toolchain and artifacts. Native UI captures use the [Windows window test](src/ui/live_window_test.rs) with an actual Android guest.
