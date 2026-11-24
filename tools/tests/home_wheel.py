@@ -58,24 +58,31 @@ def main():
     state = temp / "profile"
     adb = app / "runtime/platform-tools/adb"
     avd = state / "avd/RustEmuDroid.avd"
-    assert run(adb, "devices").splitlines() == ["List of devices attached"], "Requires an idle runner"
     assert avd.is_dir()
     with tempfile.TemporaryDirectory() as tmp:
         fixtures = list(build_fixtures(Path(tmp), Path(os.environ["ANDROID_HOME"])))
         env = {k: v for k, v in os.environ.items() if k not in ("ANDROID_HOME", "ANDROID_SDK_ROOT", "ANDROID_AVD_HOME", "ANDROID_USER_HOME", "WAYLAND_DISPLAY")}
         env["HOME"] = str(temp / "guest-home")
+        def adb_run(*args):
+            return run(adb, *args, env=env)
+        assert adb_run("devices").splitlines() == ["List of devices attached"], "Requires an idle runner"
         client = subprocess.Popen([app / "rustemudroid", "--lang", "en-us", "--state-dir", state, "ui", "--gpu", "swiftshader"], env=env)
         serial = None
+        seen = {}
         try:
             def owned_device():
                 if client.poll() is not None:
                     raise RuntimeError(f"Desktop exited with {client.returncode}")
-                for candidate in re.findall(r"^(emulator-\d+)\s+device$", run(adb, "devices"), re.M):
-                    if run(adb, "-s", candidate, "emu", "avd", "path").splitlines()[0] == str(avd):
+                for candidate in re.findall(r"^(emulator-\d+)\s+device\s*$", adb_run("devices"), re.M):
+                    reply = adb_run("-s", candidate, "emu", "avd", "path").splitlines()
+                    if seen.get(candidate) != reply:
+                        print(f"{candidate}: {reply}", flush=True)
+                        seen[candidate] = reply
+                    if reply and Path(reply[0]) == avd:
                         return candidate
             serial = wait_for("owned AVD", owned_device, 150)
             def guest(*args):
-                return run(adb, "-s", serial, *args)
+                return adb_run("-s", serial, *args)
             home = "org.rustemudroid.home"
             wait_for("installed Home", lambda: "versionCode=4 " in guest("shell", "dumpsys", "package", home), 150)
             guest("shell", "input", "keyevent", "KEYCODE_WAKEUP")
