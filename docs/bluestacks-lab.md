@@ -77,6 +77,8 @@ The stock `boot/bstsetconf.sh` invokes `/boot/bin/bstconf` and writes the proper
 
 A matching host configuration interface and working guest devices are still needed to demonstrate a full boot and play a game. The public VirtualBox guest-properties documentation describes its own Guest Additions interface. The BlueStacks recovery procedure restores an offline `Data.vhdx` into the same version of its App Player. Neither document specifies the early Pie64 host interface used here. [VirtualBox Guest Additions](https://docs.oracle.com/en/virtualization/virtualbox/7.0/user/guestadditions.html) · [BlueStacks backup and restore](https://support.bluestacks.com/hc/en-us/articles/360059480692-How-to-backup-and-restore-data-on-BlueStacks-5)
 
+For the tested Windows build 5.22.166.1003, the installed `LICENSE.txt` beside `HD-Player.exe` describes source availability for modified open-source components and includes a separate notice for the VirtualBox base package. The notice does not identify a standalone host implementation for the Pie64 configuration service. The experiment still requires a matching service and graphics devices to reach Android Home.
+
 ### Display hardware available to the copied kernel
 
 Two diskless QEMU 8.2.2 runs started the original Pie64 Linux 4.19.195 kernel with a temporary BusyBox initramfs and no networking. The guest checked the PCI driver, VirtIO function driver and Linux device registrations in sysfs. Both runs reached the final diagnostic marker.

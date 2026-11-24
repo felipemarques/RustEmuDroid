@@ -164,11 +164,11 @@ O botão de pasta na barra lateral abre `captures/`, ao lado de `launcher.json`.
 
 ## Criar um esquema de controle
 
-Abra o jogo e clique no ícone de teclado da barra lateral para abrir **Controles do jogo**. Nesse menu, você pode ativar o mapeamento, mostrar as teclas sobre o jogo, ajustar a opacidade dos rótulos e trocar o esquema ativo.
+Abra o jogo e clique no ícone de teclado da barra lateral para abrir **Controles do jogo**. Escolha teclado e mouse ou controle para mostrar as dicas daquele dispositivo. Os dois continuam funcionando. Nesse menu você também pode ajustar a opacidade das dicas e trocar de esquema. Em **Sensibilidade do mouse**, X ajusta o movimento horizontal e Y ajusta o vertical ao mirar ou usar o olhar livre com o mouse. O esquema ativo do jogo guarda os dois valores. Use 1,00 para voltar à velocidade original de um eixo.
 
 ![Menu de controles do jogo sobre o SuperTuxKart](docs/screenshots/pt-br/controls.png)
 
-Selecione **Editor de controles** no menu ou pressione **Ctrl+Shift+A**. Arraste um controle da paleta para a tela do jogo e selecione-o para associar uma entrada e ajustar suas propriedades. Para movimento, solte um **Direcional** sobre o joystick virtual do jogo. Em **Configuração do controle**, associe **Cima**, **Baixo**, **Esquerda** e **Direita** individualmente, ajuste o raio ao tamanho do joystick do jogo e marque **Analógico esquerdo** se quiser usar o analógico do controle físico. Clique em **Salvar** para aplicar o esquema.
+Selecione **Editor de controles** no menu ou pressione **Ctrl+Shift+A**. Arraste um controle da paleta para a tela do jogo e selecione-o para associar uma entrada e ajustar suas propriedades. Para movimento, solte um **Direcional** sobre o joystick virtual do jogo. Em **Configuração do controle**, associe **Cima**, **Baixo**, **Esquerda** e **Direita** individualmente e ajuste o raio ao tamanho do joystick. Em **Analógico**, escolha **Esquerdo** ou **Direito** para usá-lo junto com as teclas de direção. Escolha **Desativado** para usar apenas as direções atribuídas. Clique em **Salvar** para aplicar o esquema.
 
 Para mapas que se movem ao arrastar, solte **Rolagem de borda** em uma área livre do mapa e salve. Mova o ponteiro até uma borda da tela do jogo para mover a câmera naquela direção. Em **Configuração do controle**, ajuste as margens e velocidades de cada eixo. Afaste o ponteiro da borda para parar.
 

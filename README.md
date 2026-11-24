@@ -164,11 +164,11 @@ Open the folder button on the sidebar to find your files in `captures/` beside `
 
 ## Create a control scheme
 
-Open a game and click the keyboard icon in the sidebar to open **Game controls**. Use this menu to enable mapping, show key labels in the game, adjust their opacity, or switch the active scheme.
+Open a game and click the keyboard icon in the sidebar to open **Game controls**. Choose keyboard/mouse or gamepad to show that device's button hints. Both devices can still send input. Adjust the hints' opacity or switch schemes here. Under **Mouse sensitivity**, change X for horizontal movement and Y for vertical movement while aiming or using mouse free look. The active game scheme saves both values. Set either axis to 1.00 for its original speed.
 
 ![Game controls menu over SuperTuxKart](docs/screenshots/en-us/controls.png)
 
-Choose **Controls editor** from the menu or press **Ctrl+Shift+A**. Drag a control from the palette onto the game, then select it to bind an input and adjust its properties. For movement, drop a **D-pad** over the game's virtual joystick. Assign **Up**, **Down**, **Left**, and **Right** individually in **Control settings**, set the radius to match the game's joystick, and enable **Left stick** if you want to use a controller's analog stick. Click **Save** to apply the scheme.
+Choose **Controls editor** from the menu or press **Ctrl+Shift+A**. Drag a control from the palette onto the game, then select it to bind an input and adjust its properties. For movement, drop a **D-pad** over the game's virtual joystick. Assign **Up**, **Down**, **Left**, and **Right** individually in **Control settings**, then set the radius to match the game's joystick. Under **Controller stick**, choose **Left** or **Right** to steer with that stick alongside the direction keys. Choose **Off** to use only the assigned directions. Click **Save** to apply the scheme.
 
 For maps that pan when dragged, drop **Edge scroll** on a clear spot in the map and save. Move the pointer to an edge of the game display to pan toward it. Adjust the horizontal and vertical margins and speeds in **Control settings**. Move the pointer away from the edge to stop.
 

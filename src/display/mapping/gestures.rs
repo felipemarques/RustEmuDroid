@@ -12,6 +12,28 @@ pub(super) struct Binding {
 
 pub(super) const MAX_TILT: f32 = 45.;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DpadStick {
+    Off,
+    Left,
+    Right,
+}
+
+impl DpadStick {
+    pub(super) fn from_flags(left: bool, right: bool) -> Self {
+        // Right takes precedence if an imported profile enables both sticks.
+        match (left, right) {
+            (_, true) => Self::Right,
+            (true, false) => Self::Left,
+            (false, false) => Self::Off,
+        }
+    }
+
+    pub(super) fn flags(self) -> (bool, bool) {
+        (self == Self::Left, self == Self::Right)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum TiltAxis {
@@ -49,6 +71,8 @@ pub(super) enum Gesture {
         directions: [String; 4],
         radius: f32,
         left_stick: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        right_stick: bool,
     },
     Aim {
         sensitivity: f32,
@@ -729,14 +753,15 @@ impl Gestures {
             directions,
             radius,
             left_stick,
+            right_stick,
         } = &binding.gesture
         else {
             return;
         };
-        let analog = if *left_stick {
-            deadzone(self.left)
-        } else {
-            Vec2::ZERO
+        let analog = match DpadStick::from_flags(*left_stick, *right_stick) {
+            DpadStick::Off => Vec2::ZERO,
+            DpadStick::Left => deadzone(self.left),
+            DpadStick::Right => deadzone(self.right),
         };
         let movement = analog + self.direction_vector(directions);
         if movement != Vec2::ZERO {
@@ -941,6 +966,100 @@ mod tests {
             cursor: Some([0.2, 0.8]),
             edge_cursor: None,
         }
+    }
+
+    #[test]
+    fn dpad_profiles_preserve_legacy_choices_and_prefer_right_if_both_are_enabled() {
+        for (left, right, expected) in [
+            (false, None, DpadStick::Off),
+            (true, None, DpadStick::Left),
+            (false, Some(true), DpadStick::Right),
+            (true, Some(true), DpadStick::Right),
+        ] {
+            let mut json = serde_json::json!({
+                "kind": "dpad",
+                "directions": ["W", "S", "A", "D"],
+                "radius": 0.125,
+                "left_stick": left,
+            });
+            if let Some(right) = right {
+                json["right_stick"] = right.into();
+            }
+            let gesture = serde_json::from_value::<Gesture>(json.clone()).unwrap();
+            let Gesture::Dpad {
+                left_stick,
+                right_stick,
+                ..
+            } = gesture
+            else {
+                panic!("expected D-pad");
+            };
+            assert_eq!(DpadStick::from_flags(left_stick, right_stick), expected);
+            assert_eq!(serde_json::to_value(gesture).unwrap(), json);
+        }
+    }
+
+    #[test]
+    fn right_stick_dpad_uses_a_circular_radius_and_keyboard_survives_stick_release() {
+        let bindings = [Binding {
+            input: String::new(),
+            at: [0.5, 0.5],
+            gesture: Gesture::Dpad {
+                directions: ["W".into(), "S".into(), "A".into(), "D".into()],
+                radius: 0.1,
+                left_stick: false,
+                right_stick: true,
+            },
+        }];
+        let mut gestures = Gestures::default();
+        let mut contacts = Vec::new();
+        gestures.left = vec2(-1., 0.);
+        gestures.right = vec2(0.04, 0.);
+        gestures.frame(&bindings, &frame(1.), &mut contacts);
+        assert!(contacts.is_empty());
+
+        gestures.right = vec2(1., -1.);
+        gestures.frame(&bindings, &frame(1.1), &mut contacts);
+        assert_eq!(contacts.len(), 2);
+        assert_eq!(contacts[0].pos, bindings[0].at);
+        let diagonal = (point(contacts[1].pos) - point(bindings[0].at)) * frame(1.1).size;
+        let expected_axis = 90. / 2_f32.sqrt();
+        assert!((diagonal.x - expected_axis).abs() < 0.001);
+        assert!((diagonal.y + expected_axis).abs() < 0.001);
+        let contact_id = contacts[1].id;
+        assert_eq!(contact_id, contacts[0].id);
+
+        contacts.clear();
+        gestures.input(&bindings, "A", true, &frame(1.2), &mut contacts);
+        gestures.right = Vec2::ZERO;
+        contacts.clear();
+        gestures.frame(&bindings, &frame(1.3), &mut contacts);
+        assert_eq!(contacts.len(), 1);
+        assert_eq!(contacts[0].id, contact_id);
+        assert!(contacts[0].down);
+        assert!((contacts[0].pos[0] - (0.5 - 90. / 1600.)).abs() < 0.001);
+        assert_eq!(contacts[0].pos[1], 0.5);
+
+        contacts.clear();
+        gestures.input(&bindings, "A", false, &frame(1.4), &mut contacts);
+        gestures.frame(&bindings, &frame(1.4), &mut contacts);
+        assert_eq!(contacts.len(), 1);
+        assert_eq!(contacts[0].id, contact_id);
+        assert!(!contacts[0].down);
+
+        contacts.clear();
+        gestures.right = vec2(0., 0.5);
+        gestures.frame(&bindings, &frame(1.5), &mut contacts);
+        assert_eq!(contacts.len(), 2);
+        assert!((contacts[1].pos[1] - 0.55).abs() < 0.001);
+        let contact_id = contacts[1].id;
+
+        contacts.clear();
+        gestures.right = Vec2::ZERO;
+        gestures.frame(&bindings, &frame(1.6), &mut contacts);
+        assert_eq!(contacts.len(), 1);
+        assert_eq!(contacts[0].id, contact_id);
+        assert!(!contacts[0].down);
     }
 
     #[test]

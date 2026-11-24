@@ -11,6 +11,8 @@
 
 ## Verification history
 
+- Game schemes store independent X/Y multipliers for relative mouse movement in aim and free look. Legacy schemes use 1.00 on each axis. With X 2.00 and Y 0.50, equal raw mouse deltas produced the expected asymmetric contact on the Android 17 touchscreen and focus loss released it. The quick menu's device choice filters the visible hints. A D-pad can combine its direction keys with either analog stick.
+
 - The 0.6.1 desktop path uses the same decoded bytes for capture and OpenGL texture upload on GL/GLES 3+. In a Windows A/B test with the same live Unity scene, mean CPU preparation per frame fell from 1.22 to 0.21 ms. The native desktop panel used the Radeon 780M while the game used the RTX 5070 Ti. [Measurements](benchmarks/desktop-texture-upload/README.md)
 
 - On the Windows Radeon 780M with SDK 37.3.10, use the guest's Vulkan memory types to check which heaps are CPU-visible. The original configuration exposed only 256 MiB to CPU-visible allocations. Disabling the SDK's device-memory-only policy for the selected session also exposed a 16,240 MiB heap. FPS WW2 URP then entered Level 1 on native Vulkan with Max quality and Very High antialiasing. The opt-in preference belongs to the Android profile. [Measurements and memory-type evidence](docs/game-testing.md#radeon-780m-vulkan-compatibility)

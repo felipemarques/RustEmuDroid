@@ -448,7 +448,7 @@ fn moba_scroll_and_free_look_reach_selected_android() {
     std::fs::write(
         &file,
         r#"{"com.android.settings":{"active":"Probe","layouts":{"Probe":{
-        "buttons":{},"stick":null,"controls":[
+        "buttons":{},"stick":null,"mouse_sensitivity":[2.0,0.5],"controls":[
           {"input":"X","at":[0.22,0.72],"gesture":{
             "kind":"moba-move","hero":[0.5,0.5],"radius":0.1,"speed":1.0}},
           {"input":"","at":[0.66,0.51],"gesture":{
@@ -528,7 +528,15 @@ fn moba_scroll_and_free_look_reach_selected_android() {
     let lower_right = expected_direction(vec2(20., 20.));
     let down = expected_direction(vec2(0., 20.));
     let up = expected_direction(vec2(0., -20.));
-    let right = expected_direction(vec2(20., 0.));
+    // 20 points on both mouse axes, scaled by (2, 0.5) and the 0.8 free-look speed.
+    let mouse_start = point(0.60, 0.58);
+    let mouse_start_px = display.coordinates(mouse_start, view);
+    let mouse_end_px =
+        display.coordinates(mouse_start + vec2(32., 8.) / ctx.pixels_per_point(), view);
+    let mouse_direction = (
+        i64::from(mouse_end_px.0 - mouse_start_px.0),
+        i64::from(mouse_end_px.1 - mouse_start_px.1),
+    );
     let anchor = display.coordinates(point(0.22, 0.72), view);
     let axis_limits = guest.text(&["shell", "getevent", "-lp", &device]);
     let absolute_axis = |name: &str, pixel: i32, pixel_max: usize| {
@@ -561,6 +569,10 @@ fn moba_scroll_and_free_look_reach_selected_android() {
     };
     let expected_anchor_x = absolute_axis("ABS_MT_POSITION_X", anchor.0, width - 1);
     let expected_anchor_y = absolute_axis("ABS_MT_POSITION_Y", anchor.1, height - 1);
+    let mouse_dx = absolute_axis("ABS_MT_POSITION_X", mouse_end_px.0, width - 1).0
+        - absolute_axis("ABS_MT_POSITION_X", mouse_start_px.0, width - 1).0;
+    let mouse_dy = absolute_axis("ABS_MT_POSITION_Y", mouse_end_px.1, height - 1).0
+        - absolute_axis("ABS_MT_POSITION_Y", mouse_start_px.1, height - 1).0;
     let key = |key, pressed| Event::Key {
         key,
         physical_key: Some(key),
@@ -660,7 +672,7 @@ fn moba_scroll_and_free_look_reach_selected_android() {
         &mut display,
         0.02,
         true,
-        vec![Event::MouseMoved(vec2(40., 0.))],
+        vec![Event::MouseMoved(vec2(20., 20.))],
     );
     step(&mut display, 0.02, false, vec![Event::WindowFocused(false)]);
     step(&mut display, 0.02, false, vec![wheel(1.)]);
@@ -681,7 +693,7 @@ fn moba_scroll_and_free_look_reach_selected_android() {
         ("MOBA stop key", lower_right),
         ("wheel down", up),
         ("keyboard free look", up),
-        ("mouse free look", right),
+        ("mouse free look", mouse_direction),
     ];
     assert_eq!(contacts.len(), labels.len(), "{contacts:?}\n{log}");
     for contact in [&contacts[0], &contacts[2]] {
@@ -698,6 +710,14 @@ fn moba_scroll_and_free_look_reach_selected_android() {
     }
     for (contact, (label, (expected_x, expected_y))) in contacts.iter().zip(labels) {
         let (x, y) = contact.displacement();
+        if label == "mouse free look" {
+            for (observed, expected) in [(x, mouse_dx), (y, mouse_dy)] {
+                assert!(
+                    (observed as f64 - expected).abs() <= expected.abs() * 0.10 + 2.,
+                    "Expected axis-scaled touch {expected}, observed {observed}: {log}"
+                );
+            }
+        }
         let aligned = |actual: i64, expected: i64| {
             if expected == 0 {
                 actual.abs() <= 1

@@ -2,10 +2,13 @@ mod canvas;
 mod editor;
 mod gestures;
 mod quick;
+mod sensitivity;
 
+use crate::locale::Locale;
 use eframe::egui::{self, Key, PointerButton, Rect, Vec2, vec2};
 use gestures::{Binding, Frame, Gesture, Gestures, tilt_degrees};
 use gilrs::{Axis, Button, EventType, Gilrs};
+use sensitivity::MouseSensitivity;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -22,6 +25,8 @@ struct Layout {
     radius: f32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     controls: Vec<Binding>,
+    #[serde(default, skip_serializing_if = "MouseSensitivity::is_default")]
+    mouse_sensitivity: MouseSensitivity,
 }
 fn default_radius() -> f32 {
     0.10
@@ -611,6 +616,7 @@ impl Mapping {
         ui: &mut egui::Ui,
         rect: Rect,
         events: &[egui::Event],
+        locale: Locale,
     ) -> Vec<Contact> {
         let mut changes = vec![];
         if (!self.editing && self.layout().is_none()) || rect.width() < 1. || rect.height() < 1. {
@@ -621,7 +627,7 @@ impl Mapping {
         if self.editing {
             self.canvas(ui, rect);
         } else if self.quick.show_hints {
-            self.paint_hints(ui, rect);
+            self.paint_hints(ui, rect, locale);
         }
         if !self.pad_initialized {
             self.gamepad = Gilrs::new().ok();
@@ -671,6 +677,10 @@ impl Mapping {
         for wheel in std::mem::take(&mut self.wheel_releases) {
             self.handle_input(wheel, false, &frame, &mut changes);
         }
+        let mouse_sensitivity = self
+            .layout()
+            .map(|layout| layout.mouse_sensitivity)
+            .unwrap_or_default();
         for event in events {
             match *event {
                 egui::Event::Key {
@@ -762,7 +772,8 @@ impl Mapping {
                     }
                 }
                 egui::Event::MouseMoved(delta) if !self.editing => {
-                    self.gestures.mouse += delta / ui.ctx().pixels_per_point()
+                    self.gestures.mouse +=
+                        mouse_sensitivity.scale(delta) / ui.ctx().pixels_per_point()
                 }
                 _ => {}
             }
@@ -1029,7 +1040,7 @@ mod tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        contacts.extend(map.frame(ui, rect, &events));
+                        contacts.extend(map.frame(ui, rect, &events, Locale::EnUs));
                     });
                 },
             );
@@ -1257,6 +1268,7 @@ mod tests {
                         directions: ["I".into(), "K".into(), "J".into(), "L".into()],
                         radius: 0.125,
                         left_stick: true,
+                        right_stick: false,
                     },
                 }],
                 ..Default::default()

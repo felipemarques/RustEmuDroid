@@ -573,7 +573,7 @@ impl Display {
             if self.mapping.editing {
                 self.mapping.paint_canvas(ui, rect);
             } else if self.mapping.quick.preview_hints() {
-                self.mapping.paint_hints(ui, rect);
+                self.mapping.paint_hints(ui, rect, locale);
             }
             self.release();
             return;
@@ -588,7 +588,7 @@ impl Display {
             return;
         }
         let aiming_before = self.mapping.aims_pointer();
-        let changes = self.mapping.frame(ui, rect, &events);
+        let changes = self.mapping.frame(ui, rect, &events, locale);
         self.mapped(changes);
         if let Some(tilt) = &mut self.tilt {
             tilt.set(self.mapping.tilt_offset());

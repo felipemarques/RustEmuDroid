@@ -683,6 +683,7 @@ mod tests {
             directions: ["W".into(), "S".into(), "A".into(), "D".into()],
             radius: 0.12,
             left_stick: true,
+            right_stick: false,
         };
         mapping.blocked_rect = Some(Rect::from_min_size(pos2(650., 60.), vec2(230., 500.)));
         let render = |mapping: &mut Mapping, events: Vec<Event>| {
@@ -694,7 +695,7 @@ mod tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        mapping.frame(ui, rect, &events);
+                        mapping.frame(ui, rect, &events, crate::locale::Locale::EnUs);
                     });
                 },
             );

@@ -1,6 +1,6 @@
 mod tiles;
 
-use super::gestures::{MAX_TILT, SteeringWheel, TiltAxis};
+use super::gestures::{DpadStick, MAX_TILT, SteeringWheel, TiltAxis};
 use super::{Gesture, Mapping, SchemeError};
 use crate::ui::{i18n::Locale, theme};
 use eframe::egui;
@@ -657,16 +657,30 @@ impl Mapping {
                     directions,
                     radius,
                     left_stick,
+                    right_stick,
                 } => {
                     choose_direction(ui, directions);
                     ui.add(
                         egui::Slider::new(radius, 0.035..=0.25)
                             .text(locale.pick("Raio", "Radius", "Radio")),
                     );
-                    ui.checkbox(
-                        left_stick,
-                        locale.pick("Analógico esquerdo", "Left stick", "Palanca izquierda"),
-                    );
+                    let stick = DpadStick::from_flags(*left_stick, *right_stick);
+                    egui::ComboBox::new(
+                        "dpad-stick",
+                        locale.pick("Analógico", "Controller stick", "Palanca"),
+                    )
+                        .selected_text(dpad_stick_label(stick, locale))
+                        .show_ui(ui, |ui| {
+                            for choice in [DpadStick::Off, DpadStick::Left, DpadStick::Right] {
+                                if ui
+                                    .selectable_label(stick == choice, dpad_stick_label(choice, locale))
+                                    .clicked()
+                                {
+                                    (*left_stick, *right_stick) = choice.flags();
+                                    ui.close();
+                                }
+                            }
+                        });
                 }
                 Gesture::Aim {
                     sensitivity,
@@ -990,6 +1004,14 @@ fn gesture_name(gesture: &Gesture, locale: Locale) -> &'static str {
     }
 }
 
+fn dpad_stick_label(stick: DpadStick, locale: Locale) -> &'static str {
+    match stick {
+        DpadStick::Off => locale.pick("Desativado", "Off", "Desactivada"),
+        DpadStick::Left => locale.pick("Esquerdo", "Left", "Izquierda"),
+        DpadStick::Right => locale.pick("Direito", "Right", "Derecha"),
+    }
+}
+
 fn tilt_axis_label(axis: TiltAxis, locale: Locale) -> &'static str {
     match axis {
         TiltAxis::X => locale.pick("Eixo X", "X axis", "Eje X"),
@@ -1023,6 +1045,7 @@ fn presets() -> [Gesture; 15] {
             directions: ["W".into(), "S".into(), "A".into(), "D".into()],
             radius: 0.1,
             left_stick: true,
+            right_stick: false,
         },
         Gesture::Aim {
             sensitivity: 1.0,
