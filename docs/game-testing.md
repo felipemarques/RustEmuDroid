@@ -43,15 +43,33 @@ During the 2.169-second gap, PUBG's main game thread ran for 1.318 seconds and s
 
 SurfaceFlinger classified 699 display frames in the stationary trace and 570 in the navigation trace. It attributed zero recorded misses to its CPU or GPU deadlines and classified one late navigation frame as a display HAL issue. Among known presentations, the compositor's P99 interval rose from 58.70 to 288.46 ms. Its longest interval rose from 164 ms to 2.175 seconds. The traces had no PUBG app-layer FrameTimeline rows, so they could not count the game's own deadline misses. Perfetto reported 10 and 22 FrameTimeline parse errors, respectively, and one discarded chunk during navigation. The counts refer to observed events.
 
+### Memory and I/O during Inventory
+
+A separate 55-second trace used RustEmuDroid 0.4.0 and PUBG MOBILE 4.7.0. The game's primary ABI was `arm64-v8a` and the x86-64 system image used `libndk_translation.so`. Android's GPU service recorded ANGLE, a GLES context and a hardware Vulkan device and swapchain for this package. The test kept the disk cache and relaunched the game before opening Inventory four times.
+
+| Phase | PUBG buffer notifications/s | Longest buffer interval | Guest block reads |
+|---|---:|---:|---:|
+| Stationary lobby | 29.17 | 70 ms | 4 |
+| First open | 22.93 | 794 ms | 133 |
+| Second open | 27.11 | 418 ms | 0 |
+| Third open | 26.73 | 398 ms | 2 |
+| Fourth open | 25.86 | 372 ms | 0 |
+
+The longest pause in the full trace began 54 ms after the first **close** tap. During that 1.674-second gap the main game thread ran for 1.293 s, waited runnable for 93 ms and spent 3.2 ms in uninterruptible sleep. The asynchronous loading thread ran for 166 ms. Across the four guest vCPUs, utilization during the gap was 36%. The guest read 360 KiB from block storage during this interval.
+
+Available guest memory stayed between 3.91 and 4.00 GiB. Memory pressure-stall counters stayed flat and the PUBG process recorded no additional major page faults. The first open involved more storage reads and loader work. Subsequent opens still paused with little or no block I/O. This run provides no support for increasing guest RAM or vCPUs as a fix. It did not collect call stacks identifying the work inside the game. Guest counters were sampled every 250 ms. Perfetto reported 40 FrameTimeline parser errors and several skipped scheduler events.
+
+On the stock Google Play image, the installed package advertised neither debuggable nor shell-profiling access. A package-scoped `simpleperf stat` request confirmed that Android declined profiling. Identifying the native function consuming that CPU time would require additional evidence, such as a publisher-provided trace or a shell-profileable build with matching native symbols. [Android profiling permissions](https://developer.android.com/guide/topics/manifest/profileable-element)
+
 ### Does the Lobby Smooth preset help with Inventory?
 
 On RustEmuDroid 0.3.0, three game launches alternated the Custom Lobby graphics setting between Balanced, Smooth and Balanced. The Lobby frame-rate setting stayed on High. Each 48-second run opened Inventory at 0, 12, 24 and 36 seconds and returned to the lobby seven seconds after each open. The Download Center showed paused packs. The game retained its caches between launches.
 
 | Run and Lobby setting | Guest presentations/s, whole route | First open, presentations/s | Three later opens, pooled presentations/s | P99 interval, whole route | Longest interval |
 |---|---:|---:|---:|---:|---:|
-| A1 ? Balanced | 25.04 | 22.57 | 26.67 | 136 ms | 1,716 ms |
-| B ? Smooth | 25.06 | 20.43 | 27.14 | 227 ms | 1,098 ms |
-| A2 ? Balanced | 24.67 | 21.71 | 25.48 | 284 ms | 1,099 ms |
+| A1 (Balanced) | 25.04 | 22.57 | 26.67 | 136 ms | 1,716 ms |
+| B (Smooth) | 25.06 | 20.43 | 27.14 | 227 ms | 1,098 ms |
+| A2 (Balanced) | 24.67 | 21.71 | 25.48 | 284 ms | 1,099 ms |
 
 The first Inventory open was slower than the pooled later opens in every run. Smooth still had a pause of about a second and its overall rate was within 0.4 presentations/s of both Balanced runs. This comparison did not establish a repeatable fix. The Showroom warning and the game's combat frame rate were outside this route.
 
@@ -69,6 +87,19 @@ A local instrumented desktop build alternated the existing allocation-and-copy p
 | B2 | Direct RGBA construction | 29.322 | 49.18 ms | 1.387 ms |
 
 Guest cadence stayed within 29.288–29.335 presentations per second. The first baseline had higher desktop submission time. After switching back to the existing path, submission time was comparable to both direct-copy blocks. This run provides no repeatable gain from changing the desktop copy path.
+
+### Does streaming the display cause the Inventory pauses?
+
+A private 0.4.0 Windows build could disconnect and reconnect its actual `streamScreenshot` subscription while keeping the Android VM, input connection and game running. When disconnected, the desktop retained its last image. ADB drove the four Inventory opens and closes in each fixed 48-second route. Each block relaunched the game with the same Balanced Lobby settings and retained cache. The first pair ran connected then disconnected. A second boot of the same AVD ran the reverse order. Android's game surface produced timestamps in both conditions. The disconnected condition is a diagnostic and cannot display live gameplay.
+
+| Block | Video subscription | Guest presentations/s | P99 interval | Longest interval | Windows client CPU | Windows QEMU CPU |
+|---|---|---:|---:|---:|---:|---:|
+| A1 | Connected | 24.85 | 268 ms | 1,243 ms | 25.4% | 213.0% |
+| B1 | Disconnected | 25.02 | 245 ms | 1,166 ms | 2.9% | 180.4% |
+| B2 | Disconnected | 25.38 | 166 ms | 1,132 ms | 3.0% | 177.9% |
+| A2 | Connected | 24.88 | 266 ms | 1,134 ms | 23.8% | 203.7% |
+
+CPU percentages are process CPU seconds divided by elapsed wall time. One fully occupied logical processor is 100%. Disconnecting reduced combined CPU usage of these two Windows processes by about half a logical processor on average. Guest cadence increased by 0.34 presentations/s across the two pairs, and every run still paused for over a second. A more efficient visible display path could save host CPU. These runs give little support for changing the display transport as a remedy for the long Inventory pauses. [Guest presentation timestamps](../benchmarks/pubg-mobile/stream-presentations.csv)
 
 ## BombSquad
 
