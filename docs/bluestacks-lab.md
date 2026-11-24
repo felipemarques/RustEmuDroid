@@ -204,7 +204,13 @@ Two failures followed in the same system server process. A filter-service worker
 
 Candidate R3/E added a property context for that exact board key. Before boot we verified the three changed policy files on the copied disk, its filesystem integrity and the unchanged vendor image. During a 90-second test with fresh writable overlays, the filter worker reached its database reads and the previous property-write exception did not recur in the captured log. The property value itself could not be read back from a guest shell. The main thread again reached HostCall, failed to open the same board message device and terminated with SIGTRAP. Android did not report boot completion or reach Home. The watchdog verified that the test VM shut down. The PUBG comparison used the installed BlueStacks player for its Pie64 results.
 
-The independent image still needs a complete Android boot, working shell, Home, touch and an installed game running inside RustEmuDroid. The Windows BlueStacks integration at the top of this page continues to launch the installed BlueStacks player.
+#### Pie64 message device and guest kernel
+
+The original boot archive contains an x86-64 kernel module at `boot/bstmods/bstvmsg.ko`. Its kernel version string is `4.19.195` with symbol versioning, and its PCI device table identifies vendor `B574`, device `1000`. In the test using the original kernel, Linux listed the module as loaded, but the driver reported that an application issued an ioctl before the device was ready. The module registers its character interface separately from probing the PCI hardware. Seeing a device node would therefore be insufficient to establish communication with the host.
+
+The R3/E hybrid used a Goldfish `4.4.124+` kernel. The original module targets a different kernel ABI, and the hybrid's HostCall service failed to open the message device. Its log omitted the error number. An independent port needs a compatible guest driver/kernel pair and a functioning host implementation of the expected board service. Neither has been validated together under QEMU. The installed-player integration uses BlueStacks' own implementation.
+
+The independent image still needs a complete Android boot, working shell, Home, touch and an installed game running inside RustEmuDroid.
 
 ## Opt-in data storage probe
 
