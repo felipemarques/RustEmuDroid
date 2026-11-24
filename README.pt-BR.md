@@ -154,7 +154,13 @@ Para mapas que se movem ao arrastar, solte **Rolagem de borda** em uma área liv
 
 Em jogos que respondem a sensores de movimento, adicione **Inclinar**, associe uma tecla ou botão e escolha o eixo X, Y ou Z e um ângulo de −45° a +45° em **Configuração do controle**. Mantenha a tecla ou o botão pressionado para inclinar o dispositivo virtual a partir da orientação atual. Solte para voltar à orientação original. O controle requer suporte a sensores virtuais.
 
-O editor oferece 11 tipos de controle, incluindo **Direcional**, **Rolagem de borda** e **Inclinar**. Os demais são toque mantido, toque rápido, toques repetidos, deslize com duração, mira relativa, pinça, giro com dois dedos e habilidade MOBA. Use as opções do esquema para criar ou duplicar um perfil e importá-lo ou exportá-lo em JSON.
+Em jogos com movimento por clique, solte **Analógico MOBA** sobre o direcional virtual e use **Posicionar herói** para marcar a posição do personagem na tela. Clique com o botão direito no destino para mover o direcional naquela direção. Ajuste o raio e a velocidade do herói para o jogo. Atribua **Parar movimento** se quiser interromper um deslocamento. Use **Habilidade MOBA** para mirar uma habilidade a partir do botão dela no jogo.
+
+Coloque **Olhar livre** sobre o controle de câmera do jogo. Atribua cada direção ou habilite **Olhar com o mouse** e segure a tecla atribuída enquanto move o mouse. Para um aplicativo ou mapa que rola ao arrastar, solte **Rolagem** sobre a área e use a roda do mouse sobre a tela do jogo. Ajuste a velocidade e a amplitude e escolha se a rolagem substitui outros mapeamentos da roda.
+
+Para dirigir com um volante na tela, posicione **Girar** no centro do volante e marque **Volante de um toque**. Ajuste o ângulo inicial do toque, o raio e o ângulo de giro. Com ângulo de giro positivo, a tecla principal gira no sentido horário e **Giro inverso** gira no sentido anti-horário. Cada direção mantém um toque até você soltar a tecla. Por padrão, **Girar** usa dois dedos.
+
+A paleta tem 15 opções para 14 tipos de controle. **Roda do mouse** é um **Deslizar** já configurado para uma direção da roda. Use as opções do esquema para criar ou duplicar um perfil e importá-lo ou exportá-lo em JSON.
 
 ![Editor de controles com um direcional W, A, S, D sobre o menu principal do SuperTuxKart](docs/screenshots/pt-br/editor.png)
 
