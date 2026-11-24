@@ -54,6 +54,7 @@ fn capture_localized_session_dialogs() {
         app: Launcher,
         dir: PathBuf,
         language: usize,
+        capture_bluestacks: bool,
         pending: bool,
         next: Instant,
     }
@@ -63,14 +64,17 @@ fn capture_localized_session_dialogs() {
                 if let egui::Event::Screenshot { image, .. } = event {
                     let dir = self.dir.join(self.app.config.locale.tag());
                     std::fs::create_dir_all(&dir).unwrap();
-                    if self.app.settings.is_some() {
+                    if self.app.blue.is_open() {
+                        WindowTest::save(&dir, "bluestacks", image);
+                        self.app.blue = Default::default();
+                        self.advance_locale();
+                    } else if self.app.settings.is_some() {
                         WindowTest::save(&dir, "settings", image);
                         self.app.settings = None;
-                        self.language += 1;
-                        if let Some(locale) = Locale::ALL.get(self.language) {
-                            self.app.config.locale = *locale;
-                            self.app.help_tab = help::HelpTab::About;
-                            self.app.help_open = true;
+                        if self.capture_bluestacks {
+                            self.app.blue.open();
+                        } else {
+                            self.advance_locale();
                         }
                     } else if self.app.help_tab == help::HelpTab::About {
                         WindowTest::save(&dir, "about", image);
@@ -99,6 +103,16 @@ fn capture_localized_session_dialogs() {
             ctx.request_repaint_after(Duration::from_millis(30));
         }
     }
+    impl Dialogs {
+        fn advance_locale(&mut self) {
+            self.language += 1;
+            if let Some(locale) = Locale::ALL.get(self.language) {
+                self.app.config.locale = *locale;
+                self.app.help_tab = help::HelpTab::About;
+                self.app.help_open = true;
+            }
+        }
+    }
     let state = PathBuf::from(
         std::env::var_os("RUSTEMUDROID_TEST_STATE").expect("select a launcher profile"),
     );
@@ -122,6 +136,7 @@ fn capture_localized_session_dialogs() {
                 app,
                 dir,
                 language: 0,
+                capture_bluestacks: crate::bluestacks::instances().is_ok(),
                 pending: false,
                 next: Instant::now() + Duration::from_millis(850),
             }))

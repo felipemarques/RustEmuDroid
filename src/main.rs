@@ -115,6 +115,14 @@ enum Action {
 #[cfg(windows)]
 #[derive(Subcommand)]
 enum BlueStacksAction {
+    /// Exibe a instância na janela do RustEmuDroid.
+    #[cfg(feature = "ui")]
+    Mirror {
+        #[arg(long)]
+        instance: String,
+        #[arg(long)]
+        package: Option<String>,
+    },
     /// Lista as instâncias configuradas.
     List,
     /// Abre uma instância ou solicita a execução de um jogo já instalado.
@@ -155,11 +163,26 @@ impl Gpu {
     }
 }
 
+fn default_state_dir() -> PathBuf {
+    PathBuf::from(".rustemudroid").join(std::env::consts::OS)
+}
+
 fn run(cli: Cli) -> Result<()> {
     let language = cli.lang.unwrap_or_default();
     #[cfg(windows)]
     if let Action::BlueStacks { action } = &cli.command {
         match action {
+            #[cfg(feature = "ui")]
+            BlueStacksAction::Mirror { instance, package } => {
+                let state = absolute(cli.state_dir.unwrap_or_else(default_state_dir))?;
+                return ui::run(
+                    cli.sdk,
+                    state,
+                    ui::Startup::BlueStacks(instance.clone(), package.clone()),
+                    None,
+                    cli.lang,
+                );
+            }
             BlueStacksAction::List => {
                 for instance in
                     bluestacks::instances().map_err(|error| error.localized(language))?
@@ -181,13 +204,11 @@ fn run(cli: Cli) -> Result<()> {
     if let Action::RuntimeSetup(args) = &cli.command {
         return runtime_install::command(args, language);
     }
-    let state = cli
-        .state_dir
-        .unwrap_or_else(|| PathBuf::from(".rustemudroid").join(std::env::consts::OS));
+    let state = cli.state_dir.unwrap_or_else(default_state_dir);
     let state = absolute(state)?;
     #[cfg(feature = "ui")]
-    if let Action::Ui { play, gpu } = &cli.command {
-        return ui::run(cli.sdk, state, *play, *gpu, cli.lang);
+    if let Action::Ui { gpu, .. } = &cli.command {
+        return ui::run(cli.sdk, state, ui::Startup::Android, *gpu, cli.lang);
     }
 
     let sdk = Sdk::find_localized(cli.sdk, language)?;

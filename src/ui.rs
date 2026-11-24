@@ -1,4 +1,6 @@
 #[cfg(windows)]
+mod blue_mirror;
+#[cfg(windows)]
 mod bluestacks;
 mod capture_panel;
 mod chrome;
@@ -93,10 +95,16 @@ fn install_window(
 #[cfg(windows)]
 mod window_icon;
 
+pub enum Startup {
+    Android,
+    #[cfg(windows)]
+    BlueStacks(String, Option<String>),
+}
+
 pub fn run(
     sdk: Option<PathBuf>,
     state: PathBuf,
-    _play: bool,
+    startup: Startup,
     gpu: Option<Gpu>,
     locale: Option<Locale>,
 ) -> Result<()> {
@@ -111,7 +119,21 @@ pub fn run(
             if let Some(locale) = locale {
                 config.locale = locale;
             }
-            Ok(Box::new(Launcher::new(texture, config, prefs_file, true)))
+            let launcher = Launcher::new(
+                texture,
+                config,
+                prefs_file,
+                matches!(&startup, Startup::Android),
+            );
+            #[cfg(windows)]
+            let launcher = {
+                let mut launcher = launcher;
+                if let Startup::BlueStacks(instance, package) = startup {
+                    launcher.blue_mirror.queue(instance, package);
+                }
+                launcher
+            };
+            Ok(Box::new(launcher))
         }),
     )?;
     Ok(())
@@ -148,6 +170,8 @@ struct Launcher {
     help_tab: help::HelpTab,
     #[cfg(windows)]
     blue: bluestacks::BlueStacksPanel,
+    #[cfg(windows)]
+    blue_mirror: blue_mirror::MirrorPanel,
     playing: bool,
     play: bool,
     stage: BootStage,
@@ -202,6 +226,8 @@ impl Launcher {
             help_tab: help::HelpTab::About,
             #[cfg(windows)]
             blue: Default::default(),
+            #[cfg(windows)]
+            blue_mirror: Default::default(),
             playing: false,
             play,
             stage: BootStage::Idle,
@@ -216,6 +242,8 @@ impl Launcher {
         if self.closing || self.task.is_some() || self.installer.is_some() {
             return;
         }
+        #[cfg(windows)]
+        self.blue_mirror.disconnect();
         let sdk = self.config.sdk.trim().to_owned();
         let state = PathBuf::from(self.config.state.trim());
         let base_state = self
@@ -422,6 +450,8 @@ impl eframe::App for Launcher {
         let close_requested = ctx.input(|input| input.viewport().close_requested());
         if close_requested && !self.closing {
             self.closing = true;
+            #[cfg(windows)]
+            self.blue_mirror.disconnect();
             self.play = false;
             self.restart = false;
             self.request_stop();
@@ -448,20 +478,28 @@ impl eframe::App for Launcher {
         if self.capture.busy() {
             ctx.request_repaint_after(Duration::from_millis(50));
         }
+        #[cfg(windows)]
+        let disconnecting = self.blue_mirror.poll_cleanup(ctx);
+        #[cfg(not(windows))]
+        let disconnecting = false;
         if self.closing {
-            if self.task.is_some()
+            if disconnecting
+                || self.task.is_some()
                 || self.capture.busy()
                 || self.installer.as_ref().is_some_and(|w| w.installing())
             {
                 if close_requested {
                     ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 }
-                self.show_shutdown(ctx);
+                self.show_shutdown(ctx, disconnecting);
             } else if !close_requested {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
             return;
         }
+        #[cfg(windows)]
+        self.blue_mirror
+            .update(frame, self.task.is_none(), &self.config.sdk);
         self.show_main(ctx);
         self.show_capture_notice(ctx);
         self.adapters.poll(ctx);
@@ -469,7 +507,16 @@ impl eframe::App for Launcher {
             self.show_settings(ctx);
         }
         #[cfg(windows)]
-        self.blue.show(ctx, self.config.locale);
+        if let Some((instance, package)) = self.blue.show(ctx, self.config.locale) {
+            self.settings = None;
+            self.play = false;
+            self.restart = false;
+            if self.task.is_some() {
+                self.request_stop();
+            }
+            self.blue_mirror.queue(instance, package);
+            ctx.request_repaint();
+        }
         if self.help_open {
             self.show_help(ctx);
         }
@@ -478,6 +525,14 @@ impl eframe::App for Launcher {
 }
 
 impl Launcher {
+    fn has_player_view(&self) -> bool {
+        #[cfg(windows)]
+        if self.blue_mirror.active() {
+            return true;
+        }
+        self.playing
+    }
+
     fn show_main(&mut self, ctx: &egui::Context) {
         let locale = self.config.locale;
         if std::mem::take(&mut self.play) {
@@ -499,7 +554,7 @@ impl Launcher {
         {
             display.set_package(controls.foreground_package(ctx));
         }
-        if (self.playing || fullscreen)
+        if (self.has_player_view() || fullscreen)
             && ctx.input(|i| {
                 i.events.iter().any(|e| {
                     matches!(
@@ -523,7 +578,7 @@ impl Launcher {
         });
         let replay_menu_was_open = egui::Popup::is_id_open(ctx, replay_popup_id());
         let show_chrome = !fullscreen
-            || !self.playing
+            || !self.has_player_view()
             || reveal
             || self.settings.is_some()
             || self.help_open
@@ -533,6 +588,12 @@ impl Launcher {
         let resizing = chrome::handle_resize(ctx);
         if show_chrome {
             self.title_bar(ctx, fullscreen, resizing);
+        }
+        #[cfg(windows)]
+        if self.blue_mirror.active() {
+            let obscured = self.settings.is_some() || self.help_open || self.external_dialog_open();
+            self.blue_mirror.show(ctx, locale, obscured, show_chrome);
+            return;
         }
         if self.playing {
             let stopping = self.stopping();

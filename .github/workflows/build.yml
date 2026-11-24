@@ -89,6 +89,9 @@ jobs:
           $tools = Join-Path $package 'tools'
           New-Item -ItemType Directory -Path $tools, $verify | Out-Null
           Copy-Item -LiteralPath "target/release/$binary" -Destination $package
+          if ($IsWindows) {
+            Copy-Item -LiteralPath 'android/scrcpy/LICENSE.txt' -Destination (Join-Path $tools 'scrcpy-LICENSE.txt')
+          }
           foreach ($file in $toolFiles) {
             Copy-Item -LiteralPath "tools/$file" -Destination $tools
           }
@@ -136,6 +139,7 @@ jobs:
           }
 
           $expected = @($binary, 'tools/README.md') + @($toolFiles | ForEach-Object { "tools/$_" })
+          if ($IsWindows) { $expected += 'tools/scrcpy-LICENSE.txt' }
           $actual = Get-ChildItem -LiteralPath $verify -File -Force -Recurse | ForEach-Object {
             [IO.Path]::GetRelativePath($verify, $_.FullName).Replace('\', '/')
           }

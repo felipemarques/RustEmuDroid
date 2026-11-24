@@ -56,7 +56,14 @@ impl Launcher {
                             )
                             .max_height((ctx.content_rect().height() - 155.).clamp(80., 400.))
                             .auto_shrink([false, true])
-                            .show(ui, |ui| shortcuts(ui, l));
+                            .show(ui, |ui| {
+                                #[cfg(windows)]
+                                if self.blue_mirror.active() {
+                                    mirror_shortcuts(ui, l);
+                                    return;
+                                }
+                                shortcuts(ui, l);
+                            });
                     }),
                 };
                 ui.add_space(12.);
@@ -94,6 +101,57 @@ fn entry(ui: &mut egui::Ui, keys: &str, description: &str) {
         ui.add(egui::Label::new(description).wrap());
     });
     ui.add_space(5.);
+}
+
+#[cfg(windows)]
+fn mirror_shortcuts(ui: &mut egui::Ui, l: Locale) {
+    heading(ui, "BlueStacks");
+    entry(
+        ui,
+        "F11",
+        l.pick(
+            "Alterne a tela cheia.",
+            "Toggle fullscreen.",
+            "Alterna la pantalla completa.",
+        ),
+    );
+    ui.label(l.pick(
+        "Ative o ADB nas configurações avançadas do BlueStacks e clique na imagem do jogo para usar o teclado.",
+        "Enable ADB in BlueStacks advanced settings and click the game image to use the keyboard.",
+        "Activa ADB en los ajustes avanzados de BlueStacks y haz clic en la imagen del juego para usar el teclado.",
+    ));
+    entry(
+        ui,
+        l.pick("Clique e arraste", "Click and drag", "Clic y arrastre"),
+        l.pick(
+            "Toque ou deslize na tela do Android.",
+            "Tap or swipe the Android display.",
+            "Toca o desliza en la pantalla de Android.",
+        ),
+    );
+    entry(
+        ui,
+        l.pick("Roda do mouse", "Mouse wheel", "Rueda del ratón"),
+        l.pick(
+            "Role o conteúdo sob o ponteiro.",
+            "Scroll the content under the pointer.",
+            "Desplaza el contenido bajo el puntero.",
+        ),
+    );
+    entry(
+        ui,
+        l.pick(
+            "Botão direito / Esc",
+            "Right click / Esc",
+            "Clic derecho / Esc",
+        ),
+        l.pick(
+            "Volte para a tela anterior do Android.",
+            "Go back to the previous Android screen.",
+            "Vuelve a la pantalla anterior de Android.",
+        ),
+    );
+    entry(ui, l.pick("Teclado", "Keyboard", "Teclado"), l.pick("Letras, números, setas, espaço, Tab, Enter, Backspace e Delete são enviados ao aplicativo.", "Letters, digits, arrows, Space, Tab, Enter, Backspace and Delete go to the app.", "Las letras, números, flechas, espacio, Tab, Intro, Retroceso y Supr se envían a la aplicación."));
 }
 
 fn shortcuts(ui: &mut egui::Ui, l: Locale) {

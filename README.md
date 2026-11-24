@@ -97,11 +97,13 @@ After stopping Android, the session screen lets you start the same profile again
 
 ## Open an installed BlueStacks instance on Windows
 
-**Can I play with the BlueStacks Android image inside the RustEmuDroid window?** This remains experimental. On this PC, **Open BlueStacks** launched SuperTuxKart in the BlueStacks player. In a separate boot experiment, a hybrid built from the copied Pie64 framework reached Android's system service (`system_server`) and stopped before Home. The 29.5-second boot and working Home were measured with the stock Android 9 reference image. [Pie64 boot results](docs/bluestacks-lab.md#r2-fstab-compatibility-test)
+On Windows, choose **Open BlueStacks → Use this window** to display an installed instance and its games in RustEmuDroid. Keep the original player window restored. Windows composites its live Android surface into the Rust window. Disconnecting leaves the instance and game running. Choosing this mode first shuts down the RustEmuDroid Android VM if it is running.
 
-To open an installed game, you need BlueStacks 5 with at least one instance configured on Windows. The instance opens in the BlueStacks player with its own games and saves. These Windows PowerShell commands work without the Android SDK.
+![Select the instance and choose Use this window to open its preview](docs/screenshots/en-us/bluestacks.png)
 
-RustEmuDroid’s embedded display, input mapping and FPS counter are available when playing in its native Android runtime.
+For touch, drag, scroll, keyboard input and the Android navigation buttons, enable **Android Debug Bridge (ADB)** in BlueStacks advanced settings and reconnect. RustEmuDroid uses a modern local ADB client from the managed runtime or Android Platform Tools. With ADB disabled the picture is view-only. The game profiles, recording and desktop FPS counter currently belong to the native RustEmuDroid session.
+
+**Can I boot the copied BlueStacks image independently?** The experimental Pie64 hybrid reached Android’s system service (`system_server`) and stopped before Home. The working 29.5-second boot was measured on a stock Android 9 reference image. [Pie64 boot results](docs/bluestacks-lab.md#r2-fstab-compatibility-test)
 
 **If you downloaded the release ZIP**, choose **Extract All** and open the folder containing `rustemudroid.exe` in File Explorer. Click the address bar, type `powershell` and press **Enter**. In that window, set the executable path.
 
@@ -140,6 +142,12 @@ To open SuperTuxKart directly, use the following command if the game is installe
 
 ```powershell
 & $emu bluestacks open --instance Pie64 --package org.supertuxkart.stk
+```
+
+To show the game in RustEmuDroid, run
+
+```powershell
+& $emu bluestacks mirror --instance Pie64 --package org.supertuxkart.stk
 ```
 
 If the list is empty or an installation error appears, open the BlueStacks 5 Multi-instance Manager, confirm that an instance is installed and run `list` again. In the RustEmuDroid UI you can also choose **Open BlueStacks** from the session screen or Settings.

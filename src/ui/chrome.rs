@@ -111,10 +111,10 @@ impl Launcher {
                             ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
                         }
                         divider(ui);
+                        if self.has_player_view() && Tool::Fullscreen.button(ui, locale) {
+                            ctx.send_viewport_cmd(ViewportCommand::Fullscreen(!fullscreen));
+                        }
                         if self.playing {
-                            if Tool::Fullscreen.button(ui, locale) {
-                                ctx.send_viewport_cmd(ViewportCommand::Fullscreen(!fullscreen));
-                            }
                             ui.add_enabled_ui(!self.stopping(), |ui| {
                                 if Tool::Stop.button(ui, locale) {
                                     self.request_stop();

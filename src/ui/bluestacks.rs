@@ -65,10 +65,13 @@ impl BlueStacksPanel {
         self.dialog.is_some()
     }
 
-    pub(super) fn show(&mut self, ctx: &egui::Context, locale: Locale) {
-        let Some(entry) = &mut self.dialog else {
-            return;
-        };
+    pub(super) fn show(
+        &mut self,
+        ctx: &egui::Context,
+        locale: Locale,
+    ) -> Option<(String, Option<String>)> {
+        let entry = self.dialog.as_mut()?;
+        let mut mirror = false;
         let mut launch = false;
         let frame = egui::Frame::window(&ctx.style()).inner_margin(22);
         let modal = egui::Modal::new("bluestacks-launch".into())
@@ -87,9 +90,9 @@ impl BlueStacksPanel {
                 );
                 ui.label(
                     RichText::new(locale.pick(
-                        "A instância e os jogos abrem em uma janela do BlueStacks.",
-                        "The instance and its games open in a BlueStacks window.",
-                        "La instancia y sus juegos se abren en una ventana de BlueStacks.",
+                        "Ao usar esta janela, o Android do RustEmuDroid será encerrado. O BlueStacks continuará rodando ao desconectar.",
+                        "Using this window stops the RustEmuDroid Android session. BlueStacks keeps running after you disconnect.",
+                        "Usar esta ventana cierra la sesión Android de RustEmuDroid. BlueStacks sigue funcionando al desconectarse.",
                     ))
                     .color(MUTED),
                 );
@@ -133,12 +136,13 @@ impl BlueStacksPanel {
                 ui.add_space(10.);
                 ui.separator();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    launch = theme::primary(
+                    mirror = theme::primary(
                         ui,
                         !entry.instance.is_empty(),
-                        locale.pick("Abrir", "Open", "Abrir"),
+                        locale.pick("Usar nesta janela", "Use this window", "Usar esta ventana"),
                     )
                     .clicked();
+                    launch = ui.add_enabled(!entry.instance.is_empty(), theme::button(locale.pick("Janela do BlueStacks", "BlueStacks window", "Ventana de BlueStacks"))).clicked();
                     if ui
                         .add(theme::button(locale.pick("Cancelar", "Cancel", "Cancelar")))
                         .clicked()
@@ -147,6 +151,19 @@ impl BlueStacksPanel {
                     }
                 });
             });
+        if mirror {
+            let package = entry.package.trim();
+            if !package.is_empty() && !bluestacks::valid_package(package) {
+                entry.error = Some(BlueStacksError::InvalidPackage);
+                return None;
+            }
+            let selection = (
+                entry.instance.clone(),
+                (!package.is_empty()).then(|| package.to_owned()),
+            );
+            self.dialog = None;
+            return Some(selection);
+        }
         if launch {
             let package = entry.package.trim();
             match bluestacks::launch(
@@ -159,5 +176,6 @@ impl BlueStacksPanel {
         } else if modal.should_close() {
             self.dialog = None;
         }
+        None
     }
 }

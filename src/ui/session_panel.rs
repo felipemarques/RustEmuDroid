@@ -6,7 +6,7 @@ use eframe::egui::{self, RichText, vec2};
 use std::{sync::atomic::Ordering, time::Duration};
 
 impl Launcher {
-    pub(super) fn show_shutdown(&self, ctx: &egui::Context) {
+    pub(super) fn show_shutdown(&self, ctx: &egui::Context, disconnecting: bool) {
         let locale = self.config.locale;
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(BACKGROUND))
@@ -20,6 +20,12 @@ impl Launcher {
                             "Cancelando instalação…",
                             "Cancelling installation…",
                             "Cancelando la instalación…",
+                        )
+                    } else if disconnecting {
+                        locale.pick(
+                            "Desconectando do BlueStacks…",
+                            "Disconnecting from BlueStacks…",
+                            "Desconectando de BlueStacks…",
                         )
                     } else if self.task.is_some() {
                         locale.pick(

@@ -127,6 +127,14 @@ fn cli_command(l: Locale) -> Command {
     });
     #[cfg(windows)]
     let command = command.mut_subcommand("bluestacks", |cmd| {
+        #[cfg(feature = "ui")]
+        let cmd = cmd.mut_subcommand("mirror", |sub| {
+            open_help(sub, l).about(l.pick(
+                "Exibe e controla a instância nesta janela.",
+                "View and control the instance in this window.",
+                "Muestra y controla la instancia en esta ventana.",
+            ))
+        });
         cmd.about(l.pick(
             "Abre uma instância ou um jogo no BlueStacks 5.",
             "Open an instance or game in BlueStacks 5.",

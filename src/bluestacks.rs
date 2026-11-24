@@ -1,3 +1,14 @@
+#[cfg(feature = "ui")]
+pub(crate) mod mirror_control;
+#[cfg(feature = "ui")]
+pub(crate) mod mirror_session;
+#[cfg(feature = "ui")]
+pub(crate) mod mirror_target;
+#[cfg(feature = "ui")]
+pub(crate) mod player_process;
+#[cfg(feature = "ui")]
+pub(crate) mod preview;
+
 use std::{
     collections::BTreeMap,
     env,
@@ -220,7 +231,7 @@ fn configured_instances(config: &str) -> Vec<Instance> {
     instances
 }
 
-fn valid_package(package: &str) -> bool {
+pub(crate) fn valid_package(package: &str) -> bool {
     package.contains('.')
         && package.len() <= 255
         && package.split('.').all(|part| {
