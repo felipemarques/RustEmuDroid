@@ -33,7 +33,19 @@ jobs:
           sudo rm -rf -- /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
           sudo rm -rf -- /opt/hostedtoolcache /usr/local/share/powershell
           sudo apt-get -qq update
-          sudo apt-get install -y --no-install-recommends repo libc6-i386 lib32z1 libtinfo5 libncurses5 ninja-build xsltproc libxml2-utils flex bison gperf zip unzip libxml2-dev
+          sudo apt-get install -y --no-install-recommends repo libc6-i386 lib32z1 libtinfo5 libncurses5 ninja-build python2.7 xsltproc libxml2-utils flex bison gperf zip unzip libxml2-dev
+          # Soong puts a compressed Python entry point behind a /usr/bin/env shebang.
+          ln -s /usr/bin/python2.7 "$RUNNER_TEMP/pie-bin/python"
+          ln -s /usr/bin/python2.7 "$RUNNER_TEMP/pie-bin/python2"
+          python3 - "$RUNNER_TEMP/python-zip-probe.zip" <<'PY'
+          import sys
+          from zipfile import ZIP_DEFLATED, ZipFile
+          with ZipFile(sys.argv[1], "w", ZIP_DEFLATED) as archive:
+              archive.writestr("__main__.py", "import sys, zlib\nassert sys.version_info[:2] == (2, 7)\nassert zlib.decompress(zlib.compress(b'pie')) == b'pie'\n")
+          PY
+          "$RUNNER_TEMP/pie-bin/python" "$RUNNER_TEMP/python-zip-probe.zip"
+          "$RUNNER_TEMP/pie-bin/python" --version
+          dpkg-query -W python2.7 libpython2.7-stdlib ninja-build > "$RUNNER_TEMP/pie-result/host-packages.txt"
           sudo locale-gen en_US.UTF-8
           git config --global user.name 'AOSP build'
           git config --global user.email 'runner@localhost'
@@ -55,13 +67,12 @@ jobs:
           python3 "$GITHUB_WORKSPACE/tools/pie-build/platform_checkout.py" "$RUNNER_TEMP/pie-manifest.xml" "$RUNNER_TEMP/pie-result"
           df -h "$RUNNER_TEMP"
       - name: Compile the two platform shared libraries
+        id: compile
         run: |
           set -eo pipefail
           cd "$RUNNER_TEMP/pie-src"
           exec > >(tee "$RUNNER_TEMP/pie-result/build.log") 2>&1
           export LC_ALL=en_US.UTF-8
-          ln -s "$PWD/prebuilts/python/linux-x86/2.7.5/bin/python2.7" "$RUNNER_TEMP/pie-bin/python"
-          ln -s "$PWD/prebuilts/python/linux-x86/2.7.5/bin/python2.7" "$RUNNER_TEMP/pie-bin/python2"
           export PATH="$RUNNER_TEMP/pie-bin:$PATH"
           python --version
           # The static r61 flex uses an older glibc locale format. Its C locale is built in.
@@ -78,7 +89,7 @@ jobs:
           source build/envsetup.sh
           lunch sdk_phone_x86_64-userdebug
           report="$RUNNER_TEMP/pie-result"
-          export NINJA_EXTRA_ARGS="-d keeprsp"
+          export NINJA_EXTRA_ARGS="-d keeprsp -k 0"
           repo list --all --path-only > "$RUNNER_TEMP/manifest-project-paths"
           while true; do
             if m -j3 libandroid_runtime 2>&1 | tee "$RUNNER_TEMP/last-build.log"; then
@@ -111,10 +122,15 @@ jobs:
           grep -q 'X86-64' "$report/lib64/elf.txt"
           (cd "$report" && sha256sum lib/libandroid_runtime.so lib64/libandroid_runtime.so > SHA256SUMS)
       - name: Collect stock compile and link input records
-        continue-on-error: true
+        if: always() && steps.compile.outcome != 'skipped'
         run: |
+          set -euo pipefail
           cd "$RUNNER_TEMP/pie-src"
-          python3 "$GITHUB_WORKSPACE/tools/pie-build/runtime_build_inputs.py" "$RUNNER_TEMP/pie-result"
+          metadata_args=()
+          if [ "${{ steps.compile.outcome }}" != "success" ]; then
+            metadata_args+=(--partial)
+          fi
+          python3 "$GITHUB_WORKSPACE/tools/pie-build/runtime_build_inputs.py" "$RUNNER_TEMP/pie-result" "${metadata_args[@]}" 2>&1 | tee "$RUNNER_TEMP/pie-result/metadata.log"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
@@ -122,3 +138,23 @@ jobs:
           path: ${{ runner.temp }}/pie-result/
           retention-days: 7
           if-no-files-found: ignore
+      - name: Collect the stock runtime relink inputs
+        if: steps.compile.outcome == 'success'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/pie-src"
+          report="$RUNNER_TEMP/pie-result"
+          python3 "$GITHUB_WORKSPACE/tools/pie-build/relink_bundle.py" "$report"
+          gzip -1 "$report/stock-relink.tar"
+          (cd "$report" && sha256sum stock-relink.tar.gz stock-relink.json > stock-relink.SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: steps.compile.outcome == 'success'
+        with:
+          name: aosp-pie-platform-relink
+          path: |
+            ${{ runner.temp }}/pie-result/stock-relink.tar.gz
+            ${{ runner.temp }}/pie-result/stock-relink.json
+            ${{ runner.temp }}/pie-result/stock-relink.SHA256SUMS
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
