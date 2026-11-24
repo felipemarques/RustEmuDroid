@@ -85,6 +85,8 @@ After stopping Android, the session screen lets you start the same profile again
 
 ## Open an installed BlueStacks instance on Windows
 
+**Can I play with the BlueStacks Android image inside the RustEmuDroid window?** This remains experimental. On this PC, **Open BlueStacks** launched SuperTuxKart in the BlueStacks player. In a separate boot experiment, a hybrid built from the copied Pie64 framework reached Android's system service (`system_server`) and stopped before Home. The 29.5-second boot and working Home were measured with the stock Android 9 reference image. [Pie64 boot results](docs/bluestacks-lab.md#r2-fstab-compatibility-test)
+
 To open an installed game, you need BlueStacks 5 with at least one instance configured on Windows. The instance opens in the BlueStacks player with its own games and saves. These Windows PowerShell commands work without the Android SDK.
 
 RustEmuDroid’s embedded display, input mapping and FPS counter are available when playing in its native Android runtime.

@@ -85,6 +85,8 @@ Ao encerrar o Android, a tela da sessão permite iniciar o mesmo perfil novament
 
 ## Abrir uma instância instalada do BlueStacks no Windows
 
+**Já dá para jogar com a imagem Android do BlueStacks dentro da janela do RustEmuDroid?** A imagem ainda não chega à tela inicial. Neste PC, **Abrir BlueStacks** abriu o SuperTuxKart no player do BlueStacks. Em um teste separado, uma imagem híbrida com o framework copiado do Pie64 iniciou o serviço de sistema do Android (`system_server`) e parou antes da tela inicial. O boot de 29,5 segundos foi medido com a imagem padrão do Android 9. [Resultados do teste com Pie64, em inglês](docs/bluestacks-lab.md#r2-fstab-compatibility-test)
+
 Para abrir um jogo já instalado, o BlueStacks 5 precisa ter pelo menos uma instância configurada no Windows. Ela abre na janela do próprio BlueStacks, com os jogos e saves daquela instância. Os comandos abaixo usam o PowerShell do Windows e dispensam o Android SDK.
 
 A tela integrada, o mapeamento de controles e o contador de FPS do RustEmuDroid estão disponíveis ao jogar no Android do próprio RustEmuDroid.

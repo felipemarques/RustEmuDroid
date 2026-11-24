@@ -85,6 +85,8 @@ Los perfiles de juego solicitan cuatro vCPU, 8 GiB de RAM y 1600 × 900 a 60 Hz.
 
 ## Abrir una instancia instalada de BlueStacks en Windows
 
+**¿Puedo jugar con la imagen Android de BlueStacks dentro de la ventana de RustEmuDroid?** La imagen aún no llega a la pantalla de inicio. En este PC, **Abrir BlueStacks** abrió SuperTuxKart en el reproductor de BlueStacks. En una prueba independiente, una imagen híbrida con el framework copiado de Pie64 inició el servicio del sistema Android (`system_server`) y se detuvo antes de llegar a la pantalla de inicio. El arranque de 29,5 segundos se midió con la imagen estándar de Android 9. [Resultados de la prueba con Pie64, en inglés](docs/bluestacks-lab.md#r2-fstab-compatibility-test)
+
 Para abrir un juego instalado necesitas BlueStacks 5 con al menos una instancia configurada en Windows. La instancia se abre en la ventana de BlueStacks con sus juegos y partidas guardadas. Estos comandos de PowerShell para Windows funcionan sin el SDK de Android.
 
 La pantalla integrada, la asignación de controles y el contador de FPS de RustEmuDroid están disponibles al jugar en su propio entorno Android.
