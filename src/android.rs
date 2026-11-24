@@ -249,7 +249,7 @@ impl Sdk {
             );
             return Ok(());
         }
-        let status = Command::new(&self.emulator).arg("-accel-check").status()?;
+        let status = self.sdk_acceleration_command().status()?;
         if !status.success() {
             return Err(format!(
                 "{}: {status}",
@@ -262,6 +262,22 @@ impl Sdk {
             .into());
         }
         Ok(())
+    }
+
+    fn sdk_acceleration_command(&self) -> Command {
+        #[cfg(windows)]
+        {
+            // The SDK launcher can split the helper's path on spaces when forwarding this check.
+            let helper = self.emulator.with_file_name("emulator-check.exe");
+            if helper.is_file() {
+                let mut command = Command::new(helper);
+                command.arg("accel");
+                return command;
+            }
+        }
+        let mut command = Command::new(&self.emulator);
+        command.arg("-accel-check");
+        command
     }
 }
 
@@ -1389,6 +1405,36 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     struct TestRoot(PathBuf);
+
+    #[test]
+    fn sdk_acceleration_check_uses_the_windows_helper_when_present() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("SDK with spaces");
+        for folder in ["emulator", "platform-tools"] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        let suffix = env::consts::EXE_SUFFIX;
+        let emulator = root.join("emulator").join(format!("emulator{suffix}"));
+        let adb = root.join("platform-tools").join(format!("adb{suffix}"));
+        for tool in [&emulator, &adb] {
+            fs::write(tool, b"").unwrap();
+        }
+        let sdk = Sdk::from_root(root, RuntimeKind::Portable, Locale::EnUs).unwrap();
+        let fallback = sdk.sdk_acceleration_command();
+        assert_eq!(fallback.get_program(), emulator.as_os_str());
+        assert_eq!(fallback.get_args().collect::<Vec<_>>(), ["-accel-check"]);
+
+        let helper = emulator.with_file_name("emulator-check.exe");
+        fs::write(&helper, b"").unwrap();
+        let command = sdk.sdk_acceleration_command();
+        let (program, argument) = if cfg!(windows) {
+            (&helper, "accel")
+        } else {
+            (&emulator, "-accel-check")
+        };
+        assert_eq!(command.get_program(), program.as_os_str());
+        assert_eq!(command.get_args().collect::<Vec<_>>(), [argument]);
+    }
 
     #[test]
     fn first_run_points_to_runtime_setup_and_preserves_explicit_path_errors() {

@@ -139,6 +139,10 @@ Selecting the Radeon for Vulkan in RustEmuDroid initially left Android's GLES co
 | BlueStacks Pie64 | 29.23 / 29.50 | **29.36** | 66.67 / 66.67 ms | 4 | 1 |
 | RustEmuDroid 0.13.3, Android 17 | 25.38 / 24.85 | **25.11** | 251.30 / 250.10 ms | 27 | 10 |
 
+![Two runs per player on the integrated Radeon. Both players approach 30 presentations per second in steady portions. At the first Inventory close, both RustEmuDroid runs fall to two presentations in a one-second window.](../benchmarks/pubg-mobile/radeon-inventory.png)
+
+The shaded spans start at each scheduled open tap and end at the close tap. Each step counts distinct Android presentation times in a one-second window. Run `python benchmarks/pubg-mobile/plot-inventory.py` with Matplotlib installed to regenerate the figure from the published CSV.
+
 Each primary run started a fresh game process with disk caches retained and used the same 48-second Balanced/High route as the RTX comparison above. BlueStacks delivered 2,819 presentations to RustEmuDroid's 2,411 in 96 seconds, a difference of 4.25/s (16.9% relative to RustEmuDroid). The slowest one-second window contained 13 presentations on BlueStacks and two on RustEmuDroid. On RustEmuDroid the ready-to-ready gaps were within 1 ms of the presentation gaps in both first closes. Using the same adapter for game Vulkan and compositor GLES therefore still produced the long pause on this host. The game accounts, displayed inventory and Android density differed between players.
 
 The second presentation of the 450 ms BlueStacks gap in the first pass had two ready timestamps. They imply ready-to-ready intervals of 4.12 or 14.77 ms for those same endpoints. The following presentation had a ready time more than 450 ms later than either value. The timestamps support a disruption around this transition, with some uncertainty about the individual buffers. A separate diagnostic pass with tracing on and Inventory already visited presented 1,432 frames in 48 seconds (29.83/s). The diagnostic pass is excluded from the primary rates. [Relative frame timestamps for both GPUs](../benchmarks/pubg-mobile/inventory-ready-timing.csv)
