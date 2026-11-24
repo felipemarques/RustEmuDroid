@@ -410,7 +410,7 @@ impl Launcher {
             }
             if changed && running {
                 self.restart = true;
-                self.stop.store(true, std::sync::atomic::Ordering::Release);
+                self.request_stop();
             }
         }
         if apply || dialog.should_close() || android_settings || check_boot {

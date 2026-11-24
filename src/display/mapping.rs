@@ -4,7 +4,7 @@ mod gestures;
 mod quick;
 
 use eframe::egui::{self, Key, PointerButton, Rect, Vec2, vec2};
-use gestures::{Binding, Frame, Gesture, Gestures};
+use gestures::{Binding, Frame, Gesture, Gestures, tilt_degrees};
 use gilrs::{Axis, Button, EventType, Gilrs};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -114,6 +114,7 @@ pub(crate) struct Mapping {
     analog: [f32; 2],
     stick_touch: Option<Contact>,
     gestures: Gestures,
+    tilt_held: HashSet<String>,
     grabbed_at: Option<egui::Context>,
     modifiers: [bool; 4],
     canvas_drag: Option<canvas::Drag>,
@@ -379,6 +380,11 @@ impl Mapping {
     }
 
     pub(super) fn release(&mut self) -> Vec<Contact> {
+        self.tilt_held.clear();
+        self.release_contacts()
+    }
+
+    pub(super) fn release_contacts(&mut self) -> Vec<Contact> {
         self.canvas_drag = None;
         if self.editor.palette_drag {
             self.editor.palette_drag = false;
@@ -402,6 +408,22 @@ impl Mapping {
             while pad.next_event().is_some() {}
         }
         ups
+    }
+
+    pub(super) fn tilt_offset(&self) -> [f32; 3] {
+        let mut offset = [0.; 3];
+        if !self.tilt_held.is_empty()
+            && let Some(layout) = self.layout()
+        {
+            for binding in &layout.controls {
+                if let Gesture::Tilt { axis, degrees } = binding.gesture
+                    && self.tilt_held.contains(&binding.input)
+                {
+                    offset[axis as usize] += tilt_degrees(degrees);
+                }
+            }
+        }
+        offset.map(tilt_degrees)
     }
 
     fn control(&mut self, input: &str, down: bool, changes: &mut Vec<Contact>) {
@@ -491,6 +513,15 @@ impl Mapping {
         {
             let advanced = Self::advanced_layout(&self.profiles, self.package.as_deref());
             if advanced.iter().any(|binding| binding.captures(input)) {
+                if advanced.iter().any(|binding| {
+                    matches!(binding.gesture, Gesture::Tilt { .. }) && binding.captures(input)
+                }) {
+                    if pressed {
+                        self.tilt_held.insert(input.into());
+                    } else {
+                        self.tilt_held.remove(input);
+                    }
+                }
                 let taken = self.taken();
                 self.gestures.left = vec2(self.analog[0], self.analog[1]);
                 self.gestures.input(
@@ -812,6 +843,7 @@ fn valid_layout(layout: &Layout) -> bool {
                                 .into_iter()
                                 .all(|speed| (0.20..=2.).contains(speed))
                     }
+                    Gesture::Tilt { degrees, .. } => *degrees == tilt_degrees(*degrees),
                 }
         })
 }
@@ -971,6 +1003,58 @@ mod tests {
 
         display.set_package(Some("other.game"));
         assert!(render(&mut display, vec![Event::PointerMoved(right)]).is_empty());
+    }
+
+    #[test]
+    fn configured_tilt_is_relative_bounded_and_releases_without_touch_contacts() {
+        use gestures::TiltAxis;
+
+        let binding = |input: &str, axis, degrees| Binding {
+            input: input.into(),
+            at: [0.5, 0.5],
+            gesture: Gesture::Tilt { axis, degrees },
+        };
+        let mut layout = Layout {
+            radius: default_radius(),
+            controls: vec![
+                binding("Q", TiltAxis::X, 30.),
+                binding("E", TiltAxis::X, 35.),
+                binding("J", TiltAxis::Y, -12.),
+            ],
+            ..Default::default()
+        };
+        assert!(valid_layout(&layout));
+        layout.controls.push(binding("K", TiltAxis::Z, 90.));
+        assert!(!valid_layout(&layout));
+        assert_eq!(tilt_degrees(f32::NAN), 0.);
+        assert_eq!(tilt_degrees(-90.), -45.);
+        assert_eq!(tilt_degrees(f32::INFINITY), 0.);
+        let mut mapping = Mapping::default();
+        mapping
+            .profiles
+            .insert("test.game".into(), GameProfiles::from_layout(layout));
+        mapping.select(Some("test.game"));
+        let frame = Frame {
+            time: 0.,
+            dt: 1. / 60.,
+            size: vec2(160., 90.),
+            taken: &[],
+            cursor: None,
+            edge_cursor: None,
+        };
+        let mut contacts = vec![];
+        for key in ["Q", "E", "J", "K"] {
+            assert!(mapping.captures_input(key));
+            mapping.handle_input(key, true, &frame, &mut contacts);
+        }
+        assert_eq!(mapping.tilt_offset(), [45., -12., 45.]);
+        assert!(contacts.is_empty());
+        assert!(mapping.release_contacts().is_empty());
+        assert_eq!(mapping.tilt_offset(), [45., -12., 45.]);
+        mapping.handle_input("Q", false, &frame, &mut contacts);
+        assert_eq!(mapping.tilt_offset(), [35., -12., 45.]);
+        assert!(mapping.release().is_empty());
+        assert_eq!(mapping.tilt_offset(), [0.; 3]);
     }
 
     #[test]

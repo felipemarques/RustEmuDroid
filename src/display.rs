@@ -4,6 +4,7 @@ mod live_input_test;
 mod mapping;
 #[cfg(all(test, windows))]
 mod preview;
+mod tilt;
 
 use crate::{capture::Shot, ui::i18n::Locale};
 use eframe::egui::{self, ColorImage, Key, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
@@ -23,6 +24,8 @@ use tonic::{
     metadata::{Ascii, MetadataValue},
     transport::{Channel, Endpoint},
 };
+
+pub(crate) const TILT_RESTORE_TIMEOUT: Duration = tilt::RESTORE_TIMEOUT;
 
 type DisplayResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -178,6 +181,7 @@ async fn stream(
     ctx: egui::Context,
     state: Arc<Mutex<Shared>>,
     mut input: mpsc::UnboundedReceiver<Input>,
+    tilt: tilt::Worker,
 ) -> DisplayResult<()> {
     let deadline = Instant::now() + Duration::from_secs(90);
     let token = loop {
@@ -207,6 +211,7 @@ async fn stream(
         }
     };
     let mut control = Grpc::new(channel.clone());
+    let sensor = channel.clone();
     let mut video = Grpc::new(channel).max_decoding_message_size(64 * 1024 * 1024);
     video.ready().await?;
     let request = authorized(
@@ -242,7 +247,14 @@ async fn stream(
         }
         Err("O motor encerrou o fluxo de vídeo.".into())
     };
-    tokio::select! { result=inputs=>result, result=video=>result }
+    let (cancel_tilt, tilt_shutdown) = tokio::sync::oneshot::channel();
+    let session = async {
+        let result = tokio::select! { result=inputs=>result, result=video=>result };
+        let _ = cancel_tilt.send(());
+        result
+    };
+    let (result, ()) = tokio::join!(session, tilt.run(sensor, token.clone(), tilt_shutdown));
+    result
 }
 
 pub struct Display {
@@ -259,6 +271,7 @@ pub struct Display {
     count: u32,
     since: Instant,
     fps: f32,
+    tilt: Option<tilt::Tilt>,
 }
 impl Display {
     pub fn open(console: u16, rpc: u16, avd: PathBuf, ctx: &egui::Context) -> Self {
@@ -267,13 +280,22 @@ impl Display {
         let shared = state.clone();
         let ctx = ctx.clone();
         let mappings = avd.join("touch-maps.json");
+        let (tilt, tilt_worker) = tilt::Tilt::channel();
         std::thread::spawn(move || {
             let result = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .map_err(Into::into)
                 .and_then(|rt| {
-                    rt.block_on(stream(console, rpc, avd, ctx.clone(), shared.clone(), rx))
+                    rt.block_on(stream(
+                        console,
+                        rpc,
+                        avd,
+                        ctx.clone(),
+                        shared.clone(),
+                        rx,
+                        tilt_worker,
+                    ))
                 });
             if let Err(e) = result {
                 shared.lock().unwrap().error = Some(e.to_string());
@@ -281,6 +303,7 @@ impl Display {
             }
         });
         let mut display = Self::new(state, input);
+        display.tilt = Some(tilt);
         display.mapping.load(mappings);
         display
     }
@@ -299,6 +322,7 @@ impl Display {
             count: 0,
             since: Instant::now(),
             fps: 0.0,
+            tilt: None,
         }
     }
     pub fn press(&self, key: &str) {
@@ -383,7 +407,18 @@ impl Display {
         }
     }
     pub(crate) fn release(&mut self) {
+        if let Some(tilt) = &mut self.tilt {
+            tilt.restore();
+        }
         let released = self.mapping.release();
+        self.release_contacts(released);
+    }
+
+    pub(crate) fn tilt_restored(&self) -> bool {
+        self.tilt.as_ref().is_none_or(tilt::Tilt::restored)
+    }
+
+    fn release_contacts(&mut self, released: Vec<mapping::Contact>) {
         self.mapped(released);
         if let Some(pos) = self.contact.take() {
             self.touch(pos, 0)
@@ -404,7 +439,9 @@ impl Display {
         let same_size = self.size == size;
         let rotation = format.rotation.unwrap_or_default().value;
         if !same_size || self.rotation != rotation {
-            self.release();
+            // The held tilt can cause rotation. Lift coordinate-dependent contacts only.
+            let released = self.mapping.release_contacts();
+            self.release_contacts(released);
         }
         self.size = size;
         self.rotation = rotation;
@@ -528,6 +565,9 @@ impl Display {
         let aiming_before = self.mapping.aims_pointer();
         let changes = self.mapping.frame(ui, rect, &events);
         self.mapped(changes);
+        if let Some(tilt) = &mut self.tilt {
+            tilt.set(self.mapping.tilt_offset());
+        }
         if self.mapping.editing {
             return;
         }

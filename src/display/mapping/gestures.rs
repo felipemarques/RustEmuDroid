@@ -10,6 +10,25 @@ pub(super) struct Binding {
     pub gesture: Gesture,
 }
 
+pub(super) const MAX_TILT: f32 = 45.;
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum TiltAxis {
+    #[default]
+    X,
+    Y,
+    Z,
+}
+
+pub(super) fn tilt_degrees(degrees: f32) -> f32 {
+    if degrees.is_finite() {
+        degrees.clamp(-MAX_TILT, MAX_TILT)
+    } else {
+        0.
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub(super) enum Gesture {
@@ -56,6 +75,10 @@ pub(super) enum Gesture {
         margin_y: f32,
         speed_x: f32,
         speed_y: f32,
+    },
+    Tilt {
+        axis: TiltAxis,
+        degrees: f32,
     },
 }
 

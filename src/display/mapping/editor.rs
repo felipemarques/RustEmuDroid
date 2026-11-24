@@ -1,5 +1,6 @@
 mod tiles;
 
+use super::gestures::{MAX_TILT, TiltAxis};
 use super::{Gesture, Mapping, SchemeError};
 use crate::ui::{i18n::Locale, theme};
 use eframe::egui;
@@ -409,6 +410,7 @@ impl Mapping {
                 "Edge scroll",
                 "Desplazamiento en bordes",
             ),
+            locale.pick("Inclinar", "Tilt", "Inclinar"),
         ];
         let width = ((ui.available_width() - 2. * ui.spacing().item_spacing.x) / 3.).max(46.);
         for row in (0..labels.len()).step_by(3) {
@@ -701,6 +703,22 @@ impl Mapping {
                             .text(locale.pick("Duração", "Duration", "Duración")),
                     );
                 }
+                Gesture::Tilt { axis, degrees } => {
+                    egui::ComboBox::from_id_salt("tilt-axis")
+                        .selected_text(tilt_axis_label(*axis, locale))
+                        .show_ui(ui, |ui| {
+                            for choice in [TiltAxis::X, TiltAxis::Y, TiltAxis::Z] {
+                                ui.selectable_value(axis, choice, tilt_axis_label(choice, locale));
+                            }
+                        });
+                    ui.add(egui::Slider::new(degrees, -MAX_TILT..=MAX_TILT).suffix("°")
+                        .text(locale.pick("Ângulo", "Angle", "Ángulo")));
+                    ui.weak(locale.pick(
+                        "Mantenha o botão pressionado para inclinar o dispositivo. Requer sensores virtuais.",
+                        "Hold the binding to tilt the device. Requires virtual sensors.",
+                        "Mantén pulsado el control para inclinar el dispositivo. Requiere sensores virtuales.",
+                    ));
+                }
                 Gesture::Rotate {
                     radius,
                     degrees,
@@ -880,6 +898,19 @@ fn gesture_name(gesture: &Gesture, locale: Locale) -> &'static str {
             "Two-finger rotation",
             "Giro con dos dedos",
         ),
+        Gesture::Tilt { .. } => locale.pick(
+            "Inclinar dispositivo",
+            "Device tilt",
+            "Inclinar dispositivo",
+        ),
+    }
+}
+
+fn tilt_axis_label(axis: TiltAxis, locale: Locale) -> &'static str {
+    match axis {
+        TiltAxis::X => locale.pick("Eixo X", "X axis", "Eje X"),
+        TiltAxis::Y => locale.pick("Eixo Y", "Y axis", "Eje Y"),
+        TiltAxis::Z => locale.pick("Eixo Z", "Z axis", "Eje Z"),
     }
 }
 
@@ -892,7 +923,7 @@ impl FileAction {
     }
 }
 
-fn presets() -> [Gesture; 11] {
+fn presets() -> [Gesture; 12] {
     [
         Gesture::Hold,
         Gesture::Tap { duration_ms: 100 },
@@ -938,6 +969,10 @@ fn presets() -> [Gesture; 11] {
             margin_y: 0.06,
             speed_x: 0.75,
             speed_y: 0.75,
+        },
+        Gesture::Tilt {
+            axis: TiltAxis::X,
+            degrees: 20.,
         },
     ]
 }

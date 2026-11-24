@@ -134,6 +134,7 @@ struct Launcher {
     task: Option<Session>,
     closing: bool,
     stop: Arc<AtomicBool>,
+    stop_after_tilt: Option<std::time::Instant>,
     display: Option<Display>,
     capture: Capture,
     capture_notice: Option<(CaptureEvent, std::time::Instant)>,
@@ -186,6 +187,7 @@ impl Launcher {
             task: None,
             closing: false,
             stop: Arc::new(AtomicBool::new(false)),
+            stop_after_tilt: None,
             display: None,
             capture: Capture::default(),
             capture_notice: None,
@@ -223,6 +225,7 @@ impl Launcher {
         self.output.clear();
 
         self.stop = Arc::new(AtomicBool::new(false));
+        self.stop_after_tilt = None;
         let stop = self.stop.clone();
         self.playing = !check;
         let worker = thread::spawn(move || {
@@ -314,6 +317,7 @@ impl Launcher {
             self.task.take().unwrap().worker.join().unwrap_or_else(|_| {
                 Err("O processo de controle do emulador foi interrompido.".into())
             });
+        self.stop_after_tilt = None;
         self.display = None;
         self.capture.stop();
         self.controls = None;
@@ -340,6 +344,38 @@ impl Launcher {
             }
         }
     }
+
+    fn stopping(&self) -> bool {
+        self.stop_after_tilt.is_some() || self.stop.load(Ordering::Acquire)
+    }
+
+    fn request_stop(&mut self) {
+        if self.stopping() {
+            return;
+        }
+        if let Some(display) = &mut self.display {
+            display.release();
+            if !display.tilt_restored() {
+                self.stop_after_tilt =
+                    Some(std::time::Instant::now() + crate::display::TILT_RESTORE_TIMEOUT);
+                return;
+            }
+        }
+        self.stop.store(true, Ordering::Release);
+    }
+
+    fn poll_stop(&mut self, ctx: &egui::Context) {
+        if let Some(deadline) = self.stop_after_tilt {
+            if self.display.as_ref().is_none_or(Display::tilt_restored)
+                || std::time::Instant::now() >= deadline
+            {
+                self.stop_after_tilt = None;
+                self.stop.store(true, Ordering::Release);
+            } else {
+                ctx.request_repaint_after(Duration::from_millis(16));
+            }
+        }
+    }
 }
 
 impl eframe::App for Launcher {
@@ -349,14 +385,17 @@ impl eframe::App for Launcher {
             self.closing = true;
             self.play = false;
             self.restart = false;
-            self.stop.store(true, Ordering::Release);
+            self.request_stop();
             self.capture.stop();
-            self.display = None;
             self.controls = None;
         }
+        self.poll_stop(ctx);
         self.receive(ctx);
         if self.stop.load(Ordering::Acquire) {
             self.capture.stop();
+            if self.closing {
+                self.display = None;
+            }
         }
         while let Some(event) = self.capture.poll() {
             self.capture_notice = Some((event, std::time::Instant::now()));
@@ -445,8 +484,9 @@ impl Launcher {
             self.title_bar(ctx, fullscreen, resizing);
         }
         if self.playing {
+            let stopping = self.stopping();
             let tools_interactive = self.home_ready
-                && !self.stop.load(Ordering::Acquire)
+                && !stopping
                 && self.settings.is_none()
                 && !self.help_open
                 && !self.external_dialog_open();
@@ -484,8 +524,7 @@ impl Launcher {
                                 crate::toolbar::session_tools(
                                     ui,
                                     controls,
-                                    self.stage == BootStage::Booted
-                                        && !self.stop.load(Ordering::Acquire),
+                                    self.stage == BootStage::Booted && !stopping,
                                     locale,
                                 );
                             }
@@ -506,6 +545,7 @@ impl Launcher {
             let interactive = self.settings.is_none()
                 && !self.help_open
                 && !self.external_dialog_open()
+                && !self.stopping()
                 && !resizing;
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
@@ -559,6 +599,15 @@ fn gpu_label(gpu: Gpu, locale: Locale) -> &'static str {
 
 impl Drop for Launcher {
     fn drop(&mut self) {
+        self.request_stop();
+        while let Some(deadline) = self.stop_after_tilt {
+            if self.display.as_ref().is_none_or(Display::tilt_restored)
+                || std::time::Instant::now() >= deadline
+            {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
         self.stop.store(true, Ordering::Release);
         self.display.take();
         if let Some(session) = self.task.take() {

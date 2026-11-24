@@ -163,6 +163,15 @@ pub(super) fn draw(painter: &Painter, center: Pos2, icon: usize, color: Color32)
             line(&[(-3., -3.), (-6., 0.), (-3., 3.)]);
             line(&[(3., -3.), (6., 0.), (3., 3.)]);
         }
+        11 => {
+            painter.add(Shape::closed_line(
+                [(-8., 3.), (3., -8.), (8., -3.), (-3., 8.)]
+                    .map(|(x, y)| point(x, y))
+                    .into(),
+                stroke,
+            ));
+            line(&[(-8., -2.), (-8., -7.), (-3., -7.)]);
+        }
         _ => {}
     }
 }

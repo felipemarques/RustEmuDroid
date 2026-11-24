@@ -2,7 +2,6 @@ use super::{BORDER, ERROR, INK, Launcher, MINT, MUTED, Tool};
 use eframe::egui::{
     self, Align, Align2, Color32, FontId, Layout, Rect, RichText, Sense, ViewportCommand, vec2,
 };
-use std::sync::atomic::Ordering;
 
 const HEIGHT: f32 = 40.;
 const BAR: Color32 = Color32::from_rgb(30, 34, 51);
@@ -58,7 +57,7 @@ impl Launcher {
                     );
 
                     if self.playing {
-                        let ready = self.home_ready && !self.stop.load(Ordering::Acquire);
+                        let ready = self.home_ready && !self.stopping();
                         ui.add_enabled_ui(ready, |ui| {
                             if Tool::Library.button(ui, locale)
                                 && let Some(c) = &mut self.controls
@@ -116,9 +115,9 @@ impl Launcher {
                             if Tool::Fullscreen.button(ui, locale) {
                                 ctx.send_viewport_cmd(ViewportCommand::Fullscreen(!fullscreen));
                             }
-                            ui.add_enabled_ui(!self.stop.load(Ordering::Acquire), |ui| {
+                            ui.add_enabled_ui(!self.stopping(), |ui| {
                                 if Tool::Stop.button(ui, locale) {
-                                    self.stop.store(true, Ordering::Release);
+                                    self.request_stop();
                                 }
                             });
                         }
