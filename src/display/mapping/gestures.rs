@@ -65,6 +65,8 @@ pub(super) enum Gesture {
         radius: f32,
         degrees: f32,
         duration_ms: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wheel: Option<SteeringWheel>,
     },
     Moba {
         radius: f32,
@@ -96,6 +98,12 @@ pub(super) enum Gesture {
         speed: f32,
         override_wheel: bool,
     },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(super) struct SteeringWheel {
+    pub start_degrees: f32,
+    pub reverse_input: String,
 }
 
 impl Gesture {
@@ -153,6 +161,9 @@ impl Binding {
                     ..
                 } => directions.iter().any(|key| key == input),
                 Gesture::EdgeScroll { .. } | Gesture::Scroll { .. } => false,
+                Gesture::Rotate {
+                    wheel: Some(wheel), ..
+                } => input == self.input || input == wheel.reverse_input,
                 Gesture::MobaMove { .. } => input == "Mouse:Secondary" || input == self.input,
                 _ => self.input == input,
             }
@@ -178,6 +189,7 @@ struct Active {
     last_moved: f64,
     contacts: Vec<Contact>,
     target: Option<Point>,
+    steering: f32,
 }
 
 impl Gestures {
@@ -250,6 +262,9 @@ impl Gestures {
                     } if mouse || self.direction_vector(directions) == Vec2::ZERO => {
                         self.stop(i, changes);
                         self.deadlines.remove(&i);
+                    }
+                    Gesture::Rotate { wheel: Some(_), .. } => {
+                        self.update_wheel(i, binding, frame, changes)
                     }
                     Gesture::Hold | Gesture::Repeat { .. } | Gesture::Aim { toggle: false, .. } => {
                         self.stop(i, changes);
@@ -326,6 +341,8 @@ impl Gestures {
                 }
             } else if let Gesture::Pinch { from, .. } = binding.gesture {
                 self.start(i, &pair(frame.size, binding.at, from, 0.), frame, changes);
+            } else if let Gesture::Rotate { wheel: Some(_), .. } = binding.gesture {
+                self.update_wheel(i, binding, frame, changes);
             } else if let Gesture::Rotate { radius, .. } = binding.gesture {
                 self.start(i, &pair(frame.size, binding.at, radius, 0.), frame, changes);
             }
@@ -492,10 +509,14 @@ impl Gestures {
                         self.stop(index, changes);
                     }
                 }
+                Gesture::Rotate { wheel: Some(_), .. } => {
+                    self.update_wheel(index, binding, frame, changes)
+                }
                 Gesture::Rotate {
                     radius,
                     degrees,
                     duration_ms,
+                    wheel: None,
                 } if has_contacts => {
                     let progress = (elapsed / duration(*duration_ms)).clamp(0., 1.) as f32;
                     let angle = degrees.clamp(-720., 720.).to_radians() * progress;
@@ -620,6 +641,48 @@ impl Gestures {
         }
     }
 
+    fn update_wheel(
+        &mut self,
+        index: usize,
+        binding: &Binding,
+        frame: &Frame<'_>,
+        changes: &mut Vec<Contact>,
+    ) {
+        let Gesture::Rotate {
+            radius,
+            degrees,
+            duration_ms,
+            wheel: Some(wheel),
+        } = &binding.gesture
+        else {
+            return;
+        };
+        let forward = self.held.contains(&binding.input);
+        let reverse = self.held.contains(&wheel.reverse_input);
+        if forward == reverse {
+            self.stop(index, changes);
+            return;
+        }
+        let position = |turn: f32| {
+            let angle = (wheel.start_degrees + turn * degrees).to_radians();
+            offset(
+                frame.size,
+                binding.at,
+                vec2(angle.cos(), angle.sin()) * radius.clamp(0.005, 0.4),
+            )
+        };
+        let Some(active) = self.active.get_mut(&index) else {
+            self.start(index, &[position(0.)], frame, changes);
+            return;
+        };
+        let elapsed = (frame.time - active.last_moved).max(0.);
+        active.last_moved = frame.time;
+        let step = (elapsed / duration(*duration_ms)) as f32;
+        active.steering = (active.steering + if forward { step } else { -step }).clamp(-1., 1.);
+        let pos = position(active.steering);
+        self.move_to(index, &[pos], changes);
+    }
+
     fn update_edge_scroll(
         &mut self,
         index: usize,
@@ -728,6 +791,7 @@ impl Gestures {
                 last_moved: frame.time,
                 contacts,
                 target: None,
+                steering: 0.,
             },
         );
         true
@@ -1056,6 +1120,46 @@ mod tests {
         assert!(events.iter().any(|c| c.id == 2 && c.down));
         assert_eq!(touch.release().count(), 3);
         assert!(!touch.waiting());
+    }
+
+    #[test]
+    fn steering_wheel_holds_one_contact_in_either_direction_and_keeps_old_rotations() {
+        let old: Gesture = serde_json::from_value(serde_json::json!({
+            "kind":"rotate", "radius":0.1, "degrees":90., "duration_ms":400
+        }))
+        .unwrap();
+        assert!(matches!(old, Gesture::Rotate { wheel: None, .. }));
+        let mut controls = [Binding {
+            input: "D".into(),
+            at: [0.5, 0.5],
+            gesture: old,
+        }];
+        let mut state = Gestures::default();
+        let mut changes = Vec::new();
+        state.input(&controls, "D", true, &frame(0.), &mut changes);
+        assert_eq!(state.release().count(), 2);
+        let Gesture::Rotate { wheel, .. } = &mut controls[0].gesture else {
+            unreachable!()
+        };
+        *wheel = Some(SteeringWheel {
+            reverse_input: "A".into(),
+            start_degrees: -90.,
+        });
+        for (key, expected_x) in [("D", 0.55625), ("A", 0.44375)] {
+            changes.clear();
+            state.input(&controls, key, true, &frame(1.), &mut changes);
+            assert_eq!(changes.len(), 1);
+            assert_eq!(changes[0].pos, [0.5, 0.4]);
+            let id = changes[0].id;
+            state.frame(&controls, &frame(1.5), &mut changes);
+            assert!(changes.last().unwrap().down && changes.last().unwrap().id == id);
+            let end = changes.last().unwrap().pos;
+            assert!((end[0] - expected_x).abs() < 0.001 && (end[1] - 0.5).abs() < 0.001);
+            state.frame(&controls, &frame(3.), &mut changes);
+            assert!(changes.iter().all(|c| c.down && c.id == id));
+            state.input(&controls, key, false, &frame(3.1), &mut changes);
+            assert!(!changes.last().unwrap().down && !state.waiting());
+        }
     }
 
     #[test]

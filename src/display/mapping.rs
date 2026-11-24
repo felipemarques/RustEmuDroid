@@ -493,7 +493,16 @@ impl Mapping {
                     .selected_control
                     .and_then(|i| self.draft.controls.get_mut(i))
             {
-                if let Some(direction) = self.direction_binding.take()
+                if self.direction_binding.is_some()
+                    && let Gesture::Rotate {
+                        wheel: Some(wheel), ..
+                    } = &mut binding.gesture
+                {
+                    self.direction_binding = None;
+                    if input != binding.input {
+                        wheel.reverse_input = input.to_owned();
+                    }
+                } else if let Some(direction) = self.direction_binding.take()
                     && let Gesture::Dpad { directions, .. } | Gesture::FreeLook { directions, .. } =
                         &mut binding.gesture
                     && let Some(slot) = directions.get_mut(direction)
@@ -502,6 +511,13 @@ impl Mapping {
                 } else if !matches!(binding.gesture, Gesture::MobaMove { .. })
                     || input != "Mouse:Secondary"
                 {
+                    if let Gesture::Rotate {
+                        wheel: Some(wheel), ..
+                    } = &mut binding.gesture
+                        && wheel.reverse_input == input
+                    {
+                        wheel.reverse_input.clear();
+                    }
                     binding.input = input.to_owned();
                 }
                 self.await_binding = false;
@@ -893,10 +909,17 @@ fn valid_layout(layout: &Layout) -> bool {
                         radius: value,
                         degrees,
                         duration_ms,
+                        wheel,
                     } => {
                         radius(*value)
                             && (-720. ..=720.).contains(degrees)
                             && duration(*duration_ms)
+                            && wheel.as_ref().is_none_or(|w| {
+                                (-180. ..=180.).contains(&w.start_degrees)
+                                    && input(&w.reverse_input)
+                                    && (w.reverse_input.is_empty()
+                                        || w.reverse_input != binding.input)
+                            })
                     }
                     Gesture::Moba { radius: value, .. } => radius(*value),
                     Gesture::MobaMove {

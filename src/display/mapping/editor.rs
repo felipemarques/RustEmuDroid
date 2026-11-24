@@ -1,6 +1,6 @@
 mod tiles;
 
-use super::gestures::{MAX_TILT, TiltAxis};
+use super::gestures::{MAX_TILT, SteeringWheel, TiltAxis};
 use super::{Gesture, Mapping, SchemeError};
 use crate::ui::{i18n::Locale, theme};
 use eframe::egui;
@@ -552,6 +552,9 @@ impl Mapping {
                 set_binding = ui
                     .selectable_label(self.await_binding && direction_binding.is_none(), input)
                     .clicked();
+                if set_binding {
+                    direction_binding = None;
+                }
             }
             let mut choose_direction = |ui: &mut egui::Ui, directions: &[String; 4]| {
                 ui.horizontal_wrapped(|ui| {
@@ -773,7 +776,26 @@ impl Mapping {
                     radius,
                     degrees,
                     duration_ms,
+                    wheel,
                 } => {
+                    let mut single = wheel.is_some();
+                    if ui.checkbox(&mut single, locale.pick(
+                        "Volante de um toque", "Single-touch wheel", "Volante de un toque",
+                    )).changed() {
+                        *wheel = single.then(|| SteeringWheel { start_degrees: -90., reverse_input: String::new() });
+                    }
+                    if let Some(wheel) = wheel {
+                        ui.add(egui::Slider::new(&mut wheel.start_degrees, -180.0..=180.0)
+                            .suffix("°").text(locale.pick("Ângulo inicial", "Starting angle", "Ángulo inicial")));
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(locale.pick("Giro inverso", "Reverse turn", "Giro inverso"));
+                            let name = if wheel.reverse_input.is_empty() { locale.pick("Atribuir tecla", "Assign key", "Asignar tecla") } else { &wheel.reverse_input };
+                            if ui.selectable_label(self.await_binding && direction_binding.is_some(), name).clicked() {
+                                set_binding = true;
+                                direction_binding = Some(0);
+                            }
+                        });
+                    }
                     ui.add(
                         egui::Slider::new(radius, 0.02..=0.35)
                             .text(locale.pick("Raio", "Radius", "Radio")),
@@ -950,6 +972,11 @@ fn gesture_name(gesture: &Gesture, locale: Locale) -> &'static str {
         Gesture::Pinch { .. } => {
             locale.pick("Pinça para zoom", "Pinch to zoom", "Pellizcar para ampliar")
         }
+        Gesture::Rotate { wheel: Some(_), .. } => locale.pick(
+            "Volante de um toque",
+            "Single-touch wheel",
+            "Volante de un toque",
+        ),
         Gesture::Rotate { .. } => locale.pick(
             "Girar com dois dedos",
             "Two-finger rotation",
@@ -1016,6 +1043,7 @@ fn presets() -> [Gesture; 15] {
             radius: 0.11,
             degrees: 90.,
             duration_ms: 400,
+            wheel: None,
         },
         Gesture::Swipe {
             end: [0.75, 0.5],
