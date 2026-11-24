@@ -278,7 +278,20 @@ impl Mapping {
             self.error = Some(err.to_string());
         }
         ui.separator();
-        ui.small(l.pick("Esquema do jogo", "Game scheme", "Esquema del juego"));
+        ui.horizontal_wrapped(|ui| {
+            ui.small(l.pick("Perfil do jogo", "Game profile", "Perfil del juego"));
+            if ui
+                .add_enabled(
+                    self.package.is_some() && !self.load_failed,
+                    egui::Button::new(super::editor::manage_label(l)),
+                )
+                .clicked()
+            {
+                self.close_quick();
+                self.toggle();
+                self.open_profile_manager();
+            }
+        });
         let profiles = self.package.as_ref().and_then(|p| self.profiles.get(p));
         let current = profiles.map(|p| p.active.as_str()).unwrap_or("Default");
         let mut picked = None;

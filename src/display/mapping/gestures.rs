@@ -3,7 +3,7 @@ use eframe::egui::{Vec2, vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet, VecDeque};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(super) struct Binding {
     pub input: String,
     pub at: Point,
@@ -56,7 +56,7 @@ pub(super) fn tilt_degrees(degrees: f32) -> f32 {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub(super) enum Gesture {
     #[default]
@@ -129,7 +129,7 @@ pub(super) enum Gesture {
     },
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(super) struct SteeringWheel {
     pub start_degrees: f32,
     pub reverse_input: String,

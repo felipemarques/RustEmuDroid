@@ -230,3 +230,59 @@ fn dpad_radius_editor_preserves_imported_value_on_selection() {
     let reopened = EditorWindow::open(path);
     assert_radius(reopened.display.mapping.layout().unwrap(), expected);
 }
+
+#[test]
+fn quick_menu_can_duplicate_edit_and_restore_a_game_profile() {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("touch-maps.json");
+    let other = "test.other.game";
+    crate::ui::write_json(
+        &path,
+        &serde_json::json!({ PACKAGE: layout(0.12), other: layout(0.21) }),
+    )
+    .unwrap();
+    let mut window = EditorWindow::open_with_size(path.clone(), vec2(610., 510.));
+    let canvas = window.canvas();
+    window.display.toggle_controls_menu(145.);
+    window.click_label("Manage profiles");
+    window.click_label("Duplicate");
+    window.frame(vec![]);
+    window.frame(vec![Event::Text("Driving".into())]);
+    window.click_label("Apply");
+    window.click_label("Default");
+    assert_eq!(window.display.mapping.draft_profiles.active, "Default");
+    window.click_label("Driving");
+    assert_eq!(window.display.mapping.draft_profiles.active, "Driving");
+    window.click_label("Edit controls");
+    assert_eq!(window.canvas(), canvas);
+
+    let destination = [0.47, 0.67];
+    let start = screen(canvas, CENTER);
+    let end = screen(canvas, destination);
+    window.point_at(start, true);
+    window.frame(vec![Event::PointerMoved(end)]);
+    window.point_at(end, false);
+    window.save();
+
+    let mut reopened = EditorWindow::open(path.clone());
+    let active = &reopened.display.mapping.profiles[PACKAGE];
+    assert_eq!(active.active, "Driving");
+    let moved = active.layout().unwrap().controls[0].at;
+    assert!((moved[0] - destination[0]).abs() < 0.002, "{moved:?}");
+    assert!((moved[1] - destination[1]).abs() < 0.002, "{moved:?}");
+    assert_eq!(active.layouts["Default"].controls[0].at, CENTER);
+    reopened.display.toggle_controls_menu(145.);
+    reopened.click_label("Driving");
+    reopened.click_label("Default");
+
+    let mut restored = EditorWindow::open(path);
+    assert_eq!(restored.display.mapping.profiles[PACKAGE].active, "Default");
+    assert_eq!(
+        restored.display.mapping.layout().unwrap().controls[0].at,
+        CENTER
+    );
+    restored.display.set_package(Some(other));
+    let unaffected = &restored.display.mapping.profiles[other];
+    assert_eq!(unaffected.layouts.len(), 1);
+    assert_radius(unaffected.layout().unwrap(), 0.21);
+}

@@ -17,7 +17,7 @@ use std::{
 
 type Point = [f32; 2];
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone, PartialEq, Serialize, Deserialize)]
 struct Layout {
     buttons: BTreeMap<String, Point>,
     stick: Option<Point>,
@@ -32,7 +32,7 @@ fn default_radius() -> f32 {
     0.10
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct GameProfiles {
     active: String,
     layouts: BTreeMap<String, Layout>,
@@ -96,6 +96,8 @@ pub(crate) struct Mapping {
     profiles: BTreeMap<String, GameProfiles>,
     path: PathBuf,
     package: Option<String>,
+    // Keep an edited game pinned until its changes are saved or explicitly discarded.
+    deferred_package: Option<Option<String>>,
     pub editing: bool,
     draft: Layout,
     draft_profiles: GameProfiles,
@@ -166,10 +168,23 @@ impl Mapping {
         self.editing || self.quick.is_open() || !self.profiles.is_empty()
     }
     pub(super) fn package_changed(&self, package: Option<&str>) -> bool {
-        self.package.as_deref() != package
+        self.deferred_package
+            .as_ref()
+            .unwrap_or(&self.package)
+            .as_deref()
+            != package
     }
     pub(super) fn select(&mut self, package: Option<&str>) {
+        if self.editing && self.package.is_some() && self.has_draft_changes() {
+            self.deferred_package =
+                (self.package.as_deref() != package).then(|| package.map(str::to_owned));
+            return;
+        }
+        self.deferred_package = None;
         self.package = package.map(str::to_owned);
+        let managing = self.editor.managing_profiles;
+        self.editor = editor::Editor::default();
+        self.editor.managing_profiles = managing;
         self.reset_draft();
     }
     fn reset_draft(&mut self) {
@@ -226,13 +241,30 @@ impl Mapping {
         self.insert_profile(name, self.draft.clone())
     }
 
+    fn name_is_available(&self, name: &str) -> bool {
+        let name = name.trim();
+        !name.is_empty()
+            && name.chars().count() <= 48
+            && !name.chars().any(char::is_control)
+            && !self.draft_profiles.layouts.contains_key(name)
+    }
+
+    fn rename_profile(&mut self, name: &str) -> bool {
+        let name = name.trim();
+        if !self.name_is_available(name) {
+            return false;
+        }
+        self.draft_profiles
+            .layouts
+            .remove(&self.draft_profiles.active);
+        self.draft_profiles.active = name.into();
+        self.sync_draft();
+        true
+    }
+
     fn insert_profile(&mut self, name: &str, layout: Layout) -> bool {
         let name = name.trim();
-        if name.is_empty()
-            || name.chars().count() > 48
-            || name.chars().any(char::is_control)
-            || self.draft_profiles.layouts.contains_key(name)
-        {
+        if !self.name_is_available(name) {
             return false;
         }
         self.draft_profiles.layouts.insert(name.into(), layout);
@@ -267,8 +299,7 @@ impl Mapping {
         match crate::ui::write_json(&self.path, &next) {
             Ok(()) => {
                 self.profiles = next;
-                self.editing = false;
-                self.reset_placement();
+                self.close_editor();
                 self.error = None;
             }
             Err(error) => self.error = Some(error.to_string()),
@@ -313,11 +344,43 @@ impl Mapping {
         .map_err(|error| SchemeError::File(error.to_string()))
     }
     pub(super) fn toggle(&mut self) {
-        self.editing = !self.editing;
+        if !self.editing {
+            self.editing = true;
+            self.editor = editor::Editor::default();
+            self.reset_draft();
+        } else if self.has_draft_changes() {
+            self.editor.confirm_close = true;
+        } else {
+            self.close_editor();
+        }
+    }
+
+    fn has_draft_changes(&self) -> bool {
+        let stored = self
+            .package
+            .as_ref()
+            .and_then(|package| self.profiles.get(package));
+        self.draft_profiles.layout() != Some(&self.draft)
+            || match stored {
+                Some(game) => &self.draft_profiles != game,
+                None => self.draft_profiles != GameProfiles::default(),
+            }
+            || self.editor.has_pending_name()
+    }
+
+    fn close_editor(&mut self) {
+        self.editing = false;
+        self.editor = editor::Editor::default();
+        if let Some(package) = self.deferred_package.take() {
+            self.package = package;
+        }
         self.reset_draft();
     }
 
     pub(crate) fn cancel_edit_step(&mut self) -> bool {
+        if self.cancel_profile_step() {
+            return true;
+        }
         if self.pending.is_some()
             || self.placing_control
             || self.placing_endpoint
@@ -624,6 +687,14 @@ impl Mapping {
         }
         let capture_already_active = self.await_binding;
         let visible = rect.intersect(ui.clip_rect());
+        if self.editing
+            && (self.editor.managing_profiles
+                || self.editor.confirm_close
+                || self.deferred_package.is_some())
+        {
+            self.paint_canvas(ui, rect);
+            return changes;
+        }
         if self.editing {
             self.canvas(ui, rect);
         } else if self.quick.show_hints {
@@ -1362,6 +1433,89 @@ mod tests {
         assert!(!map.captures(Key::Space));
         map.select(Some("test.game"));
         assert!(map.captures(Key::Space));
+    }
+
+    #[test]
+    fn game_profiles_keep_independent_positions_and_restore_the_selected_layout() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("touch-maps.json");
+        std::fs::write(
+            &path,
+            r#"{"racing":{"buttons":{"Space":[0.2,0.3]},"stick":null}}"#,
+        )
+        .unwrap();
+        let mut map = Mapping::default();
+        map.load(path.clone());
+        map.select(Some("racing"));
+        map.toggle();
+        assert!(!map.delete_profile());
+        map.draft.buttons.insert("W".into(), [0.1, 0.9]);
+        assert!(map.copy_profile(" Cockpit "));
+        map.draft.buttons.insert("Space".into(), [0.8, 0.4]);
+        assert!(map.rename_profile("Wheel"));
+        assert!(!map.rename_profile(" Default ") && !map.create_profile("  "));
+        assert!(!map.draft_profiles.layouts.contains_key("Cockpit"));
+        assert!(map.create_profile("Empty") && map.draft.buttons.is_empty());
+        assert!(map.delete_profile());
+        assert_eq!(map.draft_profiles.active, "Default");
+        assert_eq!(map.draft.buttons["Space"], [0.2, 0.3]);
+        assert_eq!(map.draft.buttons["W"], [0.1, 0.9]);
+        map.select_profile("Wheel");
+        assert_eq!(map.draft.buttons["Space"], [0.8, 0.4]);
+        map.save();
+        map.select(Some("kart"));
+        assert!(map.draft.buttons.is_empty());
+        assert!(map.create_profile("Wheel"));
+        map.draft.buttons.insert("Space".into(), [0.5, 0.1]);
+        map.save();
+
+        let mut fresh = Mapping::default();
+        fresh.load(path);
+        for (package, expected) in [("kart", [0.5, 0.1]), ("racing", [0.8, 0.4])] {
+            fresh.select(Some(package));
+            assert_eq!(fresh.draft_profiles.active, "Wheel");
+            let mut changes = Vec::new();
+            fresh.control("Space", true, &mut changes);
+            assert_eq!(changes[0].pos, expected);
+            assert!(changes[0].down);
+            let released = fresh.release();
+            assert_eq!(released[0].pos, expected);
+            assert!(!released[0].down);
+        }
+    }
+
+    #[test]
+    fn unfinished_profile_changes_survive_closing_and_foreground_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("touch-maps.json");
+        let mut map = Mapping::default();
+        map.load(path.clone());
+        map.select(Some("first"));
+        map.toggle();
+        assert!(map.create_profile("Left-handed"));
+        map.toggle();
+        assert!(map.editing && map.editor.confirm_close);
+        assert!(map.cancel_edit_step());
+        assert!(map.editing && !map.editor.confirm_close);
+        map.select(None);
+        map.select(Some("second"));
+        assert!(!map.package_changed(Some("second")));
+        assert_eq!(map.package.as_deref(), Some("first"));
+        assert_eq!(map.draft_profiles.active, "Left-handed");
+        map.path = temp.path().to_owned();
+        map.save();
+        assert!(map.error.is_some() && map.editing && map.profiles.is_empty());
+        map.path = path;
+        map.save();
+        assert!(!map.editing && map.error.is_none());
+        assert_eq!(map.package.as_deref(), Some("second"));
+        assert_eq!(map.draft_profiles.active, "Default");
+        map.toggle();
+        assert!(map.rename_profile("Discard me"));
+        map.select(Some("first"));
+        map.close_editor();
+        assert_eq!(map.draft_profiles.active, "Left-handed");
+        assert!(!map.profiles.contains_key("second"));
     }
 
     #[test]

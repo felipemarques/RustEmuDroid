@@ -181,6 +181,10 @@ Open a game and click the keyboard icon in the sidebar to open **Game controls**
 
 ![Game controls menu over SuperTuxKart](docs/screenshots/en-us/controls.png)
 
+**Keep several layouts for one game.** Click **Manage profiles** in the keyboard menu. Choose **New profile** for an empty layout or **Duplicate** to copy the current positions and bindings. Enter a name, such as *Driving*, and click **Apply**. Choose **Edit controls**, drag the controls onto the game's buttons and click **Save**. To switch while playing, select a saved layout under **Game profile** in the keyboard menu. Each game remembers its last selection when you reopen it. You can also rename, delete, import or export profiles in **Manage profiles**.
+
+![The profile manager showing two control layouts for SuperTuxKart](docs/screenshots/en-us/profiles.png)
+
 Choose **Controls editor** from the menu or press **Ctrl+Shift+A**. Drag a control from the palette onto the game, then select it to bind an input and adjust its properties. For movement, drop a **D-pad** over the game's virtual joystick. Assign **Up**, **Down**, **Left**, and **Right** individually in **Control settings**. Click the center of the D-pad to select it and drag the lower-right handle to match the game's joystick. The handle and panel adjust the same radius. Under **Controller stick**, choose **Left** or **Right** to steer with that stick alongside the direction keys. Choose **Off** to use only the assigned directions. Click **Save** to apply the scheme.
 
 For maps that pan when dragged, drop **Edge scroll** on a clear spot in the map and save. Move the pointer to an edge of the game display to pan toward it. Adjust the horizontal and vertical margins and speeds in **Control settings**. Move the pointer away from the edge to stop.
@@ -193,7 +197,7 @@ Place **Free look** over the game's camera control. Bind the four directions ind
 
 For an on-screen steering wheel, place **Rotate** at its center and enable **Single-touch wheel**. Set the starting contact angle, radius and turn angle. With a positive turn angle, the main binding turns clockwise and **Reverse turn** turns counterclockwise. Each direction holds one contact until you release its binding. **Rotate** uses two fingers by default.
 
-The palette has 15 tiles for 14 control types. **Mouse wheel** is a ready-made **Swipe** binding for one wheel direction. Use the scheme options to create or duplicate a layout and import or export it as JSON.
+The palette has 15 tiles for 14 control types. **Mouse wheel** is a ready-made **Swipe** binding for one wheel direction.
 
 ![The controls editor showing a W, A, S, D D-pad over the SuperTuxKart main menu](docs/screenshots/en-us/editor.png)
 

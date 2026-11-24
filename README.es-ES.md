@@ -181,6 +181,10 @@ Abre el juego y pulsa el icono del teclado de la barra lateral para abrir **Cont
 
 ![Menú de controles del juego sobre SuperTuxKart](docs/screenshots/es-es/controls.png)
 
+**Usa varios perfiles de controles en un mismo juego.** Pulsa **Gestionar perfiles** en el menú del teclado. Elige **Nuevo perfil** para empezar de cero o **Duplicar** para copiar las posiciones y asignaciones actuales. Ponle un nombre, por ejemplo *Conducción*, y pulsa **Aplicar**. En **Editar controles**, arrastra los controles sobre los botones del juego y pulsa **Guardar**. Para cambiar de perfil durante la partida, selecciónalo en **Perfil del juego** en el menú del teclado. Cada juego recuerda el último perfil que usaste, incluso después de cerrar el emulador. También puedes renombrar, eliminar, importar o exportar un perfil en **Gestionar perfiles**.
+
+![Gestor con dos perfiles de controles para SuperTuxKart](docs/screenshots/es-es/profiles.png)
+
 Elige **Editor de controles** en el menú o pulsa **Ctrl+Mayús+A**. Arrastra un control de la paleta a la pantalla del juego y selecciónalo para asignarle una entrada y ajustar sus propiedades. Para el movimiento, suelta una **Cruceta** sobre la palanca virtual del juego. En **Ajustes del control**, asigna **Arriba**, **Abajo**, **Izquierda** y **Derecha** por separado. Haz clic en el centro de la cruceta para seleccionarla y arrastra el tirador de la esquina inferior derecha para adaptar el radio al tamaño de la palanca. El tirador y el panel ajustan el mismo radio. En **Palanca**, elige **Izquierda** o **Derecha** para usarla junto con las teclas de dirección. Elige **Desactivada** para usar solo las direcciones asignadas. Pulsa **Guardar** para aplicar el esquema.
 
 En mapas que se mueven al arrastrar, suelta **Desplazamiento en bordes** en una zona libre del mapa y guarda. Lleva el puntero a un borde de la pantalla del juego para mover la cámara en esa dirección. Ajusta el margen y la velocidad de cada eje en **Ajustes del control**. Aleja el puntero del borde para detener el movimiento.
@@ -193,7 +197,7 @@ Coloca **Vista libre** sobre el control de cámara del juego. Asigna cada direcc
 
 Para conducir con un volante en pantalla, coloca **Girar** en el centro del volante y activa **Volante de un toque**. Ajusta el ángulo inicial del toque, el radio y el ángulo de giro. Con un ángulo de giro positivo, la tecla principal gira en sentido horario y **Giro inverso** gira en sentido antihorario. Cada dirección mantiene un toque hasta que sueltas la tecla. Por defecto, **Girar** usa dos dedos.
 
-La paleta tiene 15 opciones para 14 tipos de control. **Rueda del ratón** ofrece un control **Deslizar** ya configurado para una dirección de la rueda. Usa las opciones del esquema para crear o duplicar un perfil e importarlo o exportarlo en JSON.
+La paleta tiene 15 opciones para 14 tipos de control. **Rueda del ratón** ofrece un control **Deslizar** ya configurado para una dirección de la rueda.
 
 ![Editor de controles con una cruceta W, A, S, D sobre el menú principal de SuperTuxKart](docs/screenshots/es-es/editor.png)
 

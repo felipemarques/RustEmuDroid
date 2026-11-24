@@ -2,7 +2,9 @@ use super::*;
 use crate::capture::Shot;
 
 const PACKAGE: &str = "org.supertuxkart.stk";
-const SCENES: [&str; 6] = ["games", "controls", "editor", "replay", "idle", "shutdown"];
+const SCENES: [&str; 7] = [
+    "games", "controls", "editor", "profiles", "replay", "idle", "shutdown",
+];
 
 struct MappingPreview {
     app: Launcher,
@@ -32,7 +34,10 @@ impl MappingPreview {
             session.worker.join().unwrap().unwrap();
         }
         self.app.closing = scene == "shutdown";
-        self.app.playing = matches!(scene, "games" | "controls" | "editor" | "replay");
+        self.app.playing = matches!(
+            scene,
+            "games" | "controls" | "editor" | "profiles" | "replay"
+        );
         self.app.home_ready = self.app.playing;
         self.app.stage = if self.app.playing {
             BootStage::Booted
@@ -62,8 +67,11 @@ impl MappingPreview {
                 "controls" => {
                     display.toggle_controls_menu(140.);
                 }
-                "editor" => {
+                "editor" | "profiles" => {
                     display.toggle_mapping();
+                    if scene == "profiles" {
+                        display.mapping.open_profile_manager();
+                    }
                 }
                 _ => unreachable!(),
             }
@@ -170,7 +178,7 @@ fn capture_localized_session_frames() {
                         "radius": 0.13, "left_stick": true
                     }
                 }]
-            }}}
+            }, "WASD": {"buttons": {}, "stick": [0.22, 0.76]}}}
         }),
     )
     .unwrap();

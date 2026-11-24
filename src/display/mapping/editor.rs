@@ -1,9 +1,11 @@
+mod profiles;
 mod tiles;
 
 use super::gestures::{DPAD_RADIUS, DpadStick, MAX_TILT, SteeringWheel, TiltAxis};
 use super::{Gesture, Mapping, SchemeError};
 use crate::ui::{i18n::Locale, theme};
 use eframe::egui;
+pub(super) use profiles::manage_label;
 use std::{path::PathBuf, sync::mpsc};
 
 #[derive(Default)]
@@ -11,8 +13,11 @@ pub(super) struct Editor {
     pub(super) palette_drag: bool,
     pub(super) preset_input: &'static str,
     active_tile: usize,
+    pub(super) managing_profiles: bool,
+    pub(super) confirm_close: bool,
+    profile_action: Option<profiles::ProfileAction>,
     profile_name: String,
-    confirm_delete: bool,
+    focus_name: bool,
     file_picker: Option<FilePicker>,
     file_notice: Option<(FileAction, Result<(), SchemeError>)>,
 }
@@ -95,7 +100,18 @@ impl Mapping {
             .on_hover_text(package);
         ui.separator();
 
+        if self.editor.confirm_close {
+            self.confirm_close_panel(ui, locale);
+            return;
+        }
         let edit_enabled = self.package.is_some();
+        if self.deferred_package.is_some() {
+            ui.weak(locale.pick(
+                "O aplicativo em primeiro plano mudou. Salve ou cancele a edição deste jogo.",
+                "The foreground app changed. Save or cancel your edits for this game.",
+                "La aplicación activa cambió. Guarda o cancela los cambios de este juego.",
+            ));
+        }
         ui.add_enabled_ui(edit_enabled, |ui| self.profile_controls(ui, locale));
         ui.separator();
         let body_height = (footer.top()
@@ -113,6 +129,10 @@ impl Mapping {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.add_enabled_ui(edit_enabled, |ui| {
+                    if self.editor.managing_profiles {
+                        self.profile_manager(ui, locale);
+                        return;
+                    }
                     self.placement_hint(ui, locale);
                     if self.place_stick {
                         ui.add(
@@ -178,155 +198,12 @@ impl Mapping {
                 .color(egui::Color32::from_rgb(22, 28, 36));
             if ui
                 .add_enabled(
-                    edit_enabled && !self.load_failed,
+                    edit_enabled && !self.load_failed && self.editor.profile_action.is_none(),
                     egui::Button::new(save).min_size(size).fill(theme::ACCENT),
                 )
                 .clicked()
             {
                 self.save();
-            }
-        }
-    }
-
-    fn profile_controls(&mut self, ui: &mut egui::Ui, locale: Locale) {
-        let mut profile = self.draft_profiles.active.clone();
-        let label = section(
-            ui,
-            locale.pick(
-                "Esquema de controle",
-                "Control scheme",
-                "Esquema de control",
-            ),
-        );
-        ui.horizontal(|ui| {
-            egui::ComboBox::from_id_salt("mapping-profile")
-                .width((ui.available_width() - 38.).max(75.))
-                .truncate()
-                .selected_text(profile_name(&profile, locale))
-                .show_ui(ui, |ui| {
-                    for name in self.draft_profiles.layouts.keys() {
-                        ui.selectable_value(&mut profile, name.clone(), profile_name(name, locale));
-                    }
-                })
-                .response
-                .labelled_by(label.id)
-                .on_hover_text(profile_name(&profile, locale));
-            if profile != self.draft_profiles.active {
-                self.select_profile(&profile);
-                self.editor.confirm_delete = false;
-            }
-            let more = locale.pick(
-                "Opções do esquema",
-                "Scheme options",
-                "Opciones del esquema",
-            );
-            let menu = ui.menu_button(egui::RichText::new("…").strong(), |ui| {
-                ui.menu_button(
-                    locale.pick("Novo perfil", "New profile", "Nuevo perfil"),
-                    |ui| self.new_profile(ui, locale, false),
-                );
-                ui.menu_button(locale.pick("Duplicar", "Duplicate", "Duplicar"), |ui| {
-                    self.new_profile(ui, locale, true)
-                });
-                ui.separator();
-                ui.add_enabled_ui(self.editor.file_picker.is_none(), |ui| {
-                    for action in [FileAction::Import, FileAction::Export] {
-                        if ui.button(action.label(locale)).clicked() {
-                            self.pick_profile_file(ui.ctx(), action, locale);
-                            ui.close();
-                        }
-                    }
-                });
-                if self.draft_profiles.layouts.len() > 1
-                    && ui
-                        .button(locale.pick("Excluir perfil", "Delete profile", "Eliminar perfil"))
-                        .clicked()
-                {
-                    self.editor.confirm_delete = true;
-                    ui.close();
-                }
-            });
-            menu.response.on_hover_text(more);
-        });
-        if self.editor.confirm_delete {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(format!(
-                    "{} {}",
-                    locale.pick("Excluir o perfil", "Delete profile", "Eliminar el perfil"),
-                    profile_name(&self.draft_profiles.active, locale),
-                ));
-                if ui
-                    .button(locale.pick("Excluir", "Delete", "Eliminar"))
-                    .clicked()
-                {
-                    self.delete_profile();
-                    self.editor.confirm_delete = false;
-                }
-                if ui
-                    .button(locale.pick("Cancelar", "Cancel", "Cancelar"))
-                    .clicked()
-                {
-                    self.editor.confirm_delete = false;
-                }
-            });
-        }
-        if let Some((action, result)) = &self.editor.file_notice {
-            match result {
-                Ok(()) => {
-                    ui.label(match action {
-                        FileAction::Import => locale.pick(
-                            "Esquema importado. Salve para aplicar.",
-                            "Scheme imported. Save to apply.",
-                            "Esquema importado. Guarda para aplicarlo.",
-                        ),
-                        FileAction::Export => locale.pick(
-                            "Esquema exportado.",
-                            "Scheme exported.",
-                            "Esquema exportado.",
-                        ),
-                    });
-                }
-                Err(error) => {
-                    let response =
-                        ui.colored_label(egui::Color32::LIGHT_RED, scheme_error(error, locale));
-                    if let SchemeError::File(details) = error {
-                        response.on_hover_text(details);
-                    }
-                }
-            }
-        }
-    }
-
-    fn new_profile(&mut self, ui: &mut egui::Ui, locale: Locale, copy: bool) {
-        let label = ui.label(locale.pick("Nome do perfil", "Profile name", "Nombre del perfil"));
-        let input = ui
-            .add(egui::TextEdit::singleline(&mut self.editor.profile_name).char_limit(48))
-            .labelled_by(label.id);
-        let name = self.editor.profile_name.trim().to_owned();
-        let available = !name.is_empty()
-            && name.chars().count() <= 48
-            && !name.chars().any(char::is_control)
-            && !self.draft_profiles.layouts.contains_key(&name);
-        let action = if copy {
-            locale.pick("Duplicar", "Duplicate", "Duplicar")
-        } else {
-            locale.pick("Criar", "Create", "Crear")
-        };
-        let submit = ui
-            .add_enabled(available, egui::Button::new(action))
-            .clicked()
-            || (available
-                && input.lost_focus()
-                && ui.input(|input| input.key_pressed(egui::Key::Enter)));
-        if submit {
-            let created = if copy {
-                self.copy_profile(&name)
-            } else {
-                self.create_profile(&name)
-            };
-            if created {
-                self.editor.profile_name.clear();
-                ui.close();
             }
         }
     }
