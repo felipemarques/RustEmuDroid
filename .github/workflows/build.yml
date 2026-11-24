@@ -65,29 +65,101 @@ jobs:
       - name: Test desktop build
         run: cargo +stable test --locked --release --features ui
 
+      - name: Test read-only storage diagnostic
+        if: runner.os == 'Linux'
+        run: python3 -B -m unittest discover -s tools -p test_bluestacks_data_probe.py
+
       - name: Build desktop executable
         run: cargo +stable build --locked --release --features ui
 
-      - name: Verify and package Windows executable
-        if: runner.os == 'Windows'
+      - name: Package and verify desktop distribution
+        shell: pwsh
         env:
           ARCHIVE: ${{ steps.package.outputs.archive }}
           VERSION: ${{ steps.package.outputs.version }}
         run: |
-          $reportedVersion = .\target\release\rustemudroid.exe --version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($reportedVersion -cne "rustemudroid $env:VERSION") { throw "Unexpected executable version: $reportedVersion" }
-          Compress-Archive -LiteralPath .\target\release\rustemudroid.exe -DestinationPath $env:ARCHIVE
+          $binary = if ($IsWindows) { 'rustemudroid.exe' } else { 'rustemudroid' }
+          $toolFiles = @(
+            'Test-BlueStacksData.ps1',
+            'bluestacks_data_probe.py',
+            'bluestacks_qemu.py'
+          )
+          $package = Join-Path $env:RUNNER_TEMP 'rustemudroid-package'
+          $verify = Join-Path $env:RUNNER_TEMP 'rustemudroid-extracted'
+          $tools = Join-Path $package 'tools'
+          New-Item -ItemType Directory -Path $tools, $verify | Out-Null
+          Copy-Item -LiteralPath "target/release/$binary" -Destination $package
+          foreach ($file in $toolFiles) {
+            Copy-Item -LiteralPath "tools/$file" -Destination $tools
+          }
+          $guide = @'
+          # BlueStacks read-only storage check
 
-      - name: Package Linux executable with its execute permission
-        if: runner.os == 'Linux'
-        env:
-          ARCHIVE: ${{ steps.package.outputs.archive }}
-          VERSION: ${{ steps.package.outputs.version }}
-        run: |
-          reported_version=$(./target/release/rustemudroid --version)
-          test "$reported_version" = "rustemudroid $VERSION"
-          tar -czf "$ARCHIVE" -C target/release rustemudroid
+          Run the check from the extracted folder that contains `rustemudroid` or `rustemudroid.exe` and `tools/`. Shut down the BlueStacks Pie64 instance and put copies of `fastboot.vdi` and `Data_orig.vhdx` in a `Pie64` folder beside `tools/`. Keep disk images, manifests and run outputs private.
+
+          Install Python 3.11 or later, QEMU for x86-64 and `qemu-img` on Linux or in Ubuntu 24.04 under WSL, the Windows helper's default distribution. Choose a new output directory for each run.
+
+          On Windows, run
+
+          ```powershell
+          powershell -ExecutionPolicy Bypass -File .\tools\Test-BlueStacksData.ps1 -Images .\Pie64 -Output .\data-check
+          Get-Content .\data-check\result.json
+          ```
+
+          On Linux or WSL, run
+
+          ```sh
+          python3 -B tools/bluestacks_data_probe.py --images ./Pie64 --output ./data-check
+          cat ./data-check/result.json
+          ```
+
+          The probe accepts only the exact validated Pie64 image pair and checks its two SHA-256 hashes automatically. If the copies already have a `manifest.json`, you can add `-VerifyHashes` to the Windows probe command to check those hashes against the manifest too. The manifest is a JSON array with one entry per image and the fields `file` (filename), `bytes` (size as an integer) and `sha256` (digest recorded when the copy was made).
+
+          A value of `true` for `factory_ext4_mounted_read_only` in `result.json` means the diagnostic guest mounted the factory ext4 data filesystem read-only. This result covers the filesystem mount. Use `--help` or `Get-Help .\tools\Test-BlueStacksData.ps1` for the available options.
+
+          [Storage probe documentation for this build]({GUIDE_URL})
+          '@
+          $guideUrl = "https://github.com/$env:GITHUB_REPOSITORY/blob/$env:GITHUB_SHA/docs/bluestacks-lab.md#opt-in-data-storage-probe"
+          Set-Content -LiteralPath (Join-Path $tools 'README.md') -Value $guide.Replace('{GUIDE_URL}', $guideUrl) -Encoding utf8
+
+          $archive = Join-Path $PWD $env:ARCHIVE
+          if ($IsWindows) {
+            Compress-Archive -LiteralPath @((Join-Path $package $binary), $tools) -DestinationPath $archive
+            Expand-Archive -LiteralPath $archive -DestinationPath $verify
+          } else {
+            chmod 755 (Join-Path $package $binary)
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            tar -czf $archive -C $package $binary tools
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            tar -xzf $archive -C $verify
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          $expected = @($binary, 'tools/README.md') + @($toolFiles | ForEach-Object { "tools/$_" })
+          $actual = Get-ChildItem -LiteralPath $verify -File -Force -Recurse | ForEach-Object {
+            [IO.Path]::GetRelativePath($verify, $_.FullName).Replace('\', '/')
+          }
+          if (Compare-Object $expected $actual -CaseSensitive) { throw 'Unexpected package contents' }
+          Push-Location -LiteralPath $verify
+          try {
+            $reportedVersion = & (Join-Path $verify $binary) --version
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if ($reportedVersion -cne "rustemudroid $env:VERSION") { throw "Unexpected executable version: $reportedVersion" }
+            $python = if ($IsWindows) { 'python' } else { 'python3' }
+            $labHelp = (& $python -B tools/bluestacks_data_probe.py --help) -join "`n"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            foreach ($option in '--images', '--output') {
+              if (-not $labHelp.Contains($option)) { throw "Missing data probe option: $option" }
+            }
+            if ($IsWindows) {
+              $wrapper = Get-Command (Join-Path $verify 'tools/Test-BlueStacksData.ps1')
+              foreach ($option in 'Images', 'Output', 'VerifyHashes') {
+                if (-not $wrapper.Parameters.ContainsKey($option)) { throw "Missing PowerShell data probe option: $option" }
+              }
+            }
+          } finally {
+            Pop-Location
+          }
 
       - name: Upload desktop build
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

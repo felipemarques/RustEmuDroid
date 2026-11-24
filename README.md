@@ -119,9 +119,29 @@ To open SuperTuxKart directly, use the following command if the game is installe
 & $emu bluestacks open --instance Pie64 --package org.supertuxkart.stk
 ```
 
-If the list is empty or an installation error appears, open the BlueStacks 5 Multi-instance Manager, confirm that an instance is installed and run `list` again. In the RustEmuDroid UI you can also choose **Open BlueStacks** from the session screen or Settings. To test booting copied disks with QEMU, follow the [separate Pie64 image diagnostic](docs/bluestacks-lab.md#boot-the-copied-disks-in-an-isolated-qemu-experiment).
+If the list is empty or an installation error appears, open the BlueStacks 5 Multi-instance Manager, confirm that an instance is installed and run `list` again. In the RustEmuDroid UI you can also choose **Open BlueStacks** from the session screen or Settings.
 
-The optional `-SystemMount` test mounted the copied Android system. BlueStacks initialization then stopped at `android_id is empty`. For a playable session with that instance today, use **Open BlueStacks**.
+Starting with v0.5.0, both desktop archives include a read-only storage check in `tools/`. Shut down the BlueStacks Pie64 instance and put copies of `fastboot.vdi` and `Data_orig.vhdx` in a `Pie64` folder beside `tools/`. Run from the extracted folder or the source checkout root. Choose a new output directory for each run.
+
+On Windows with Ubuntu 24.04 under WSL, run
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\Test-BlueStacksData.ps1 -Images .\Pie64 -Output .\data-check
+Get-Content .\data-check\result.json
+```
+
+On Linux or WSL, run
+
+```sh
+python3 -B tools/bluestacks_data_probe.py --images ./Pie64 --output ./data-check
+cat ./data-check/result.json
+```
+
+The probe accepts only the exact validated Pie64 image pair and checks its two SHA-256 hashes automatically. If the copies already have a `manifest.json`, you can add `-VerifyHashes` to the Windows probe command to check the hashes against that manifest too.
+
+A value of `true` for `factory_ext4_mounted_read_only` in `result.json` means the diagnostic guest mounted the factory ext4 data filesystem read-only. The packaged `tools/README.md` lists the requirements.
+
+In the separate source-checkout `-SystemMount` test, the copied Android system mounted and BlueStacks initialization stopped at `android_id is empty`. For a playable session with that instance, use **Open BlueStacks**. [System-mount notes](docs/bluestacks-lab.md#opt-in-system-mount)
 
 The crab moves during startup and shutdown, in About, and when Android Home has no matching items. The game view keeps the mascot off the rendering path.
 

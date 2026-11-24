@@ -76,3 +76,35 @@ In the tested Pie64 ramdisk, the configuration reads run before its explicit Vir
 The stock `boot/bstsetconf.sh` invokes `/boot/bin/bstconf` and writes the properties it receives to `/.bstconf.prop`. That file is an output of this step. REA identified the helper as an ELF executable. It is byte-for-byte identical to the copy under `android/system/out_bstconf/bstconf` in the mounted root (40,600 bytes, SHA-256 `1c0190542063939a60f74534ec0a464fe516981a8e7cee64541674b4a54bcb56`). Its strings reference the BlueStacks message device `/dev/bstvmsg` and failures to initialize the host-call library and fetch instance properties. These static observations point to a dependency on the vendor's host service. A successful exchange with that service in an independent VM remains unverified.
 
 A matching host configuration interface and working guest devices are still needed to demonstrate a full boot and play a game. The public VirtualBox guest-properties documentation describes its own Guest Additions interface. The BlueStacks recovery procedure restores an offline `Data.vhdx` into the same version of its App Player. Neither document specifies the early Pie64 host interface used here. [VirtualBox Guest Additions](https://docs.oracle.com/en/virtualization/virtualbox/7.0/user/guestadditions.html) · [BlueStacks backup and restore](https://support.bluestacks.com/hc/en-us/articles/360059480692-How-to-backup-and-restore-data-on-BlueStacks-5)
+
+### Display hardware available to the copied kernel
+
+Two diskless QEMU 8.2.2 runs started the original Pie64 Linux 4.19.195 kernel with a temporary BusyBox initramfs and no networking. The guest checked the PCI driver, VirtIO function driver and Linux device registrations in sysfs. Both runs reached the final diagnostic marker.
+
+| Display device at PCI 00:02.0 | Observed inside the guest |
+|---|---|
+| VirtIO GPU (`1af4:1050`), 1024 × 768 requested | The PCI transport bound to `virtio-pci`. VirtIO function `0x0010` had no graphics driver. The kernel registered neither a DRM card nor a framebuffer. |
+| Standard VGA (`1234:1111`), VESA mode requested | The kernel registered `fb0` as VESA VGA at 1024 × 768, 16 bits per pixel. It registered no DRM card or KMS connector. |
+
+The copied Android userspace includes a DRM framebuffer composer that references `/dev/dri/card0` and links to `libdrm`. Its service is marked `disabled` in the supplied init file. The factory gralloc libraries, including the variants named `default` and `android_x86_64`, depend on the graphics encoders supplied with the image. The VGA result proves that this kernel can expose a basic framebuffer. Accelerated Android composition and game rendering still require a working path through those userspace components.
+
+## Opt-in data storage probe
+
+Use an offline copy of the Pie64 `Data_orig.vhdx` alongside `fastboot.vdi`. The probe checks both files against the SHA-256 hashes of the verified fixtures. The regular `Data.vhdx` and Android root are outside this probe.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\Test-BlueStacksData.ps1 -Images 'C:\Lab\Pie64'
+```
+
+On Windows, the script uses WSL Ubuntu 24.04 by default. Install the QEMU system and image tools in that distribution, or point `-Images` at the existing lab folder whose parent contains `qemu-tools`. Set `-Output` to choose a new evidence directory. With `-VerifyHashes`, the script also verifies both copies against the adjacent `manifest.json`. The checkout's existing `Test-BlueStacksImage.ps1 -DataProbe` uses this same entry point.
+
+On Linux or WSL with Python 3.11 or later and QEMU for x86-64 and `qemu-img` installed, run from the repository root:
+
+```sh
+lab=.rustemudroid/bluestacks-lab
+python3 -B tools/bluestacks_data_probe.py --images "$lab/Pie64" --output "$lab/data-probe"
+```
+
+The original Pie64 kernel starts a small initramfs with BusyBox and a storage probe. QEMU attaches the seed through a read-only QCOW2 overlay and uses an empty first disk so that the seed can appear as Linux `/dev/sdb1`. The probe disables networking and checks that both QEMU disks are read-only.
+
+On QEMU 8.2.2, the original kernel recognized the VirtIO SCSI controller and the seed's MBR partition. The guest confirmed the partition was read-only, read the ext4 superblock signature, and mounted ext4 at `/data` with `ro,noload`. It verified the read-only mount through `/proc/mounts` and unmounted it. The probe reads filesystem metadata and never browses the mounted tree. The command exits successfully when QEMU exits successfully and the partition, ext4 signature, and read-only mount are all observed. See `serial.log` and `result.json` for the observed milestones, including incomplete runs. The separate system-mount test still stops at the original BlueStacks host configuration.

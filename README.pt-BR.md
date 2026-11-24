@@ -119,9 +119,29 @@ Para abrir diretamente o SuperTuxKart, use o comando abaixo se o jogo estiver in
 & $emu bluestacks open --instance Pie64 --package org.supertuxkart.stk
 ```
 
-Se a lista estiver vazia ou aparecer um erro de instalação, abra o Gerenciador de Multi-instâncias do BlueStacks 5, confirme que há uma instância instalada e repita `list`. Pela interface do RustEmuDroid, você também pode escolher **Abrir BlueStacks** na tela de sessão ou nas configurações. Para testar o boot dos discos copiados com QEMU, siga o [diagnóstico separado da imagem Pie64](docs/bluestacks-lab.md#boot-the-copied-disks-in-an-isolated-qemu-experiment).
+Se a lista estiver vazia ou aparecer um erro de instalação, abra o Gerenciador de Multi-instâncias do BlueStacks 5, confirme que há uma instância instalada e repita `list`. Pela interface do RustEmuDroid, você também pode escolher **Abrir BlueStacks** na tela de sessão ou nas configurações.
 
-O teste opcional com `-SystemMount` montou a cópia do sistema Android. A inicialização do BlueStacks parou em `android_id is empty`. Para jogar nessa instância, use **Abrir BlueStacks**.
+A partir da v0.5.0, os dois pacotes incluem um teste de armazenamento somente leitura em `tools/`. Desligue a instância BlueStacks Pie64 e coloque cópias de `fastboot.vdi` e `Data_orig.vhdx` em uma pasta `Pie64` ao lado de `tools/`. Execute a partir da pasta extraída ou da raiz do código-fonte. Escolha uma pasta nova para os resultados a cada execução.
+
+No Windows com Ubuntu 24.04 no WSL, execute
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\Test-BlueStacksData.ps1 -Images .\Pie64 -Output .\data-check
+Get-Content .\data-check\result.json
+```
+
+No Linux ou WSL, execute
+
+```sh
+python3 -B tools/bluestacks_data_probe.py --images ./Pie64 --output ./data-check
+cat ./data-check/result.json
+```
+
+O teste aceita apenas o par exato de imagens Pie64 validado e verifica automaticamente os dois hashes SHA-256. Se as cópias já tiverem um `manifest.json`, acrescente `-VerifyHashes` ao comando do teste no Windows para conferir também os hashes desse manifesto.
+
+O valor `true` em `factory_ext4_mounted_read_only` no `result.json` indica que o ambiente de diagnóstico montou o sistema de arquivos ext4 de dados de fábrica em modo somente leitura. O arquivo `tools/README.md` do pacote lista os requisitos.
+
+Em um teste separado com `-SystemMount` no código-fonte, a cópia do sistema Android foi montada e a inicialização do BlueStacks parou em `android_id is empty`. Para jogar nessa instância, use **Abrir BlueStacks**. [Notas sobre a montagem do sistema, em inglês](docs/bluestacks-lab.md#opt-in-system-mount)
 
 O caranguejo se movimenta durante a inicialização e o desligamento, na tela Sobre e quando a busca da Home do Android não encontra itens. Durante a partida, a animação fica desativada.
 

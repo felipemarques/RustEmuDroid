@@ -4,17 +4,18 @@ The RustEmuDroid runs used Android Emulator 37.3.10 with the Android 17 Google P
 
 ## SuperTuxKart release comparison
 
-SuperTuxKart 1.5 ran the Black Forest replay in the embedded Windows display. All three builds used the same Android 17 Google Play profile, native x86-64 game, direct Vulkan renderer and RTX 5070 Ti. The High preset ran at 1600 × 900, 100% render scale and a 60 FPS cap. All 21 game-reported graphics fields matched.
+SuperTuxKart 1.5 ran the Black Forest replay in the embedded Windows display. All four builds used the same Android 17 Google Play profile, native x86-64 game, direct Vulkan renderer and RTX 5070 Ti. The High preset ran at 1600 × 900, 100% render scale and a 60 FPS cap. All 21 game-reported graphics fields matched.
 
 | Windows build | FPS, first replay | FPS, second replay | Mean game FPS | Main-loop P95, pooled |
 |---|---:|---:|---:|---:|
 | 0.2.4, published binary | 59.88 | 60.01 | 59.94 | 19.24 ms |
 | 0.3.0, local release build | 60.08 | 59.93 | 60.01 | 19.12 ms |
 | 0.4.0, local release build | 59.92 | 60.03 | 59.98 | 18.90 ms |
+| 0.4.1, local release build | 60.08 | 59.96 | 60.02 | 19.08 ms |
 
-The game recorded 2,283–2,288 frames per run. FPS is the frame count divided by the game's replay duration. P95 uses the positive main-loop timings from its own profiler. The FPS ranges overlap at the frame cap, with no measurable loss in this replay. The check covered the normal in-game mapping path with no controls held. Uncapped throughput and the cost of actively using the new controls remain unmeasured.
+The game recorded 2,282–2,288 frames per run. FPS is the frame count divided by the game's replay duration. P95 uses the positive main-loop timings from its own profiler. The FPS ranges overlap at the frame cap, with no measurable loss in this replay. The check covered the normal in-game mapping path with no controls held. Uncapped throughput and the cost of actively using the new controls remain unmeasured.
 
-To repeat, verify the AVD path and GPU for each desktop version, then run `python benchmarks/stk-1.5/compare.py --adb <adb> --rust <serial> --rounds 2 --presets high-vulkan --output <new-folder>` with one emulator open. The 0.2.4 and 0.3.0 runs took place in that order. The 0.4.0 runs followed in a separate session. The harness restored the game's configuration byte-for-byte after each run. [Replay harness](../benchmarks/stk-1.5/compare.py)
+To repeat, verify the AVD path and GPU for each desktop version, then run `python benchmarks/stk-1.5/compare.py --adb <adb> --rust <serial> --rounds 2 --presets high-vulkan --output <new-folder>` with one emulator open. The 0.2.4 and 0.3.0 runs took place in that order. The 0.4.0 and 0.4.1 runs followed in separate sessions. The harness restored the game's configuration byte-for-byte after each run. [Replay harness](../benchmarks/stk-1.5/compare.py)
 
 ## PUBG MOBILE
 

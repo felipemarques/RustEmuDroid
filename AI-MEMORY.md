@@ -11,6 +11,9 @@
 
 ## Verification history
 
+- On Windows, the SDK could block before ADB on a crash-report dialog after a previous VM failure. In 0.4.1 the SDK logged its reporter disabled and Android 17 booted in 23.5 s embedded and 24.6 s headless. The retained session log and Android boot property cover these two paths. The embedded SuperTuxKart replay averaged 60.02 game FPS at the 60 FPS cap across two runs. [Replay settings](docs/game-testing.md#supertuxkart-release-comparison)
+- The stock Pie64 kernel mounted the verified factory data seed read-only at `/data` via VirtIO SCSI. In separate diskless display probes the kernel bound the VirtIO PCI transport without a GPU driver; standard VGA provided a VESA framebuffer, and neither device exposed the DRM card used by the supplied composer. Check these storage and display milestones separately from the vendor's early configuration failure. [Pie64 device checks](docs/bluestacks-lab.md#display-hardware-available-to-the-copied-kernel)
+
 - On Windows with RustEmuDroid 0.4.0, Windows PnP and the emulator's webcam list identified the same UGREEN Camera 4K (USB `EBA4:6579`) at `webcam0`. With that device selected as the rear camera in the Android 17 Google Play profile, Camera2 delivered 45 nonuniform 640 × 480 YUV images over 1,466 ms. The sampled image values changed across all 44 consecutive pairs. The probe retained counts only. Re-enumerate the host devices before reusing a numeric index on another machine.
 
 - Game measurements on the integrated Radeon 780M include each emulator, game presets, individual runs and adapter verification. [Benchmark and measurements](benchmarks/stk-1.5/radeon-780m/README.md)

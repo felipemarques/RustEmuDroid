@@ -11,12 +11,11 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from bluestacks_qemu import INITRAMFS_SHA256, cpio_header, verify_copy
 
-BOOT_SHA256 = "eb8c58a274b81261f64b405173abdd26dcc4e09d6847d2ca19a265ce77eb7c87"
 ROOT_SHA256 = "b3fa7ddc10067349b2b8a441688253e7d94537093909ead2723869ddf7c7c074"
 BOOT_RAW_SHA256 = "74f12bf5cb69c6a2dd15dc2ffe0b68698826c2ec5dc01d258cead24f3ac4ba35"
 ROOT_RAW_SHA256 = "aa615fd8f4bb114a6297fc0ac101c8810b671f4fdf774468d53497103689eb02"
-INITRAMFS_SHA256 = "00e89256b42578548a51abf8be8622132d71dd7e8bbad0ff3b347e92533589be"
 ANDROID_RAMDISK_SHA256 = "ffadff1d63e1e398645dd5e18cdead7d99ef45e038596399b4377615fe4524b9"
 SYSTEM_MARKER = "Pie64 lab: original system directory attached"
 CONFIG_MARKER = "Pie64 lab: invoking original BlueStacks configuration"
@@ -41,13 +40,6 @@ def system_mount_user(run_as):
         if shutil.which(executable, path=HOST_ENV["PATH"]) is None:
             raise ValueError(f"--system-mount requires {executable} on the Linux host")
     return user
-
-
-def verify_copy(path, expected):
-    with path.open("rb") as source:
-        actual = hashlib.file_digest(source, "sha256").hexdigest()
-    if actual != expected:
-        raise ValueError(f"{path.name} does not match the verified Pie64 system-mount image (SHA-256 mismatch)")
 
 
 def drop_privileges(user, scratch):
@@ -160,14 +152,6 @@ def make_squashfs(raw, scratch):
         subprocess.run(["umount", str(source)], check=True, env=HOST_ENV)
     raw.unlink()
     return squashfs
-
-
-def cpio_header(name, fields, size):
-    name += b"\0"
-    fields = fields.copy()
-    fields[6], fields[11] = size, len(name)
-    prefix = b"070701" + b"".join(f"{field:08x}".encode() for field in fields) + name
-    return prefix + bytes(-len(prefix) % 4)
 
 
 def system_mount_init(init):

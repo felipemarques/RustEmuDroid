@@ -9,7 +9,6 @@ struct MappingPreview {
     output: PathBuf,
     fixture: tempfile::TempDir,
     step: usize,
-    select_pad: std::ops::Range<usize>,
     pending: bool,
     next: Instant,
     deadline: Instant,
@@ -65,7 +64,6 @@ impl MappingPreview {
                 }
                 "editor" => {
                     display.toggle_mapping();
-                    self.select_pad = 0..4;
                 }
                 _ => unreachable!(),
             }
@@ -95,18 +93,6 @@ impl App for MappingPreview {
         raw.focused = true;
         raw.events
             .retain(|event| matches!(event, egui::Event::Screenshot { .. }));
-        let pad = egui::pos2(227., 510.);
-        match self.select_pad.next() {
-            Some(0) => raw.events.push(egui::Event::PointerMoved(pad)),
-            Some(step @ (1 | 2)) => raw.events.push(egui::Event::PointerButton {
-                pos: pad,
-                button: egui::PointerButton::Primary,
-                pressed: step == 1,
-                modifiers: egui::Modifiers::NONE,
-            }),
-            Some(_) => raw.events.push(egui::Event::PointerGone),
-            None => {}
-        }
         for event in &raw.events {
             if let egui::Event::Screenshot { image, .. } = event {
                 let dir = self.output.join(self.app.config.locale.tag());
@@ -207,7 +193,6 @@ fn capture_localized_session_frames() {
                 output,
                 fixture,
                 step: 0,
-                select_pad: 0..0,
                 pending: false,
                 next: now,
                 deadline: now + Duration::from_secs(25),

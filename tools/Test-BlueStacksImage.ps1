@@ -10,12 +10,14 @@ param(
 
     [switch] $LegacyStorage,
 
-    [switch] $SystemMount
+    [switch] $SystemMount,
+
+    [switch] $DataProbe
 )
 
 $ErrorActionPreference = 'Stop'
-if ($LegacyStorage -and $SystemMount) {
-    throw '-LegacyStorage and -SystemMount are mutually exclusive.'
+if (($LegacyStorage -and ($SystemMount -or $DataProbe)) -or ($SystemMount -and $DataProbe)) {
+    throw '-LegacyStorage, -SystemMount and -DataProbe are mutually exclusive.'
 }
 $project = Split-Path -Parent $PSScriptRoot
 $lab = '.rustemudroid/bluestacks-lab'
@@ -28,6 +30,11 @@ foreach ($directory in '.rustemudroid', $lab, $images) {
         throw "Expected an ordinary directory in the lab: $directory"
     }
 }
+if ($DataProbe) {
+    & (Join-Path $PSScriptRoot 'Test-BlueStacksData.ps1') -Images (Join-Path $project $images) `
+        -Distribution $Distribution -Seconds $Seconds -VerifyHashes:$VerifyHashes
+    return
+}
 $manifest = if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
     Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 } elseif ($VerifyHashes) {
@@ -36,10 +43,8 @@ $manifest = if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
 if ($VerifyHashes) {
     Write-Host 'Verifying SHA-256 hashes of the selected copies.'
 }
-$diskNames = @('fastboot.vdi', 'Root.vhd')
-if (-not $SystemMount) {
-    $diskNames += 'Data.vhdx'
-}
+$diskNames = if ($SystemMount) { @('fastboot.vdi', 'Root.vhd') }
+    else { @('fastboot.vdi', 'Root.vhd', 'Data.vhdx') }
 foreach ($name in $diskNames) {
     $entry = @($manifest | Where-Object file -CEQ $name)
     $disk = Get-Item -LiteralPath (Join-Path $project "$images/$name")
