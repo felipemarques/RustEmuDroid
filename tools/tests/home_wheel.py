@@ -137,15 +137,19 @@ def main():
                     if (match := re.search(rf"AA {kind} (\d+)", node.get(key, "")))})
             for kind in ("Games", "Apps"):
                 guest("shell", "am", "start", "-W", "-n", home + "/.HomeActivity", "--ez", "apps", str(kind == "Apps").lower())
-                wait_for(f"first {kind} card", lambda: 0 in cards(kind))
+                initial = min(wait_for(f"first visible {kind} row", lambda: cards(kind)))
                 run("xdotool", "click", "--repeat", "14", "--delay", "70", "5")
                 def first_after_scroll():
                     visible = cards(kind)
-                    return min(visible) if visible else None
-                first = wait_for(f"{kind} to scroll down", first_after_scroll, 15)
+                    if visible and min(visible) > initial:
+                        return min(visible)
+                first = wait_for(f"{kind} to scroll down", first_after_scroll, 30)
                 run("xdotool", "click", "--repeat", "22", "--delay", "70", "4")
-                wait_for(f"{kind} to return to the start", lambda: 0 in cards(kind), 15)
-                print(f"{kind}: first visible fixture card 0 -> {first} -> 0 via desktop wheel", flush=True)
+                def original_row():
+                    visible = cards(kind)
+                    return visible if visible and min(visible) <= initial else None
+                restored = min(wait_for(f"{kind} to return to its first row", original_row, 30))
+                print(f"{kind}: first visible card {initial} -> {first} -> {restored} via desktop wheel", flush=True)
             guest("shell", "am", "start", "-W", "-n", game + "/.Card0")
             wait_for("fixture in foreground", lambda: any(game in line for line in
                 guest("shell", "dumpsys", "window").splitlines() if "mCurrentFocus=" in line))
