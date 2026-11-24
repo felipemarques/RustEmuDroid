@@ -1,5 +1,20 @@
 # Engineering memory
 
+## Handoff
+
+Last updated 2026-11-24. A fresh clone contains the test summaries and benchmark data linked below. On the original Windows test PC, open `.rustemudroid/LOCAL-HANDOFF.md` for the matching traces, build recipes, boot logs and private disk locations.
+
+| Area | Verified result | Where to resume |
+|---|---|---|
+| Desktop release | v0.8.1 (`e34c0d3`) fixes D-pad radius changes on selection and panel overlap on narrow windows. The Windows suite reported 56 passed and 16 opt-in tests skipped. Both published archives matched their GitHub SHA-256 digests, and their executables reported 0.8.1 on Windows and Linux. | [Release packages](https://github.com/felipemarques/RustEmuDroid/releases/tag/v0.8.1) · [Build and release procedure](docs/releases.md) |
+| Playable graphics workload | The Real Wonder Demo, listed on Android as **THE REAL WORLD (TRW)**, reached its outdoor map on Android 17 Google Play at 1600 × 900, v0.8.0. Walking samples measured 29.92 guest presentations/s on the RTX 5070 Ti and 29.26 on the Radeon 780M. The Radeon needed Unity GLES 3 through ANGLE after two Vulkan startup crashes. | Repeat the same scene and record the renderer. [Game conditions](docs/game-testing.md#the-real-wonder-demo) · [Frame and GPU samples](benchmarks/trw-demo/frame-timing.csv) · [Three-emulator Radeon benchmark](benchmarks/stk-1.5/radeon-780m/README.md) |
+| PUBG MOBILE | First closing Inventory still produced pauses over a second after EGL cache changes. In a separate Android scheduler trace, only 58.8 ms of the longest 2.169 s producer gap was spent with the game thread runnable and waiting. | Next, attribute the time the game thread spent executing during the first close. Compare the same route, guest presentation intervals and stall durations. [Scheduler measurements and limits](docs/game-testing.md#guest-cpu-scheduling-during-inventory) · [Cache experiment and host counters](benchmarks/pubg-mobile/egl-blobcache-host.csv) |
+| BlueStacks Pie64 | Launching an installed game in the BlueStacks player works. In the independent boot lab, stock Android 9 booted in 29.5 s. With the copied Pie64 framework, R2 mounted encrypted userdata and started `system_server` at about 22 s, still in the Zygote SELinux domain. Android Home and completed boot remain unverified. R3 has offline JNI checks on x86 and x86-64. | Complete the two platform library builds, check their dependencies and run an isolated boot. Acceptance requires a working guest shell, `sys.boot_completed=1`, Home, accelerated graphics and touch. [Boot evidence](docs/bluestacks-lab.md#r2-fstab-compatibility-test) · [R3 build status](docs/bluestacks-lab.md#r3-runtime-work) |
+
+The [Linux runtime record](docs/linux-runtime.md) covers KVM/WSLg boot, the selected GPU and per-game frame rates. The [verification history](#verification-history) below also covers webcam frames, captures, gamepad/keyboard mapping and upgrades.
+
+## Architecture
+
 | Decision | Consequence for future work |
 |---|---|
 | The Rust desktop client uses eframe/egui and Glow. Android Home is a native Android activity inside the guest. | Games, apps and Home navigation share one Android session. Host controls and preferences belong to the desktop window. |

@@ -119,6 +119,17 @@ The final two runs also sampled the Windows QEMU process. The host measurement u
 
 The host sampler took 867 readings per run at 75 ms intervals. Both endpoints of each included counter interval fell within the named window. The guest clock was aligned to the host's monotonic clock using the minimum poll-completion offset. Both counters stayed valid and median collection cost was under 0.3 ms. The game surface presented 30 and 29 frames in the stationary seconds and produced zero new presentations strictly inside the first-close gaps. The measured RTX engine had spare capacity during both gaps. The 128 MiB run removed the ANGLE warning but still stalled, and a single run at that size cannot establish the cause of its longer pause. The counters cover QEMU and its selected 3D engine. They do not resolve individual game functions or other GPU engines. [Host timestamps and cumulative counters](../benchmarks/pubg-mobile/egl-blobcache-host.csv)
 
+### Guest CPU scheduling during Inventory
+
+An offline analysis of the existing Android Perfetto traces compared the two longest gaps between SurfaceView producer notifications with regular 20–50 ms intervals on the same route and in the static lobby. The guest had four vCPUs. Runnable wait is time when `UEGameThread` was ready to run and waiting for a vCPU.
+
+| Producer gap | `UEGameThread` executing | Runnable wait | Runnable wait with a guest vCPU idle | Time all four guest vCPUs were busy |
+|---|---:|---:|---:|---:|
+| 2,168.6 ms | 1,317.9 ms | 58.8 ms | 46.0 ms | 6.95% |
+| 541.6 ms | 488.2 ms | 25.4 ms | 24.4 ms | 1.29% |
+
+The longest continuous runnable wait in either gap was 1.68 ms. Regular intervals included waits up to 6.02 ms in the static lobby and 10.13 ms on the route. These measurements give little reason to increase the vCPU count for this symptom. Windows processor affinity, host scheduling delays and CPU frequencies were outside the trace. Android also reported a dropped trace chunk. The remaining question is what work the game thread executed during the first Inventory close.
+
 ### Does the desktop frame copy affect the lobby?
 
 A local instrumented desktop build alternated the existing allocation-and-copy path with direct RGBA image construction in the same stationary lobby and guest session. Each kept block was about 18 seconds after trimming a second from both ends. The host timing measures elapsed time on the desktop UI thread while it prepares and submits an image to the texture queue. Its block statistic is the median of the reported one-second P95s.

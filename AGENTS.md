@@ -1,6 +1,8 @@
 # Working on RustEmuDroid
 
-Read [RULES.md](RULES.md) for runtime and data constraints and [AI-MEMORY.md](AI-MEMORY.md) for the current architecture and verification record.
+Start with the [current handoff](AI-MEMORY.md#handoff) for verified results, open issues and the next test. Read [RULES.md](RULES.md) before operating a VM. On the original test PC, `.rustemudroid/LOCAL-HANDOFF.md` points to the private traces, disk copies and reproduction commands.
+
+When a test, fix or release changes what the next contributor should do, update the handoff with the version, setup, measured outcome and an evidence link. Record inconclusive runs and settings restored after a test. Keep original machine-specific evidence indexed in the local handoff.
 
 | Area | Start here |
 |---|---|
