@@ -182,6 +182,10 @@ The stock AOSP build of `android-9.0.0_r61` produced x86 and x86-64 platform run
 
 The third candidate (R3/C) moved the SystemProperties registration ahead of AssetManager on both architectures. The other 155 registrars kept their relative order. Android then created the system server. The SELinux audit reported its expected domain, `u:r:system_server:s0`, with enforcement active. During bootstrap the process tried to publish the Pie64 service `bstfilterapps`. The board had no service-specific label for this name, so the service manager rejected its registration and SystemServer restarted. Guest SurfaceFlinger identified the RTX 5070 Ti through the Android Emulator OpenGL ES Translator.
 
+The fourth candidate (R3/D) supplied a separate Binder service label for each of the three registrations in the copied framework. The original vendor image stayed byte-identical. We compiled the baseline policy offline and reproduced the vendor's binary exactly. We then compiled the updated policy with Android's neverallow checks and verified 96 access decisions. In the real guest, init compiled and loaded the new platform policy. ServiceManager registered both `bstfilterapps` and `bstutils`.
+
+Two failures followed in the same system server process. A filter-service worker could not set the board property `bst.config.config_file`. On the main thread the BlueStacks HostCall service failed to open `/dev/bstvmsg` for its `hcal` connection and raised SIGTRAP. The log does not give an errno for that open. Completing this port requires a working host/guest transport as well as the correct board property definition. Both are separate from the graphics backend.
+
 The independent image still needs a complete Android boot, working shell, Home, touch and an installed game running inside RustEmuDroid. The Windows BlueStacks integration at the top of this page continues to launch the installed BlueStacks player.
 
 ## Opt-in data storage probe
