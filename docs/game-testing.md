@@ -132,7 +132,7 @@ To reproduce a rate from the CSV, count distinct presentation times from 0 inclu
 
 #### Inventory on the Radeon 780M
 
-Selecting the Radeon for Vulkan in RustEmuDroid initially left Android's GLES compositor on the RTX. A temporary Windows graphics preference on the specific SDK `qemu-system-x86_64.exe` process placed both on the Radeon. Before measuring, we verified the Android compositor renderer and the game's own ANGLE renderer string from the newly launched PUBG process. BlueStacks' player log independently identified the Radeon as its physical OpenGL renderer.
+Selecting the Radeon for Vulkan in RustEmuDroid initially left Android's GLES compositor on the RTX. A temporary Windows graphics preference on the specific SDK `qemu-system-x86_64.exe` executable placed both on the Radeon. Before measuring, we verified the Android compositor renderer and the game's own ANGLE renderer string from the newly launched PUBG process. BlueStacks' player log independently identified the Radeon as its physical OpenGL renderer. [Windows per-application graphics preferences](https://support.microsoft.com/en-au/windows/hardware/display-graphics/optimizations-for-windowed-games-in-windows-11)
 
 | Android player on the Radeon | Presentations/s, first / repeat | Pooled presentations/s | P99 interval, first / repeat | Gaps over 250 ms per 96 s | One-second windows below 15 presentations |
 |---|---:|---:|---:|---:|---:|
@@ -148,6 +148,19 @@ Each primary run started a fresh game process with disk caches retained and used
 The second presentation of the 450 ms BlueStacks gap in the first pass had two ready timestamps. They imply ready-to-ready intervals of 4.12 or 14.77 ms for those same endpoints. The following presentation had a ready time more than 450 ms later than either value. The timestamps support a disruption around this transition, with some uncertainty about the individual buffers. A separate diagnostic pass with tracing on and Inventory already visited presented 1,432 frames in 48 seconds (29.83/s). The diagnostic pass is excluded from the primary rates. [Relative frame timestamps for both GPUs](../benchmarks/pubg-mobile/inventory-ready-timing.csv)
 
 Both primary BlueStacks Radeon passes and the mixed-GPU RustEmuDroid repeat restarted the game and retained its disk caches. The first mixed-GPU RustEmuDroid pass followed a fresh launch and in-game preset selection. Its collection restarted in the same game process after a surface-selection error, before the first Inventory tap.
+
+#### Does matching the BlueStacks display density help?
+
+We kept the RustEmuDroid 0.13.4 Android 17 guest at 1600 × 900 and changed only its logical display density from the original 320 dpi to 240 dpi, then back to 320. The RTX 5070 Ti rendered both the game through ANGLE/Vulkan and the compositor through GLES. The same account, Balanced/High Lobby preset, game build, VM and cached files were used throughout. Each of the first three runs started a fresh PUBG process. We verified the visible Inventory and close button after the density change. The same eight taps worked at both densities.
+
+| Density and game process | Android presentations/s | P99 interval | Gaps over 250 ms | First close, ready-to-ready | First close, presentation-to-presentation |
+|---|---:|---:|---:|---:|---:|
+| 320 dpi, fresh (A1) | 25.15 | 232.77 ms | 11 | 1,584.44 ms | 1,585.23 ms |
+| 240 dpi, fresh (B) | 25.31 | 201.42 ms | 10 | 1,650.30 ms | 1,651.28 ms |
+| 320 dpi, fresh (A2) | 25.38 | 233.24 ms | 12 | 1,582.54 ms | 1,590.50 ms |
+| 320 dpi, repeat in the A2 process | 26.67 | 234.92 ms | 10 | 432.15 ms | 432.47 ms |
+
+At 240 dpi, mean cadence fell between the two 320 dpi results. The first close paused for about 61–66 ms longer. We retained the original density. The last row repeats the route in the same process after four Inventory visits. Its first close took 73% less time than A2's, and the longest pause in the full route fell to 511 ms. Ten intervals still exceeded 250 ms. This establishes a benefit from revisiting Inventory in that session. The test does not distinguish which resources or translation work the first visits warmed up. The published CSV contains relative ready and presentation times for all four 48-second routes. [Density and warm-process timestamps](../benchmarks/pubg-mobile/rtx-density-inventory.csv)
 
 #### How CPU time was spent during a warm BlueStacks transition
 
