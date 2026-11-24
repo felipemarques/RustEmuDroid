@@ -186,6 +186,8 @@ The fourth candidate (R3/D) supplied a separate Binder service label for each of
 
 Two failures followed in the same system server process. A filter-service worker could not set the board property `bst.config.config_file`. On the main thread the BlueStacks HostCall service failed to open `/dev/bstvmsg` for its `hcal` connection and raised SIGTRAP. The log does not give an errno for that open. Completing this port requires a working host/guest transport as well as the correct board property definition. Both are separate from the graphics backend.
 
+Candidate R3/E added a property context for that exact board key. Before boot we verified the three changed policy files on the copied disk, its filesystem integrity and the unchanged vendor image. During a 90-second test with fresh writable overlays, the filter worker reached its database reads and the previous property-write exception did not recur in the captured log. The property value itself could not be read back from a guest shell. The main thread again reached HostCall, failed to open the same board message device and terminated with SIGTRAP. Android did not report boot completion or reach Home. The watchdog verified that the test VM shut down. The PUBG comparison used the installed BlueStacks player for its Pie64 results.
+
 The independent image still needs a complete Android boot, working shell, Home, touch and an installed game running inside RustEmuDroid. The Windows BlueStacks integration at the top of this page continues to launch the installed BlueStacks player.
 
 ## Opt-in data storage probe
