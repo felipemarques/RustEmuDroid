@@ -1,6 +1,6 @@
 # RustEmuDroid
 
-[Português brasileiro](README.pt-BR.md) · [Español](README.es-ES.md) · [Windows and Linux downloads](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml) · [Benchmarks](benchmarks/stk-1.5/README.md)
+[Português brasileiro](README.pt-BR.md) · [Español](README.es-ES.md) · [Windows and Linux downloads](https://github.com/felipemarques/RustEmuDroid/releases/latest) · [Benchmarks](benchmarks/stk-1.5/README.md)
 
 RustEmuDroid runs Android games and apps in one desktop window on x86-64 Windows and Linux. The Rust client starts the virtual machine, displays Android and handles input and window management. Inside the VM, the bundled Android Home opens to your installed games. The desktop client and Home are ad-free. Brazilian Portuguese is the default. Choose English (US) or Spanish (Spain) in Settings and save to change the desktop controls and Android Home together. Installed games and apps keep their own language settings.
 
@@ -10,14 +10,16 @@ RustEmuDroid runs Android games and apps in one desktop window on x86-64 Windows
 
 ## Run a prebuilt version
 
-1. Open [Desktop builds](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml), select a successful run and find **Artifacts**. Sign in to GitHub to download an artifact.
-2. Download **RustEmuDroid-Windows-x86_64** or **RustEmuDroid-Linux-x86_64** and extract the ZIP into a writable directory. On Linux, also run `tar -xzf rustemudroid-linux-x86_64.tar.gz` to unpack the executable with its execute permission.
+1. Open the [latest GitHub Release](https://github.com/felipemarques/RustEmuDroid/releases/latest) and find **Assets**.
+2. On Windows, extract `RustEmuDroid-vX.Y.Z-windows-x86_64.zip` into a writable directory. On Linux, extract `RustEmuDroid-vX.Y.Z-linux-x86_64.tar.gz` with `tar -xzf` to keep the execute permission. The filename includes the release version in place of `X.Y.Z`.
 3. Install the Android runtime described below. From the directory containing the executable, run the commands for your platform.
 
 | Task | Windows PowerShell | Linux shell |
 |---|---|---|
 | Check SDK and virtualization | `.\rustemudroid.exe doctor` | `./rustemudroid doctor` |
 | Open the desktop client | `.\rustemudroid.exe ui` | `./rustemudroid ui` |
+
+For a development build, sign in to GitHub, open a successful [Desktop builds run](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml) and download the package under **Artifacts**.
 
 The executable embeds the RustEmuDroid Home APK. The Android SDK, system images, games and user data are separate. Rust and Cargo are only required for source builds.
 
@@ -88,6 +90,10 @@ The crab moves during startup and shutdown, in About, and when Android Home has 
 
 ![Preview of the desktop mascot animation](docs/mascot-preview.png)
 
+Click **? → Shortcuts** in the title bar to see the available keys, what each one does and when it works.
+
+![Shortcuts in the Help window](docs/screenshots/en-us/shortcuts.png)
+
 ## Capture gameplay
 
 | Action | Shortcut | Output |
@@ -101,9 +107,15 @@ Open the folder button on the sidebar to find your files in `captures/` beside `
 
 ## Create a control scheme
 
-Open a game, then press **Ctrl+Shift+A** or click the keyboard icon. Use the advanced editor to place a touch control on the game, bind an input and adjust its properties. For example, bind a D-pad to movement, set a separate relative aim control and bind the primary mouse button to the on-screen fire button. A timed swipe can have its own end point and duration. Pinch and rotation produce two simultaneous contacts. MOBA skills support directional dragging from the skill button. Save the scheme for that game. Use named profiles to switch layouts, or export and import an individual scheme as JSON.
+Open a game and click the keyboard icon in the sidebar to open **Game controls**. Use this menu to enable mapping, show key labels in the game, adjust their opacity, or switch the active scheme.
 
-![The control editor over a running SuperTuxKart session](docs/screenshots/en-us/editor.png)
+![Game controls menu over SuperTuxKart](docs/screenshots/en-us/controls.png)
+
+Choose **Controls editor** from the menu or press **Ctrl+Shift+A**. Drag a control from the palette onto the game, then select it to bind an input and adjust its properties. For movement, drop a **D-pad** over the game's virtual joystick. Assign **Up**, **Down**, **Left**, and **Right** individually in **Control settings**, set the radius to match the game's joystick, and enable **Left stick** if you want to use a controller's analog stick. Click **Save** to apply the scheme.
+
+Use the scheme options to create or duplicate a layout and import or export it as JSON. Other controls include relative aim, timed swipes with a separate end point, pinch and rotation with two simultaneous contacts, and MOBA abilities that support directional dragging from the skill button.
+
+![The controls editor showing a W, A, S, D D-pad over the SuperTuxKart main menu](docs/screenshots/en-us/editor.png)
 
 *SuperTuxKart is shown in English. The game manages its language separately from the control editor.*
 

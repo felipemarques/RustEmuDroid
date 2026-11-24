@@ -4,6 +4,9 @@ use eframe::App;
 use std::{cell::Cell, io::Write, path::Path, rc::Rc, time::Instant};
 use winit::platform::windows::EventLoopBuilderExtWindows;
 
+#[path = "mapping_preview_test.rs"]
+mod mapping_preview_test;
+
 #[test]
 #[ignore = "creates a native Windows window and checks the caption and taskbar HICONs"]
 fn native_window_uses_the_embedded_brand() {
@@ -43,13 +46,12 @@ struct WindowTest {
 }
 
 #[test]
-#[ignore = "renders the localized About and Settings dialogs without starting Android"]
+#[ignore = "renders the localized help tabs and Settings dialog without starting Android"]
 fn capture_localized_session_dialogs() {
     struct Dialogs {
         app: Launcher,
         dir: PathBuf,
         language: usize,
-        settings: bool,
         pending: bool,
         next: Instant,
     }
@@ -59,23 +61,23 @@ fn capture_localized_session_dialogs() {
                 if let egui::Event::Screenshot { image, .. } = event {
                     let dir = self.dir.join(self.app.config.locale.tag());
                     std::fs::create_dir_all(&dir).unwrap();
-                    WindowTest::save(
-                        &dir,
-                        if self.settings { "settings" } else { "about" },
-                        image,
-                    );
-                    self.app.help_open = false;
-                    self.app.settings = None;
-                    if self.settings {
+                    if self.app.settings.is_some() {
+                        WindowTest::save(&dir, "settings", image);
+                        self.app.settings = None;
                         self.language += 1;
                         if let Some(locale) = Locale::ALL.get(self.language) {
                             self.app.config.locale = *locale;
+                            self.app.help_tab = help::HelpTab::About;
                             self.app.help_open = true;
                         }
+                    } else if self.app.help_tab == help::HelpTab::About {
+                        WindowTest::save(&dir, "about", image);
+                        self.app.help_tab = help::HelpTab::Shortcuts;
                     } else {
+                        WindowTest::save(&dir, "shortcuts", image);
+                        self.app.help_open = false;
                         self.app.open_settings();
                     }
-                    self.settings = !self.settings;
                     self.pending = false;
                     self.next = Instant::now() + Duration::from_millis(850);
                 }
@@ -118,7 +120,6 @@ fn capture_localized_session_dialogs() {
                 app,
                 dir,
                 language: 0,
-                settings: false,
                 pending: false,
                 next: Instant::now() + Duration::from_millis(850),
             }))

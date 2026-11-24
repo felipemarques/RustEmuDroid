@@ -1,3 +1,5 @@
+mod tiles;
+
 use super::{Gesture, Mapping};
 use crate::ui::{i18n::Locale, theme};
 use eframe::egui;
@@ -5,6 +7,9 @@ use std::{path::PathBuf, sync::mpsc};
 
 #[derive(Default)]
 pub(super) struct Editor {
+    pub(super) palette_drag: bool,
+    pub(super) preset_input: &'static str,
+    active_tile: usize,
     profile_name: String,
     confirm_delete: bool,
     file_picker: Option<FilePicker>,
@@ -25,41 +30,177 @@ struct FilePicker {
 }
 
 impl Mapping {
-    pub(super) fn advanced_toolbar(&mut self, ui: &mut egui::Ui, locale: Locale) {
+    pub(super) fn control_editor(&mut self, ui: &mut egui::Ui, locale: Locale, size: egui::Vec2) {
         self.poll_profile_file();
-        let advanced = egui::CollapsingHeader::new(locale.pick(
-            "Controles avançados",
-            "Advanced controls",
-            "Controles avanzados",
-        ))
-        .id_salt("advanced-controls")
-        .default_open(true)
-        .show(ui, |ui| {
-            ui.add_enabled_ui(self.package.is_some(), |ui| {
-                egui::ScrollArea::vertical()
-                    .max_height(190.)
-                    .auto_shrink([false, true])
-                    .show(ui, |ui| {
-                        self.profile_controls(ui, locale);
-                        ui.separator();
-                        self.gesture_tools(ui, locale);
-                        self.binding_settings(ui, locale);
-                        self.placement_hint(ui, locale);
-                    });
+        let bounds = egui::Rect::from_min_size(ui.next_widget_position(), size);
+        let footer =
+            egui::Rect::from_min_max(egui::pos2(bounds.left(), bounds.bottom() - 35.), bounds.max);
+        ui.spacing_mut().item_spacing.y = 5.;
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(28., 28.), egui::Sense::hover());
+            ui.painter()
+                .rect_filled(rect, 8, egui::Color32::from_rgb(66, 47, 42));
+            tiles::draw(ui.painter(), rect.center(), 4, theme::ACCENT);
+            ui.label(
+                egui::RichText::new(locale.pick(
+                    "Editor de controles",
+                    "Controls editor",
+                    "Editor de controles",
+                ))
+                .strong()
+                .size(17.),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let (rect, dock) =
+                    ui.allocate_exact_size(egui::vec2(28., 28.), egui::Sense::click());
+                let target_is_left = !self.quick.editor_left;
+                let label = if target_is_left {
+                    locale.pick(
+                        "Mover para a esquerda",
+                        "Move to the left",
+                        "Mover a la izquierda",
+                    )
+                } else {
+                    locale.pick(
+                        "Mover para a direita",
+                        "Move to the right",
+                        "Mover a la derecha",
+                    )
+                };
+                dock.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label)
+                });
+                if dock.hovered() || dock.has_focus() {
+                    ui.painter()
+                        .rect_filled(rect, 6, ui.visuals().widgets.hovered.weak_bg_fill);
+                }
+                tiles::dock_icon(
+                    ui.painter(),
+                    rect.center(),
+                    target_is_left,
+                    ui.visuals().text_color(),
+                );
+                if dock.on_hover_text(label).clicked() {
+                    self.quick.editor_left = target_is_left;
+                }
             });
         });
-        if advanced.fully_closed()
-            && (self.placing_control || self.placing_endpoint || self.await_binding)
+        let package = self.package.as_deref().unwrap_or(locale.pick(
+            "Identificando aplicativo…",
+            "Identifying app…",
+            "Identificando aplicación…",
+        ));
+        ui.add(egui::Label::new(egui::RichText::new(package).size(11.).weak()).truncate())
+            .on_hover_text(package);
+        ui.separator();
+
+        let edit_enabled = self.package.is_some();
+        ui.add_enabled_ui(edit_enabled, |ui| self.profile_controls(ui, locale));
+        ui.separator();
+        let body_height = (footer.top()
+            - ui.next_widget_position().y
+            - 10.
+            - if self.error.is_some() { 20. } else { 0. })
+        .max(44.);
+        egui::ScrollArea::vertical()
+            .id_salt("mapping-editor-scroll")
+            .max_height(body_height)
+            .scroll_source(egui::scroll_area::ScrollSource {
+                drag: false,
+                ..egui::scroll_area::ScrollSource::ALL
+            })
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.add_enabled_ui(edit_enabled, |ui| {
+                    self.placement_hint(ui, locale);
+                    if self.place_stick {
+                        ui.add(
+                            egui::Slider::new(&mut self.draft.radius, 0.035..=0.22)
+                                .text(locale.pick("Raio", "Radius", "Radio")),
+                        );
+                    }
+                    if self.selected_control.is_some() {
+                        section(
+                            ui,
+                            locale.pick(
+                                "Configuração do controle",
+                                "Control settings",
+                                "Ajustes del control",
+                            ),
+                        );
+                        self.binding_settings(ui, locale);
+                        ui.separator();
+                    }
+                    self.gesture_tools(ui, locale);
+                    if self.selected_control.is_none() && !self.draft.controls.is_empty() {
+                        ui.separator();
+                        self.binding_settings(ui, locale);
+                    }
+                });
+            });
+        if let Some(error) = &self.error {
+            ui.colored_label(
+                egui::Color32::LIGHT_RED,
+                locale.pick(
+                    "Falha no mapeamento",
+                    "Mapping error",
+                    "Error de asignación",
+                ),
+            )
+            .on_hover_text(error);
+        }
+        ui.painter().hline(
+            bounds.x_range(),
+            footer.top() - 5.,
+            ui.visuals().widgets.noninteractive.bg_stroke,
+        );
+        let mut footer_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(footer)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
         {
-            self.reset_placement();
+            let ui = &mut footer_ui;
+            let width = (footer.width() - ui.spacing().item_spacing.x) * 0.5;
+            let size = egui::vec2(width, 33.);
+            if ui
+                .add_sized(
+                    size,
+                    egui::Button::new(locale.pick("Cancelar", "Cancel", "Cancelar")),
+                )
+                .clicked()
+            {
+                self.toggle();
+            }
+            let save = egui::RichText::new(locale.pick("Salvar", "Save", "Guardar"))
+                .strong()
+                .color(egui::Color32::from_rgb(22, 28, 36));
+            if ui
+                .add_enabled(
+                    edit_enabled && !self.load_failed,
+                    egui::Button::new(save).min_size(size).fill(theme::ACCENT),
+                )
+                .clicked()
+            {
+                self.save();
+            }
         }
     }
 
     fn profile_controls(&mut self, ui: &mut egui::Ui, locale: Locale) {
         let mut profile = self.draft_profiles.active.clone();
-        ui.horizontal_wrapped(|ui| {
-            let label = ui.label(locale.pick("Perfil", "Profile", "Perfil"));
+        let label = section(
+            ui,
+            locale.pick(
+                "Esquema de controle",
+                "Control scheme",
+                "Esquema de control",
+            ),
+        );
+        ui.horizontal(|ui| {
             egui::ComboBox::from_id_salt("mapping-profile")
+                .width((ui.available_width() - 38.).max(75.))
+                .truncate()
                 .selected_text(profile_name(&profile, locale))
                 .show_ui(ui, |ui| {
                     for name in self.draft_profiles.layouts.keys() {
@@ -67,32 +208,44 @@ impl Mapping {
                     }
                 })
                 .response
-                .labelled_by(label.id);
+                .labelled_by(label.id)
+                .on_hover_text(profile_name(&profile, locale));
             if profile != self.draft_profiles.active {
                 self.select_profile(&profile);
                 self.editor.confirm_delete = false;
             }
-            ui.menu_button(
-                locale.pick("Novo perfil", "New profile", "Nuevo perfil"),
-                |ui| self.new_profile(ui, locale, false),
+            let more = locale.pick(
+                "Opções do esquema",
+                "Scheme options",
+                "Opciones del esquema",
             );
-            ui.menu_button(locale.pick("Duplicar", "Duplicate", "Duplicar"), |ui| {
-                self.new_profile(ui, locale, true)
-            });
-            ui.add_enabled_ui(self.editor.file_picker.is_none(), |ui| {
-                for action in [FileAction::Import, FileAction::Export] {
-                    if ui.button(action.label(locale)).clicked() {
-                        self.pick_profile_file(ui.ctx(), action, locale);
+            let menu = ui.menu_button(egui::RichText::new("…").strong(), |ui| {
+                ui.menu_button(
+                    locale.pick("Novo perfil", "New profile", "Nuevo perfil"),
+                    |ui| self.new_profile(ui, locale, false),
+                );
+                ui.menu_button(locale.pick("Duplicar", "Duplicate", "Duplicar"), |ui| {
+                    self.new_profile(ui, locale, true)
+                });
+                ui.separator();
+                ui.add_enabled_ui(self.editor.file_picker.is_none(), |ui| {
+                    for action in [FileAction::Import, FileAction::Export] {
+                        if ui.button(action.label(locale)).clicked() {
+                            self.pick_profile_file(ui.ctx(), action, locale);
+                            ui.close();
+                        }
                     }
+                });
+                if self.draft_profiles.layouts.len() > 1
+                    && ui
+                        .button(locale.pick("Excluir perfil", "Delete profile", "Eliminar perfil"))
+                        .clicked()
+                {
+                    self.editor.confirm_delete = true;
+                    ui.close();
                 }
             });
-            if self.draft_profiles.layouts.len() > 1
-                && ui
-                    .button(locale.pick("Excluir perfil", "Delete profile", "Eliminar perfil"))
-                    .clicked()
-            {
-                self.editor.confirm_delete = true;
-            }
+            menu.response.on_hover_text(more);
         });
         if self.editor.confirm_delete {
             ui.horizontal_wrapped(|ui| {
@@ -235,46 +388,69 @@ impl Mapping {
     }
 
     fn gesture_tools(&mut self, ui: &mut egui::Ui, locale: Locale) {
-        ui.horizontal_wrapped(|ui| {
-            let label = ui.label(locale.pick("Novo controle", "New control", "Nuevo control"));
-            egui::ComboBox::from_id_salt("mapping-gesture")
-                .selected_text(gesture_name(&self.preset, locale))
-                .show_ui(ui, |ui| {
-                    for preset in presets() {
-                        let selected =
-                            std::mem::discriminant(&self.preset) == std::mem::discriminant(&preset);
-                        if ui
-                            .selectable_label(selected, gesture_name(&preset, locale))
-                            .clicked()
-                        {
-                            self.preset = preset;
+        section(
+            ui,
+            locale.pick("Adicionar controles", "Add controls", "Añadir controles"),
+        );
+        ui.weak(locale.pick(
+            "Arraste um controle para a tela.",
+            "Drag a control onto the screen.",
+            "Arrastra un control a la pantalla.",
+        ));
+        let labels = [
+            locale.pick("Toque mantido", "Held touch", "Toque mantenido"),
+            locale.pick("Toque rápido", "Tap", "Toque rápido"),
+            locale.pick("Toque repetido", "Repeated taps", "Toques repetidos"),
+            locale.pick("Deslizar", "Swipe", "Deslizar"),
+            locale.pick("Direcional", "D-pad", "Cruceta"),
+            locale.pick("Mira ou câmera", "Aim or camera", "Mira o cámara"),
+            locale.pick("Habilidade MOBA", "MOBA ability", "Habilidad MOBA"),
+            locale.pick("Pinça de zoom", "Pinch zoom", "Zoom con pellizco"),
+            locale.pick("Girar", "Rotate", "Girar"),
+            locale.pick("Roda do mouse", "Mouse wheel", "Rueda del ratón"),
+        ];
+        let width = ((ui.available_width() - 2. * ui.spacing().item_spacing.x) / 3.).max(46.);
+        for row in (0..labels.len()).step_by(3) {
+            ui.horizontal(|ui| {
+                for (index, &name) in labels.iter().enumerate().skip(row).take(3) {
+                    let selected = self.placing_control && self.editor.active_tile == index;
+                    let response = tiles::tile(ui, width, index, name, selected);
+                    if response.drag_started() || response.clicked() {
+                        let drag = response.drag_started();
+                        self.reset_placement();
+                        if !selected || drag {
+                            self.preset = presets()[index].clone();
+                            self.editor.preset_input = if index == 9 { "Wheel:Up" } else { "" };
+                            self.editor.active_tile = index;
+                            self.editor.palette_drag = drag;
+                            self.placing_control = true;
                         }
                     }
-                })
-                .response
-                .labelled_by(label.id);
-            let place = if self.placing_control {
-                locale.pick(
-                    "Cancelar posicionamento",
-                    "Cancel placement",
-                    "Cancelar colocación",
-                )
-            } else {
-                locale.pick(
-                    "Posicionar no Android",
-                    "Place on Android screen",
-                    "Colocar en Android",
-                )
-            };
-            if ui.selectable_label(self.placing_control, place).clicked() {
-                self.placing_control = !self.placing_control;
-                self.placing_endpoint = false;
-                self.await_binding = false;
-                self.direction_binding = None;
-                self.pending = None;
-                self.place_stick = false;
-            }
-        });
+                }
+            });
+        }
+        ui.menu_button(
+            locale.pick(
+                "Controles clássicos",
+                "Classic controls",
+                "Controles clásicos",
+            ),
+            |ui| {
+                if ui.button(locale.pick("Botão", "Button", "Botón")).clicked() {
+                    self.reset_placement();
+                    self.place_button = true;
+                    ui.close();
+                }
+                if ui
+                    .button(locale.pick("Direcional", "Directional control", "Control direccional"))
+                    .clicked()
+                {
+                    self.reset_placement();
+                    self.place_stick = true;
+                    ui.close();
+                }
+            },
+        );
     }
 
     fn binding_settings(&mut self, ui: &mut egui::Ui, locale: Locale) {
@@ -306,7 +482,7 @@ impl Mapping {
                             if binding.input.is_empty() {
                                 locale.pick("Sem tecla", "Unbound", "Sin tecla")
                             } else {
-                                &binding.input
+                                binding_input_name(&binding.input, locale)
                             }
                         );
                         ui.selectable_value(&mut self.selected_control, Some(index), label);
@@ -330,9 +506,29 @@ impl Mapping {
         let mut set_binding = false;
         let mut set_endpoint = false;
         let mut remove = false;
-        ui.horizontal_wrapped(|ui| {
+        ui.vertical(|ui| {
+            ui.spacing_mut().slider_width = 88.;
+            if binding.input.starts_with("Wheel:") {
+                let label =
+                    ui.label(locale.pick("Roda do mouse", "Mouse wheel", "Rueda del ratón"));
+                egui::ComboBox::from_id_salt("mapping-wheel-direction")
+                    .selected_text(binding_input_name(&binding.input, locale))
+                    .show_ui(ui, |ui| {
+                        for input in ["Wheel:Up", "Wheel:Down", "Wheel:Left", "Wheel:Right"] {
+                            ui.selectable_value(
+                                &mut binding.input,
+                                input.to_owned(),
+                                binding_input_name(input, locale),
+                            );
+                        }
+                    })
+                    .response
+                    .labelled_by(label.id);
+            }
             if !matches!(binding.gesture, Gesture::Dpad { .. }) {
-                let input = if binding.input.is_empty() {
+                let input = if binding.input.starts_with("Wheel:") {
+                    locale.pick("Alterar entrada", "Change input", "Cambiar entrada")
+                } else if binding.input.is_empty() {
                     locale.pick(
                         "Definir tecla ou botão",
                         "Assign key or button",
@@ -391,27 +587,29 @@ impl Mapping {
                     radius,
                     left_stick,
                 } => {
-                    for (direction, name) in [
-                        locale.pick("Cima", "Up", "Arriba"),
-                        locale.pick("Baixo", "Down", "Abajo"),
-                        locale.pick("Esquerda", "Left", "Izquierda"),
-                        locale.pick("Direita", "Right", "Derecha"),
-                    ]
-                    .into_iter()
-                    .enumerate()
-                    {
-                        let label = format!("{name} · {}", directions[direction]);
-                        if ui
-                            .selectable_label(
-                                self.await_binding && direction_binding == Some(direction),
-                                label,
-                            )
-                            .clicked()
+                    ui.horizontal_wrapped(|ui| {
+                        for (direction, name) in [
+                            locale.pick("Cima", "Up", "Arriba"),
+                            locale.pick("Baixo", "Down", "Abajo"),
+                            locale.pick("Esquerda", "Left", "Izquierda"),
+                            locale.pick("Direita", "Right", "Derecha"),
+                        ]
+                        .into_iter()
+                        .enumerate()
                         {
-                            direction_binding = Some(direction);
-                            set_binding = true;
+                            let label = format!("{name} · {}", directions[direction]);
+                            if ui
+                                .selectable_label(
+                                    self.await_binding && direction_binding == Some(direction),
+                                    label,
+                                )
+                                .clicked()
+                            {
+                                direction_binding = Some(direction);
+                                set_binding = true;
+                            }
                         }
-                    }
+                    });
                     ui.add(
                         egui::Slider::new(radius, 0.035..=0.25)
                             .text(locale.pick("Raio", "Radius", "Radio")),
@@ -547,9 +745,27 @@ impl Mapping {
             )
         } else if self.await_binding {
             locale.pick(
-                "Pressione uma tecla ou um botão do controle.",
-                "Press a keyboard key or controller button.",
-                "Pulsa una tecla o un botón del mando.",
+                "Pressione uma tecla ou botão. Para atribuir o mouse, clique ou role sobre a tela do jogo.",
+                "Press a key or controller button. To bind the mouse, click or scroll over the game.",
+                "Pulsa una tecla o botón. Para asignar el ratón, haz clic o desplaza sobre el juego.",
+            )
+        } else if self.pending.is_some() {
+            locale.pick(
+                "Pressione uma tecla ou um botão para atribuir o toque.",
+                "Press a key or button to assign the touch.",
+                "Pulsa una tecla o un botón para asignar el toque.",
+            )
+        } else if self.place_stick {
+            locale.pick(
+                "Clique no centro do direcional do jogo.",
+                "Click the center of the in-game stick.",
+                "Haz clic en el centro del mando virtual.",
+            )
+        } else if self.place_button {
+            locale.pick(
+                "Clique no botão do jogo para marcar o ponto de toque.",
+                "Click the in-game button to mark the touch point.",
+                "Haz clic en el botón del juego para marcar el punto táctil.",
             )
         } else {
             return;
@@ -558,11 +774,33 @@ impl Mapping {
     }
 }
 
-fn profile_name(name: &str, locale: Locale) -> &str {
+fn section(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    ui.label(egui::RichText::new(text).size(12.).strong())
+}
+
+pub(super) fn profile_name(name: &str, locale: Locale) -> &str {
     if name == "Default" {
         locale.pick("Padrão", "Default", "Predeterminado")
     } else {
         name
+    }
+}
+
+fn binding_input_name(input: &str, locale: Locale) -> &str {
+    match input {
+        "Wheel:Up" => locale.pick("Rolar para cima", "Scroll up", "Desplazar arriba"),
+        "Wheel:Down" => locale.pick("Rolar para baixo", "Scroll down", "Desplazar abajo"),
+        "Wheel:Left" => locale.pick(
+            "Rolar para a esquerda",
+            "Scroll left",
+            "Desplazar a la izquierda",
+        ),
+        "Wheel:Right" => locale.pick(
+            "Rolar para a direita",
+            "Scroll right",
+            "Desplazar a la derecha",
+        ),
+        _ => input,
     }
 }
 
@@ -599,7 +837,7 @@ impl FileAction {
     }
 }
 
-fn presets() -> [Gesture; 9] {
+fn presets() -> [Gesture; 10] {
     [
         Gesture::Hold,
         Gesture::Tap { duration_ms: 100 },
@@ -635,6 +873,10 @@ fn presets() -> [Gesture; 9] {
             radius: 0.11,
             degrees: 90.,
             duration_ms: 400,
+        },
+        Gesture::Swipe {
+            end: [0.75, 0.5],
+            duration_ms: 220,
         },
     ]
 }

@@ -1,0 +1,19 @@
+﻿# Desktop releases
+
+1. Choose the next SemVer version for the feature or fix. Increment the minor version for a feature or the patch version for a bug fix. A minor increment resets the patch to zero.
+2. Update the RustEmuDroid version in `Cargo.toml` and `Cargo.lock` in the same change. Run `cargo check --locked --features ui` to verify the lockfile.
+3. Push or merge the version increase to `main`. When the Windows and Linux jobs in **Desktop builds** pass, the workflow tags the tested commit as `vX.Y.Z` and publishes a [GitHub Release](https://github.com/felipemarques/RustEmuDroid/releases) with both archives.
+4. Check that the release includes `RustEmuDroid-vX.Y.Z-windows-x86_64.zip` and `RustEmuDroid-vX.Y.Z-linux-x86_64.tar.gz`.
+
+Pushes that keep the Cargo version, pull requests, and manual workflow runs produce Actions artifacts. If a build or publish step fails, rerun the failed jobs. The publish step can resume an incomplete draft for the same commit.
+
+## Manual tag fallback
+
+If the automatic release was skipped, use the version from the intended release commit to create and push a matching annotated tag. This triggers the same build matrix and publishes both verified archives.
+
+```sh
+git tag -a vX.Y.Z <release-commit> -m "RustEmuDroid vX.Y.Z"
+git push origin vX.Y.Z
+```
+
+Keep published tags attached to their original commits and use a new version for subsequent fixes.

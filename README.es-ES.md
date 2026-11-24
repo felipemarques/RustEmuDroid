@@ -1,6 +1,6 @@
 # RustEmuDroid
 
-[English](README.md) · [Português brasileiro](README.pt-BR.md) · [Descargas para Windows y Linux](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml) · [Pruebas de rendimiento](benchmarks/stk-1.5/README.md)
+[English](README.md) · [Português brasileiro](README.pt-BR.md) · [Descargas para Windows y Linux](https://github.com/felipemarques/RustEmuDroid/releases/latest) · [Pruebas de rendimiento](benchmarks/stk-1.5/README.md)
 
 RustEmuDroid ejecuta juegos y aplicaciones Android en una ventana de escritorio en Windows y Linux x86-64. El cliente en Rust arranca la máquina virtual, presenta los fotogramas de Android y envía las entradas de teclado, ratón y mando. Dentro de Android, la pantalla de inicio abre la biblioteca de juegos. Tanto el cliente como la biblioteca están libres de anuncios.
 
@@ -12,14 +12,16 @@ Los juegos de la captura se instalaron en el perfil de prueba. Un perfil nuevo c
 
 ## Ejecutar una versión compilada
 
-1. En [Compilaciones de escritorio](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml), abre una ejecución correcta y busca **Artifacts**. Inicia sesión en GitHub para descargar el archivo.
-2. Descarga **RustEmuDroid-Windows-x86_64** o **RustEmuDroid-Linux-x86_64**. Descomprime el ZIP en un directorio con permisos de escritura. En Linux, ejecuta también `tar -xzf rustemudroid-linux-x86_64.tar.gz` para conservar el permiso de ejecución.
+1. Abre la [última versión en GitHub](https://github.com/felipemarques/RustEmuDroid/releases/latest) y busca **Assets**.
+2. En Windows, extrae `RustEmuDroid-vX.Y.Z-windows-x86_64.zip` en un directorio con permisos de escritura. En Linux, extrae `RustEmuDroid-vX.Y.Z-linux-x86_64.tar.gz` con `tar -xzf` para conservar el permiso de ejecución. El nombre del archivo incluye la versión en lugar de `X.Y.Z`.
 3. Instala el entorno Android indicado a continuación. Desde el directorio del ejecutable, utiliza los comandos de tu sistema.
 
 | Tarea | Windows PowerShell | Linux |
 |---|---|---|
 | Comprobar el SDK y la virtualización | `.\rustemudroid.exe --lang es-es doctor` | `./rustemudroid --lang es-es doctor` |
 | Abrir el emulador en español | `.\rustemudroid.exe --lang es-es ui` | `./rustemudroid --lang es-es ui` |
+
+Para descargar una compilación de desarrollo, inicia sesión en GitHub, abre una [ejecución correcta de Desktop builds](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml) y descarga el paquete en **Artifacts**.
 
 El ejecutable incluye el APK de la pantalla de inicio de RustEmuDroid. Instala el SDK, las imágenes y los juegos por separado. Solo se necesita Rust para compilar el proyecto.
 
@@ -88,6 +90,10 @@ El cangrejo se mueve durante el arranque y el apagado, en la ventana de informac
 
 ![Vista previa del cangrejo animado del escritorio](docs/mascot-preview.png)
 
+Pulsa **? → Atajos** en la barra de título para consultar las teclas disponibles, su función y cuándo usarlas.
+
+![Pestaña Atajos de la ayuda](docs/screenshots/es-es/shortcuts.png)
+
 ## Capturar una partida
 
 | Acción | Atajo | Archivo |
@@ -101,9 +107,15 @@ El botón de carpeta abre `captures/` junto a `launcher.json`. Rust guarda los P
 
 ## Crear un esquema de controles
 
-Abre el juego y pulsa **Ctrl+Mayús+A** o selecciona el teclado en la barra lateral. En el editor avanzado, coloca un control sobre el juego, asígnale una entrada y ajusta sus propiedades. Para un juego de disparos puedes asignar una cruceta al movimiento, la mira relativa a la cámara y el botón principal del ratón al disparo. Los deslizamientos admiten un destino y una duración. El zoom y la rotación usan dos contactos simultáneos. Las habilidades MOBA permiten arrastrar desde el botón de la habilidad para elegir la dirección. Guarda el esquema por juego. Usa perfiles con nombre para alternar diseños o comparte uno mediante la importación y exportación de JSON.
+Abre el juego y pulsa el icono del teclado de la barra lateral para abrir **Controles del juego**. En este menú puedes activar las asignaciones, mostrar las teclas sobre el juego, ajustar la opacidad de las etiquetas y cambiar el esquema activo.
 
-![Editor de controles en una sesión de SuperTuxKart](docs/screenshots/es-es/editor.png)
+![Menú de controles del juego sobre SuperTuxKart](docs/screenshots/es-es/controls.png)
+
+Elige **Editor de controles** en el menú o pulsa **Ctrl+Mayús+A**. Arrastra un control de la paleta a la pantalla del juego y selecciónalo para asignarle una entrada y ajustar sus propiedades. Para el movimiento, suelta una **Cruceta** sobre la palanca virtual del juego. En **Ajustes del control**, asigna **Arriba**, **Abajo**, **Izquierda** y **Derecha** por separado, adapta el radio al tamaño de la palanca del juego y activa **Palanca izquierda** si quieres usar la palanca analógica del mando. Pulsa **Guardar** para aplicar el esquema.
+
+Usa las opciones del esquema para crear o duplicar un perfil e importarlo o exportarlo en JSON. Otros controles incluyen la mira relativa, los deslizamientos con un destino y una duración, el zoom y la rotación con dos contactos simultáneos, y las habilidades MOBA que permiten arrastrar desde el botón de la habilidad.
+
+![Editor de controles con una cruceta W, A, S, D sobre el menú principal de SuperTuxKart](docs/screenshots/es-es/editor.png)
 
 *SuperTuxKart aparece en inglés. El juego tiene su propio ajuste de idioma.*
 

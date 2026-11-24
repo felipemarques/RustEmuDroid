@@ -2,6 +2,8 @@ name: Desktop builds
 
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -17,12 +19,14 @@ jobs:
         include:
           - platform: Windows
             os: windows-2022
-            artifact: target/release/rustemudroid.exe
+            archive: windows-x86_64.zip
           - platform: Linux
             os: ubuntu-24.04
-            artifact: rustemudroid-linux-x86_64.tar.gz
+            archive: linux-x86_64.tar.gz
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    outputs:
+      version: ${{ steps.package.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,6 +41,24 @@ jobs:
       - name: Install stable Rust
         run: rustup toolchain install stable --profile minimal --component rustfmt
 
+      - name: Resolve the Cargo version and verify release tags
+        id: package
+        shell: pwsh
+        env:
+          ARCHIVE_SUFFIX: ${{ matrix.archive }}
+        run: |
+          $metadata = cargo +stable metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = ($metadata.packages | Where-Object name -eq 'rustemudroid').version
+          if (-not $version) { throw 'Cargo metadata is missing the RustEmuDroid package version' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            if ($version -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' -or $env:GITHUB_REF_NAME -cne "v$version") {
+              throw "Expected a stable SemVer tag matching Cargo version $version, got $env:GITHUB_REF_NAME"
+            }
+          }
+          "archive=RustEmuDroid-v$version-$env:ARCHIVE_SUFFIX" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+
       - name: Check formatting
         run: cargo +stable fmt --all -- --check
 
@@ -46,19 +68,164 @@ jobs:
       - name: Build desktop executable
         run: cargo +stable build --locked --release --features ui
 
-      - name: Verify Windows executable
+      - name: Verify and package Windows executable
         if: runner.os == 'Windows'
-        run: .\target\release\rustemudroid.exe --version
+        env:
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          $reportedVersion = .\target\release\rustemudroid.exe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($reportedVersion -cne "rustemudroid $env:VERSION") { throw "Unexpected executable version: $reportedVersion" }
+          Compress-Archive -LiteralPath .\target\release\rustemudroid.exe -DestinationPath $env:ARCHIVE
 
       - name: Package Linux executable with its execute permission
         if: runner.os == 'Linux'
+        env:
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+          VERSION: ${{ steps.package.outputs.version }}
         run: |
-          ./target/release/rustemudroid --version
-          tar -czf rustemudroid-linux-x86_64.tar.gz -C target/release rustemudroid
+          reported_version=$(./target/release/rustemudroid --version)
+          test "$reported_version" = "rustemudroid $VERSION"
+          tar -czf "$ARCHIVE" -C target/release rustemudroid
 
       - name: Upload desktop build
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: RustEmuDroid-${{ matrix.platform }}-x86_64
-          path: ${{ matrix.artifact }}
+          path: ${{ steps.package.outputs.archive }}
           if-no-files-found: error
+          overwrite: true
+
+  release-plan:
+    name: Resolve release target
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag')
+    needs: desktop
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      commit: ${{ steps.plan.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Identify version increases on main
+        id: plan
+        env:
+          PREVIOUS_SHA: ${{ github.event.before }}
+          VERSION: ${{ needs.desktop.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          import tomllib
+
+          def stable_version(version):
+              if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
+                  raise SystemExit(f"Expected a stable SemVer version, got {version}")
+              return tuple(map(int, version.split(".")))
+
+          current = os.environ["VERSION"]
+          if os.environ["GITHUB_REF_TYPE"] == "branch":
+              previous_sha = os.environ["PREVIOUS_SHA"]
+              if previous_sha == "0" * 40:
+                  print("Main was created without a previous commit to compare.")
+                  raise SystemExit(0)
+              previous_manifest = subprocess.check_output(
+                  ["git", "show", f"{previous_sha}:Cargo.toml"], text=True
+              )
+              previous = tomllib.loads(previous_manifest)["package"]["version"]
+              if current == previous:
+                  print(f"Cargo remains at {current}.")
+                  raise SystemExit(0)
+              if stable_version(current) <= stable_version(previous):
+                  raise SystemExit(f"Cargo version must increase from {previous}, got {current}")
+
+          stable_version(current)
+          commit = subprocess.check_output(["git", "rev-parse", "HEAD^{commit}"], text=True).strip()
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"tag=v{current}", file=output)
+              print(f"commit={commit}", file=output)
+          PY
+
+  release:
+    name: Publish GitHub Release
+    if: needs.release-plan.outputs.tag != ''
+    needs: release-plan
+    concurrency:
+      group: desktop-release-${{ needs.release-plan.outputs.tag }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: RustEmuDroid-*-x86_64
+          path: dist
+          merge-multiple: true
+
+      - name: Verify both archives and tag the tested commit
+        shell: bash
+        env:
+          TAG: ${{ needs.release-plan.outputs.tag }}
+          COMMIT: ${{ needs.release-plan.outputs.commit }}
+        run: |
+          test -s "dist/RustEmuDroid-$TAG-windows-x86_64.zip"
+          test -s "dist/RustEmuDroid-$TAG-linux-x86_64.tar.gz"
+
+          ref="refs/tags/$TAG"
+          tag_commit() {
+            git ls-remote origin "$ref" "$ref^{}" |
+              awk -v tag="$ref" '$2 == tag { direct = $1 } $2 == tag "^{}" { peeled = $1 } END { print peeled ? peeled : direct }'
+          }
+          existing_commit=$(tag_commit)
+          if [[ -z "$existing_commit" ]]; then
+            git push origin "$COMMIT:$ref"
+            existing_commit=$(tag_commit)
+          fi
+          if [[ "$existing_commit" != "$COMMIT" ]]; then
+            echo "::error::$TAG points to $existing_commit, expected $COMMIT"
+            exit 1
+          fi
+
+      - name: Publish both verified archives
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-plan.outputs.tag }}
+          COMMIT: ${{ needs.release-plan.outputs.commit }}
+        run: |
+          windows="dist/RustEmuDroid-$TAG-windows-x86_64.zip"
+          linux="dist/RustEmuDroid-$TAG-linux-x86_64.tar.gz"
+
+          release_json() {
+            gh release view "$TAG" --json isDraft,assets
+          }
+          if ! release=$(release_json); then
+            notes=(--generate-notes)
+            if [[ -f "docs/releases/$TAG.md" ]]; then
+              notes=(--notes-file "docs/releases/$TAG.md")
+            fi
+            gh release create "$TAG" --verify-tag --target "$COMMIT" --draft --title "RustEmuDroid $TAG" "${notes[@]}"
+            release=$(release_json)
+          fi
+          draft=$(jq -r '.isDraft' <<< "$release")
+          if [[ "$draft" == true ]]; then
+            gh release upload "$TAG" "$windows" "$linux" --clobber
+            release=$(release_json)
+          fi
+          jq -e --arg windows "${windows##*/}" --arg linux "${linux##*/}" '
+            [.assets[] | select(.state == "uploaded" and .size > 0) | .name]
+            | index($windows) != null and index($linux) != null
+          ' <<< "$release"
+          if [[ "$draft" == true ]]; then
+            gh release edit "$TAG" --draft=false
+          fi

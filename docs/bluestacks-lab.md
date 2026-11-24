@@ -24,6 +24,8 @@ The Pie64 instance uses BIOS boot, an ICH9 chipset, a PIIX3 IDE controller and a
 
 Shut down the instance and copy all three disks to a separate private directory. Keep the copies and outputs under the ignored `.rustemudroid/` tree. The runner attaches temporary QCOW2 overlays backed by those copies. It uses a local monitor socket, disables all guest networking and deletes the overlays after the run. [BlueStacks backup documentation](https://support.bluestacks.com/hc/en-us/articles/360059480692-How-to-backup-and-restore-data-on-BlueStacks-5) · [QEMU disk images](https://www.qemu.org/docs/master/system/images.html)
 
+On Windows, run `powershell -ExecutionPolicy Bypass -File .\tools\Test-BlueStacksImage.ps1` from the repository root. The helper uses WSL Ubuntu 24.04 and checks the three offline copies before running the direct kernel diagnostic. If `Pie64/manifest.json` is present, it checks file sizes against the manifest. Use `-VerifyHashes` to also verify its SHA-256 hashes. The helper prints the evidence paths for each run.
+
 With Python 3 and QEMU for x86-64 installed on Linux or WSL, run these commands from the repository root. The IDE remapping experiment also needs GNU Binutils for `as` and `objcopy`.
 
 ```sh

@@ -123,6 +123,7 @@ impl Launcher {
                             });
                         }
                         if Tool::Help.button(ui, locale) {
+                            self.help_tab = super::help::HelpTab::About;
                             self.help_open = true;
                         }
                         if Tool::Settings.button(ui, locale) {

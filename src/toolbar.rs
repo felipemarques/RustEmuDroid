@@ -29,8 +29,24 @@ pub enum Tool {
     Close,
 }
 
+pub(crate) const FULLSCREEN_KEY: egui::Key = egui::Key::F11;
+pub(crate) const PLAYER_SHORTCUTS: [(egui::Key, Tool); 4] = [
+    (egui::Key::A, Tool::Keymap),
+    (egui::Key::S, Tool::Screenshot),
+    (egui::Key::R, Tool::RecordVideo),
+    (egui::Key::J, Tool::AnimatedClip),
+];
+
+pub(crate) fn chord(key: egui::Key, locale: Locale) -> String {
+    format!(
+        "Ctrl+{}+{}",
+        locale.pick("Shift", "Shift", "Mayús"),
+        key.name()
+    )
+}
+
 impl Tool {
-    fn label(self, locale: Locale) -> &'static str {
+    pub(crate) fn label(self, locale: Locale) -> &'static str {
         match self {
             Self::Louder => locale.pick("Aumentar volume", "Volume up", "Subir volumen"),
             Self::Quieter => locale.pick("Diminuir volume", "Volume down", "Bajar volumen"),
@@ -55,29 +71,27 @@ impl Tool {
                 "Biblioteca de aplicaciones",
             ),
             Self::Keymap => locale.pick(
-                "Mapear teclado e controle (Ctrl+Shift+A)",
-                "Map keyboard and controller (Ctrl+Shift+A)",
-                "Asignar teclado y mando (Ctrl+Mayús+A)",
+                "Mapear teclado e controle",
+                "Map keyboard and controller",
+                "Asignar teclado y mando",
             ),
             Self::Screenshot => locale.pick(
-                "Capturar tela PNG (Ctrl+Shift+S)",
-                "Capture PNG screenshot (Ctrl+Shift+S)",
-                "Capturar pantalla en PNG (Ctrl+Mayús+S)",
+                "Capturar tela PNG",
+                "Capture PNG screenshot",
+                "Capturar pantalla en PNG",
             ),
             Self::RecordVideo => locale.pick(
-                "Gravar MP4 sem áudio (Ctrl+Shift+R)",
-                "Record MP4 without audio (Ctrl+Shift+R)",
-                "Grabar MP4 sin audio (Ctrl+Mayús+R)",
+                "Gravar MP4 sem áudio",
+                "Record MP4 without audio",
+                "Grabar MP4 sin audio",
             ),
-            Self::StopRecording => locale.pick(
-                "Parar gravação (Ctrl+Shift+R)",
-                "Stop recording (Ctrl+Shift+R)",
-                "Detener la grabación (Ctrl+Mayús+R)",
-            ),
+            Self::StopRecording => {
+                locale.pick("Parar gravação", "Stop recording", "Detener la grabación")
+            }
             Self::AnimatedClip => locale.pick(
-                "Gravar os próximos 3 s em JPEG XL (Ctrl+Shift+J)",
-                "Record the next 3 seconds as JPEG XL (Ctrl+Shift+J)",
-                "Grabar los próximos 3 s en JPEG XL (Ctrl+Mayús+J)",
+                "Gravar os próximos 3 s em JPEG XL",
+                "Record the next 3 seconds as JPEG XL",
+                "Grabar los próximos 3 s en JPEG XL",
             ),
             Self::AnimatedGif => locale.pick(
                 "Gravar os próximos 3 s em GIF",
@@ -104,7 +118,20 @@ impl Tool {
     }
 
     pub fn button(self, ui: &mut egui::Ui, locale: Locale) -> bool {
-        let label = self.label(locale);
+        let base = self.label(locale);
+        let action = if self == Self::StopRecording {
+            Self::RecordVideo
+        } else {
+            self
+        };
+        let rendered;
+        let label =
+            if let Some((key, _)) = PLAYER_SHORTCUTS.iter().find(|(_, tool)| *tool == action) {
+                rendered = format!("{base} ({})", chord(*key, locale));
+                &rendered
+            } else {
+                base
+            };
         let response = ui.add(
             egui::Button::new("")
                 .min_size(Vec2::splat(32.0))

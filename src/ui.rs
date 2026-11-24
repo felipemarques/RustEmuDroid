@@ -2,6 +2,7 @@
 mod bluestacks;
 mod capture_panel;
 mod chrome;
+mod help;
 pub(crate) mod i18n;
 mod mascot;
 mod session_panel;
@@ -28,7 +29,7 @@ use std::{
 };
 
 use capture_panel::consume_capture_shortcut;
-use eframe::egui::{self, Color32, RichText};
+use eframe::egui::{self, Color32};
 use i18n::Locale;
 
 use crate::{
@@ -138,6 +139,7 @@ struct Launcher {
     capture_notice: Option<(CaptureEvent, std::time::Instant)>,
     controls: Option<Controls>,
     help_open: bool,
+    help_tab: help::HelpTab,
     #[cfg(windows)]
     blue: bluestacks::BlueStacksPanel,
     playing: bool,
@@ -189,6 +191,7 @@ impl Launcher {
             capture_notice: None,
             controls: None,
             help_open: false,
+            help_tab: help::HelpTab::About,
             #[cfg(windows)]
             blue: Default::default(),
             playing: false,
@@ -381,39 +384,7 @@ impl eframe::App for Launcher {
         #[cfg(windows)]
         self.blue.show(ctx, self.config.locale);
         if self.help_open {
-            let locale = self.config.locale;
-            let dialog = egui::Modal::new("help-dialog".into())
-                .frame(
-                    egui::Frame::popup(&ctx.style())
-                        .fill(PANEL)
-                        .inner_margin(24)
-                        .corner_radius(16),
-                )
-                .show(ctx, |ui| {
-                    ui.set_width(250.0);
-                    ui.vertical_centered(|ui| {
-                        mascot::show(
-                            ui,
-                            self.brand.id(),
-                            120.,
-                            self.config.animate_mascot,
-                            self.home_ready,
-                        );
-                        ui.add_space(8.0);
-                        ui.heading("RustEmuDroid");
-                        ui.label(RichText::new(version_label(locale)).color(MINT));
-                        ui.add_space(18.0);
-                        if ui
-                            .add(theme::button(locale.pick("Fechar", "Close", "Cerrar")))
-                            .clicked()
-                        {
-                            ui.close();
-                        }
-                    });
-                });
-            if dialog.should_close() {
-                self.help_open = false;
-            }
+            self.show_help(ctx);
         }
     }
 }
@@ -446,7 +417,7 @@ impl Launcher {
                     matches!(
                         e,
                         egui::Event::Key {
-                            key: egui::Key::F11,
+                            key: crate::toolbar::FULLSCREEN_KEY,
                             pressed: true,
                             repeat: false,
                             ..
@@ -468,7 +439,7 @@ impl Launcher {
             || self.settings.is_some()
             || self.help_open
             || self.external_dialog_open()
-            || self.display.as_ref().is_some_and(|d| d.mapping.editing);
+            || self.display.as_ref().is_some_and(|d| d.controls_open());
         let resizing = chrome::handle_resize(ctx);
         if show_chrome {
             self.title_bar(ctx, fullscreen, resizing);
@@ -479,26 +450,26 @@ impl Launcher {
                 && self.settings.is_none()
                 && !self.help_open
                 && !self.external_dialog_open();
-            if tools_interactive
-                && let Some(display) = &mut self.display
-                && !display.mapping.editing
-                && consume_capture_shortcut(ctx, egui::Key::A)
-            {
-                display.toggle_mapping();
-            }
             let capture_interactive = tools_interactive
                 && self
                     .display
                     .as_ref()
-                    .is_some_and(|display| !display.mapping.editing);
+                    .is_some_and(|display| !display.controls_open());
+            if tools_interactive
+                && consume_capture_shortcut(ctx, egui::Key::A)
+                && let Some(display) = &mut self.display
+                && !display.mapping.editing
+            {
+                display.toggle_mapping();
+            }
             if capture_interactive {
-                for (key, tool) in [
-                    (egui::Key::S, Tool::Screenshot),
-                    (egui::Key::R, self.record_tool()),
-                    (egui::Key::J, Tool::AnimatedClip),
-                ] {
-                    if consume_capture_shortcut(ctx, key) {
-                        self.capture_action(tool);
+                for (key, tool) in crate::toolbar::PLAYER_SHORTCUTS {
+                    if tool == Tool::Keymap || !consume_capture_shortcut(ctx, key) {
+                        continue;
+                    }
+                    match tool {
+                        Tool::RecordVideo => self.capture_action(self.record_tool()),
+                        other => self.capture_action(other),
                     }
                 }
             }
@@ -520,22 +491,17 @@ impl Launcher {
                             }
                             if self.home_ready
                                 && let Some(display) = &mut self.display
-                                && crate::toolbar::Tool::Keymap.button(ui, locale)
                             {
-                                display.toggle_mapping();
+                                let anchor = ui.next_widget_position().y;
+                                if crate::toolbar::Tool::Keymap.button(ui, locale) {
+                                    display.toggle_controls_menu(anchor);
+                                }
                             }
                             if self.home_ready {
                                 self.show_capture_tools(ui, capture_interactive);
                             }
                         });
                     });
-            }
-            if self.home_ready
-                && let Some(display) = &mut self.display
-                && display.mapping.editing
-            {
-                egui::TopBottomPanel::bottom("mapping-tools")
-                    .show(ctx, |ui| display.mapping.toolbar(ui, locale));
             }
             let interactive = self.settings.is_none()
                 && !self.help_open

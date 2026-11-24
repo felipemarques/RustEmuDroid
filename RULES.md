@@ -6,3 +6,4 @@
 - Keep disk images, overlays, user apps, accounts, saves and signing keys out of Git. Run foreign VM boot experiments on verified local copies with disposable writable overlays. Treat the original installation and the verified baseline as read-only.
 - Use the game’s frame report for game FPS. Identify the actual GPU, Android image, workload and preset when publishing measurements. The desktop counter measures frames presented by the panel.
 - Record the backend and boot milestone for compatibility claims. A player opening, a kernel starting and Android reporting boot completion are distinct observations.
+- Use SemVer for desktop releases. Bump the minor version for features and the patch version for bug fixes. Keep `Cargo.toml` and `Cargo.lock` in sync, and bump the Cargo version in the commit that delivers the change. The workflow tags a version increase on `main` and publishes the GitHub Release after both desktop builds pass. [Release procedure](docs/releases.md)

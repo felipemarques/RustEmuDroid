@@ -1,8 +1,9 @@
+mod canvas;
 mod editor;
 mod gestures;
+mod quick;
 
-use crate::ui::i18n::Locale;
-use eframe::egui::{self, Color32, Key, PointerButton, Rect, Vec2, vec2};
+use eframe::egui::{self, Key, PointerButton, Rect, Vec2, vec2};
 use gestures::{Binding, Frame, Gesture, Gestures};
 use gilrs::{Axis, Button, EventType, Gilrs};
 use serde::{Deserialize, Serialize};
@@ -86,7 +87,9 @@ pub(crate) struct Mapping {
     draft: Layout,
     draft_profiles: GameProfiles,
     pending: Option<Point>,
+    pending_key: Option<String>,
     place_stick: bool,
+    place_button: bool,
     selected_control: Option<usize>,
     placing_control: bool,
     placing_endpoint: bool,
@@ -99,12 +102,15 @@ pub(crate) struct Mapping {
     pad_initialized: bool,
     active: HashMap<String, Contact>,
     directions: HashSet<String>,
+    wheel_releases: HashSet<&'static str>,
     analog: [f32; 2],
     stick_touch: Option<Contact>,
     gestures: Gestures,
     grabbed_at: Option<egui::Context>,
     modifiers: [bool; 4],
-    control_dragging: Option<usize>,
+    canvas_drag: Option<canvas::Drag>,
+    pub(crate) blocked_rect: Option<Rect>,
+    pub(crate) quick: quick::QuickControls,
     editor: editor::Editor,
 }
 
@@ -138,11 +144,12 @@ impl Mapping {
                 }
             }
         }
+        self.quick.load(&path);
         self.path = path;
     }
 
     pub fn wants_package(&self) -> bool {
-        self.editing || !self.profiles.is_empty()
+        self.editing || self.quick.is_open() || !self.profiles.is_empty()
     }
     pub(super) fn package_changed(&self, package: Option<&str>) -> bool {
         self.package.as_deref() != package
@@ -164,13 +171,16 @@ impl Mapping {
 
     fn reset_placement(&mut self) {
         self.pending = None;
+        self.pending_key = None;
         self.place_stick = false;
+        self.place_button = false;
         self.selected_control = None;
         self.placing_control = false;
         self.placing_endpoint = false;
         self.await_binding = false;
         self.direction_binding = None;
-        self.control_dragging = None;
+        self.canvas_drag = None;
+        self.editor.palette_drag = false;
     }
 
     fn sync_draft(&mut self) {
@@ -283,77 +293,26 @@ impl Mapping {
         self.reset_draft();
     }
 
-    pub fn toolbar(&mut self, ui: &mut egui::Ui, locale: Locale) {
-        ui.horizontal_wrapped(|ui| {
-            ui.strong(locale.pick("Mapeamento", "Mapping", "Asignación"));
-            ui.label(self.package.as_deref().unwrap_or(locale.pick(
-                "Identificando aplicativo…",
-                "Identifying app…",
-                "Identificando aplicación…",
-            )));
-            ui.separator();
-            if ui
-                .selectable_label(!self.place_stick, locale.pick("Botão", "Button", "Botón"))
-                .clicked()
-            {
-                self.reset_placement();
-            }
-            if ui
-                .selectable_label(
-                    self.place_stick,
-                    locale.pick("Direcional", "Directional control", "Control direccional"),
-                )
-                .clicked()
-            {
-                self.reset_placement();
-                self.place_stick = true;
-            }
-            if self.place_stick {
-                ui.add(
-                    egui::Slider::new(&mut self.draft.radius, 0.035..=0.22)
-                        .text(locale.pick("raio", "radius", "radio")),
-                );
-            }
-            if crate::ui::theme::primary(
-                ui,
-                self.package.is_some() && !self.load_failed,
-                locale.pick("Salvar", "Save", "Guardar"),
-            )
-            .clicked()
-            {
-                self.save();
-            }
-            if ui
-                .add(crate::ui::theme::button(
-                    locale.pick("Cancelar", "Cancel", "Cancelar"),
-                ))
-                .clicked()
-            {
-                self.editing = false;
-                self.reset_draft();
-            }
-        });
-        if !self.editing {
-            return;
+    pub(crate) fn cancel_edit_step(&mut self) -> bool {
+        if self.pending.is_some()
+            || self.placing_control
+            || self.placing_endpoint
+            || self.await_binding
+            || self.editor.palette_drag
+            || self.canvas_drag.is_some()
+            || self.place_stick
+            || self.place_button
+        {
+            self.reset_placement();
+            return true;
         }
-        self.advanced_toolbar(ui, locale);
-        ui.small(if self.place_stick { locale.pick("Clique no centro do direcional do jogo para usar WASD ou o analógico esquerdo. Clique direito remove.", "Click the center of the in-game stick to use WASD or the left stick. Right-click to remove.", "Haz clic en el centro del mando virtual para usar WASD o la palanca izquierda. Haz clic derecho para quitarlo.") }
-            else if self.pending.is_some() { locale.pick("Pressione a tecla ou o botão do controle que deve tocar nesse ponto.", "Press the key or controller button that should tap this point.", "Pulsa la tecla o el botón del mando que deba tocar este punto.") }
-            else { locale.pick("Clique em um botão do jogo e pressione uma tecla ou botão do controle. Clique direito em uma marca para removê-la.", "Click an in-game button and press a key or controller button. Right-click a marker to remove it.", "Haz clic en un botón del juego y pulsa una tecla o un botón del mando. Haz clic derecho en un marcador para quitarlo.") });
-        if let Some(error) = &self.error {
-            ui.colored_label(
-                Color32::LIGHT_RED,
-                locale.pick(
-                    "Falha no mapeamento",
-                    "Mapping error",
-                    "Error de asignación",
-                ),
-            )
-            .on_hover_text(error);
-        }
+        false
     }
 
     fn layout(&self) -> Option<&Layout> {
+        if !self.quick.enabled {
+            return None;
+        }
         self.package
             .as_ref()
             .and_then(|p| self.profiles.get(p))
@@ -402,7 +361,13 @@ impl Mapping {
     }
 
     pub(super) fn release(&mut self) -> Vec<Contact> {
+        self.canvas_drag = None;
+        if self.editor.palette_drag {
+            self.editor.palette_drag = false;
+            self.placing_control = false;
+        }
         self.directions.clear();
+        self.wheel_releases.clear();
         self.analog = [0.; 2];
         self.modifiers = [false; 4];
         self.set_mouse_capture(None);
@@ -424,6 +389,9 @@ impl Mapping {
     fn control(&mut self, input: &str, down: bool, changes: &mut Vec<Contact>) {
         if self.editing {
             if down && let Some(point) = self.pending.take() {
+                if let Some(old_key) = self.pending_key.take() {
+                    self.draft.buttons.remove(&old_key);
+                }
                 self.draft.buttons.insert(input.to_owned(), point);
             }
             return;
@@ -569,156 +537,6 @@ impl Mapping {
         }
     }
 
-    fn overlay(&mut self, ui: &mut egui::Ui, rect: Rect) {
-        let to_screen = |point: Point| rect.min + rect.size() * vec2(point[0], point[1]);
-        let color = Color32::from_rgb(255, 175, 94);
-        let painter = ui.painter().with_clip_rect(rect);
-        for (input, pos) in &self.draft.buttons {
-            let p = to_screen(*pos);
-            painter.circle_filled(p, 17., Color32::from_black_alpha(200));
-            painter.circle_stroke(p, 17., (2., color));
-            painter.text(
-                p,
-                egui::Align2::CENTER_CENTER,
-                label(input),
-                egui::FontId::proportional(12.),
-                Color32::WHITE,
-            );
-        }
-        if let Some(center) = self.draft.stick {
-            let p = to_screen(center);
-            painter.circle_stroke(
-                p,
-                self.draft.radius * rect.width().min(rect.height()),
-                (2., color),
-            );
-            painter.text(
-                p,
-                egui::Align2::CENTER_CENTER,
-                "WASD / L",
-                egui::FontId::proportional(14.),
-                color,
-            );
-        }
-        if let Some(point) = self.pending {
-            painter.circle_stroke(to_screen(point), 18., (3., Color32::WHITE));
-        }
-        for (index, binding) in self.draft.controls.iter().enumerate() {
-            let pos = to_screen(binding.at);
-            let selected = self.selected_control == Some(index);
-            let edge = if selected { Color32::WHITE } else { color };
-            if let Gesture::Swipe { end, .. } = binding.gesture {
-                let end = to_screen(end);
-                painter.line_segment([pos, end], (2., edge));
-                painter.circle_stroke(end, 7., (2., edge));
-            }
-            painter.circle_filled(pos, 18., Color32::from_black_alpha(220));
-            painter.circle_stroke(pos, 18., (2., edge));
-            let text = label(&binding.input);
-            let index_number = (index + 1).to_string();
-            painter.text(
-                pos,
-                egui::Align2::CENTER_CENTER,
-                if text.is_empty() { &index_number } else { text },
-                egui::FontId::proportional(12.),
-                Color32::WHITE,
-            );
-        }
-        let response = ui.interact(
-            rect,
-            ui.id().with("place-touch"),
-            egui::Sense::click_and_drag(),
-        );
-        if self.package.is_none() {
-            return;
-        }
-        if let Some(p) = response.interact_pointer_pos() {
-            let at = [
-                ((p.x - rect.left()) / rect.width()).clamp(0., 1.),
-                ((p.y - rect.top()) / rect.height()).clamp(0., 1.),
-            ];
-            let closest = |p: egui::Pos2| {
-                self.draft
-                    .controls
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .find(|(_, binding)| to_screen(binding.at).distance(p) < 23.)
-                    .map(|(index, _)| index)
-            };
-            let selected = closest(p);
-            if self.await_binding {
-                return;
-            }
-            if response.drag_started() && !self.placing_control && !self.placing_endpoint {
-                let origin = ui.input(|input| input.pointer.press_origin()).unwrap_or(p);
-                self.control_dragging = closest(origin);
-                if self.control_dragging.is_some() {
-                    self.selected_control = self.control_dragging;
-                }
-            }
-            if response.dragged()
-                && let Some(index) = self.control_dragging
-                && let Some(binding) = self.draft.controls.get_mut(index)
-            {
-                binding.at = at;
-            }
-            if response.drag_stopped() {
-                self.control_dragging = None;
-            }
-            if response.clicked() {
-                if self.placing_control {
-                    let mut gesture = self.preset.clone();
-                    if let Gesture::Swipe { end, .. } = &mut gesture {
-                        *end = [at[0], (at[1] - 0.18).max(0.)];
-                    }
-                    self.selected_control = Some(self.draft.controls.len());
-                    self.draft.controls.push(Binding {
-                        input: String::new(),
-                        at,
-                        gesture,
-                    });
-                    self.placing_control = false;
-                    self.pending = None;
-                } else if self.placing_endpoint {
-                    if let Some(binding) = self
-                        .selected_control
-                        .and_then(|i| self.draft.controls.get_mut(i))
-                        && let Gesture::Swipe { end, .. } = &mut binding.gesture
-                    {
-                        *end = at;
-                    }
-                    self.placing_endpoint = false;
-                } else if let Some(index) = selected {
-                    self.selected_control = Some(index);
-                    self.pending = None;
-                } else if self.place_stick {
-                    self.draft.stick = Some(at);
-                } else {
-                    self.pending = Some(at);
-                    self.selected_control = None;
-                }
-            } else if response.secondary_clicked() {
-                if let Some(index) = selected {
-                    self.draft.controls.remove(index);
-                    self.reset_placement();
-                    return;
-                }
-                self.draft
-                    .buttons
-                    .retain(|_, v| to_screen(*v).distance(p) > 20.);
-                if self
-                    .draft
-                    .stick
-                    .is_some_and(|v| to_screen(v).distance(p) < 24.)
-                {
-                    self.draft.stick = None;
-                }
-                self.pending = None;
-            }
-        }
-    }
-
     pub(super) fn frame(
         &mut self,
         ui: &mut egui::Ui,
@@ -729,8 +547,12 @@ impl Mapping {
         if (!self.editing && self.layout().is_none()) || rect.width() < 1. || rect.height() < 1. {
             return changes;
         }
+        let capture_already_active = self.await_binding;
+        let visible = rect.intersect(ui.clip_rect());
         if self.editing {
-            self.overlay(ui, rect);
+            self.canvas(ui, rect);
+        } else if self.quick.show_hints {
+            self.paint_hints(ui, rect);
         }
         if !self.pad_initialized {
             self.gamepad = Gilrs::new().ok();
@@ -775,6 +597,9 @@ impl Mapping {
                 }
             }
         }
+        for wheel in std::mem::take(&mut self.wheel_releases) {
+            self.handle_input(wheel, false, &frame, &mut changes);
+        }
         for event in events {
             match *event {
                 egui::Event::Key {
@@ -796,18 +621,37 @@ impl Mapping {
                     button,
                     pressed,
                     ..
-                } if !pressed || rect.contains(pos) || self.grabbed_at.is_some() => {
+                } if !pressed || visible.contains(pos) || self.grabbed_at.is_some() => {
                     // Clicking to place a legacy marker still waits for a keyboard/gamepad key.
-                    if !self.editing || self.await_binding {
+                    if !self.editing
+                        || (capture_already_active
+                            && self.await_binding
+                            && self.canvas_contains(visible, pos))
+                    {
                         self.handle_input(pointer_id(button), pressed, &frame, &mut changes);
                     }
                 }
                 egui::Event::MouseWheel { delta, .. }
-                    if pointer.is_some_and(|p| rect.contains(p)) || self.grabbed_at.is_some() =>
+                    if pointer.is_some_and(|p| {
+                        visible.contains(p) && (!self.editing || self.canvas_contains(visible, p))
+                    }) || self.grabbed_at.is_some() =>
                 {
                     if let Some(key) = wheel_id(delta) {
                         self.handle_input(key, true, &frame, &mut changes);
-                        self.handle_input(key, false, &frame, &mut changes);
+                        let directional = !self.editing
+                            && self.layout().is_some_and(|layout| {
+                                !layout.buttons.contains_key(key)
+                                    && layout.controls.iter().any(|binding| {
+                                        matches!(binding.gesture, Gesture::Dpad { .. })
+                                            && binding.captures(key)
+                                    })
+                            });
+                        if directional {
+                            // Give the D-pad one frame to apply the wheel direction before releasing it.
+                            self.wheel_releases.insert(key);
+                        } else {
+                            self.handle_input(key, false, &frame, &mut changes);
+                        }
                     }
                 }
                 egui::Event::MouseMoved(delta) if !self.editing => {

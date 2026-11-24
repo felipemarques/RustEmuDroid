@@ -2,6 +2,8 @@
 #[cfg(test)]
 mod live_input_test;
 mod mapping;
+#[cfg(all(test, windows))]
+mod preview;
 
 use crate::{capture::Shot, ui::i18n::Locale};
 use eframe::egui::{self, ColorImage, Key, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
@@ -366,7 +368,19 @@ impl Display {
     }
     pub fn toggle_mapping(&mut self) {
         self.release();
+        self.mapping.close_quick();
         self.mapping.toggle();
+    }
+    pub(crate) fn controls_open(&self) -> bool {
+        self.mapping.editing || self.mapping.quick.is_open()
+    }
+    pub(crate) fn toggle_controls_menu(&mut self, anchor: f32) {
+        self.release();
+        if self.mapping.editing {
+            self.mapping.toggle();
+        } else {
+            self.mapping.toggle_quick(anchor);
+        }
     }
     pub(crate) fn release(&mut self) {
         let released = self.mapping.release();
@@ -431,6 +445,18 @@ impl Display {
         }
     }
     pub fn show(&mut self, ui: &mut egui::Ui, interactive: bool, locale: Locale) {
+        let bounds = ui.available_rect_before_wrap();
+        self.mapping.blocked_rect = self.mapping.panel_rect(bounds);
+        let menu = self.mapping.quick.is_open();
+        let modal_keyboard = self.controls_open()
+            && (egui::Popup::is_any_open(ui.ctx()) || ui.input(|i| i.key_pressed(Key::Escape)));
+        self.show_game(ui, interactive && !menu && !modal_keyboard, locale);
+        if interactive && self.controls_open() {
+            self.mapping.floating_panel(ui.ctx(), bounds, locale);
+        }
+    }
+
+    fn show_game(&mut self, ui: &mut egui::Ui, interactive: bool, locale: Locale) {
         let (frame, error) = {
             let mut shared = self.state.lock().unwrap();
             (shared.latest.take(), shared.error.clone())
@@ -461,15 +487,32 @@ impl Display {
         };
         let size = Vec2::new(self.size[0] as f32, self.size[1] as f32);
         let outer = ui.available_rect_before_wrap();
-        let scale = (outer.width() / size.x).min(outer.height() / size.y);
-        let rect = Rect::from_center_size(outer.center(), size * scale);
+        // In fullscreen the edge bars cover the guest. Revealing tools never scales its image.
+        let viewport = ui.input(|i| {
+            if i.viewport().fullscreen == Some(true) {
+                i.content_rect()
+            } else {
+                outer
+            }
+        });
+        let scale = (viewport.width() / size.x).min(viewport.height() / size.y);
+        let rect = Rect::from_center_size(viewport.center(), size * scale);
         ui.painter().image(
             texture.id(),
             rect,
             Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
             egui::Color32::WHITE,
         );
+        if self.mapping.editing {
+            ui.painter()
+                .rect_filled(rect, 0., egui::Color32::from_black_alpha(83));
+        }
         if !interactive {
+            if self.mapping.editing {
+                self.mapping.paint_canvas(ui, rect);
+            } else if self.mapping.quick.preview_hints() {
+                self.mapping.paint_hints(ui, rect);
+            }
             self.release();
             return;
         }
@@ -519,7 +562,7 @@ impl Display {
                     pressed,
                     ..
                 } if !self.mapping.captures_pointer(egui::PointerButton::Primary) => {
-                    if pressed && rect.contains(pos) {
+                    if pressed && rect.intersect(outer).contains(pos) {
                         let xy = self.coordinates(pos, rect);
                         self.touch(xy, 1024);
                         self.contact = Some(xy);
@@ -720,7 +763,6 @@ mod tests {
         };
         display.mapping.load(maps.clone());
         display.set_package(Some("test.game"));
-        display.toggle_mapping();
         let screen = Rect::from_min_size(Pos2::ZERO, vec2(960., 640.));
         let tick = |d: &mut Display, events| {
             ctx.run(
@@ -730,10 +772,6 @@ mod tests {
                     ..Default::default()
                 },
                 |ctx| {
-                    if d.mapping.editing {
-                        egui::TopBottomPanel::bottom("tools")
-                            .show(ctx, |ui| d.mapping.toolbar(ui, Locale::default()));
-                    }
                     egui::CentralPanel::default()
                         .show(ctx, |ui| d.show(ui, true, Locale::default()));
                 },
@@ -765,16 +803,28 @@ mod tests {
             }
         };
         let label_pos = |d: &mut Display, wanted: &str| {
-            tick(d, vec![])
-                .shapes
-                .into_iter()
-                .find_map(|s| match s.shape {
+            let _ = tick(d, vec![]);
+            let out = tick(d, vec![]);
+            out.shapes
+                .iter()
+                .find_map(|s| match &s.shape {
                     egui::Shape::Text(t) if t.galley.text() == wanted => {
                         Some(t.visual_bounding_rect().center())
                     }
                     _ => None,
                 })
-                .unwrap()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Missing label {wanted:?}; visible: {:?}",
+                        out.shapes
+                            .iter()
+                            .filter_map(|s| match &s.shape {
+                                egui::Shape::Text(t) => Some(t.galley.text()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                    )
+                })
         };
         let key = |key, pressed| Event::Key {
             key,
@@ -783,15 +833,70 @@ mod tests {
             repeat: false,
             modifiers: Modifiers::NONE,
         };
+        let image_bounds = |d: &mut Display| {
+            let texture = d.texture.as_ref().unwrap().id();
+            tick(d, vec![])
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Mesh(m) if m.texture_id == texture => Some(m.calc_bounds()),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let original = image_bounds(&mut display);
+        display.toggle_controls_menu(145.);
+        assert_eq!(original, image_bounds(&mut display));
+        let editor = label_pos(&mut display, "Editor de controles");
+        click(&mut display, editor);
+        assert!(display.mapping.editing);
+        assert_eq!(original, image_bounds(&mut display));
+        let held = label_pos(&mut display, "Toque mantido");
+        click(&mut display, held);
         click(&mut display, pos2(490., 300.));
         tick(&mut display, vec![key(Key::P, true), key(Key::P, false)]);
         let stick = label_pos(&mut display, "Direcional");
-        click(&mut display, stick);
-        click(&mut display, pos2(450., 300.));
+        let wheel = pos2(180., 420.);
+        let drag = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        tick(
+            &mut display,
+            vec![Event::PointerMoved(stick), drag(stick, true)],
+        );
+        tick(
+            &mut display,
+            vec![Event::PointerMoved(stick - vec2(24., 0.))],
+        );
+        tick(&mut display, vec![Event::PointerMoved(wheel)]);
+        tick(&mut display, vec![drag(wheel, false)]);
+        for (direction, new_key) in [("W", Key::I), ("S", Key::K), ("A", Key::J), ("D", Key::L)] {
+            let cap = label_pos(&mut display, direction);
+            click(&mut display, cap);
+            tick(&mut display, vec![key(new_key, true), key(new_key, false)]);
+        }
         let save = label_pos(&mut display, "Salvar");
+        let _ = tick(&mut display, vec![Event::PointerMoved(save)]);
+        assert!(
+            display.mapping.blocked_rect.unwrap().contains(save),
+            "save at {save:?}, panel {:?}",
+            display.mapping.blocked_rect
+        );
         click(&mut display, save);
-        assert!(!display.mapping.editing);
-        assert!(display.mapping.captures(Key::P) && display.mapping.captures(Key::W));
+        assert!(
+            !display.mapping.editing,
+            "save at {save:?} on {:?}, panel {:?}",
+            ctx.layer_id_at(save),
+            display.mapping.blocked_rect
+        );
+        assert!(
+            [Key::P, Key::I, Key::K, Key::J, Key::L]
+                .into_iter()
+                .all(|k| display.mapping.captures(k))
+        );
         assert!(maps.is_file());
         let capture = adb_args.map(|(adb, serial)| {
             let device = std::env::var("RUSTEMUDROID_TEST_TOUCH_DEVICE").unwrap();
@@ -811,7 +916,7 @@ mod tests {
         if capture.is_some() {
             thread::sleep(Duration::from_millis(500));
         }
-        tick(&mut display, vec![key(Key::P, true), key(Key::W, true)]);
+        tick(&mut display, vec![key(Key::P, true), key(Key::I, true)]);
         if capture.is_some() {
             thread::sleep(Duration::from_millis(150));
         }
@@ -840,7 +945,13 @@ mod tests {
                         .map(|touch| (touch.identifier, touch.pressure)),
                 );
             }
-            assert_eq!(ids, [(1, 1024), (9, 1024), (9, 1024), (1, 0), (9, 0)]);
+            let distinct: std::collections::HashSet<_> = ids
+                .iter()
+                .filter(|(_, p)| *p > 0)
+                .map(|(id, _)| *id)
+                .collect();
+            assert_eq!(distinct.len(), 2, "{ids:?}");
+            assert!(distinct.iter().all(|id| ids.contains(&(*id, 0))));
         }
     }
 
