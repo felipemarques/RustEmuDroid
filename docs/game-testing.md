@@ -101,6 +101,56 @@ We measured distinct presentations on PUBG's Android SurfaceView using column tw
 
 One additional BlueStacks pass kept its original global Balanced preference, HD lobby and Lobby Graphics Enhancement enabled. It returned 29.85 presentations/s with a 117 ms maximum gap. This warm pass included an Inventory check before the run. The averages in the table use only the matched custom runs.
 
+### Why did BlueStacks present PUBG's Inventory more consistently?
+
+Both players ran a hardware-accelerated Android VM. On this Windows host, the BlueStacks Pie64 player log identified Microsoft Hyper-V as its selected hypervisor and the RTX 5070 Ti as its host OpenGL renderer. RustEmuDroid used QEMU with Windows Hypervisor Platform. Both guests ran the ARM64 build of PUBG on an x86-64 CPU. BlueStacks' `libnb.so` log recorded successful initialization of Houdini 9.0.7a. The Google Play Android 17 guest used `libndk_translation.so`, and PUBG created an ANGLE Vulkan instance. These are different translation and graphics paths. Their individual contributions to FPS have not been isolated.
+
+The installed BlueStacks `libOpenglRender.dll` exports GLES translation, GL dispatch and emugl renderer-selection functions. Its PE import table includes an ASTC texture decoder. These observations establish capabilities of the shipped binary. The runtime logs identify the physical graphics adapter used. The ASTC import does not tell us whether PUBG used that decoder during Inventory. BlueStacks' high-frame-rate switch was off and its limit was 60 in the measured instance. The game offered High for the lobby. [BlueStacks frame-rate controls](https://support.bluestacks.com/hc/en-us/articles/360058986331-Customize-FPS-on-BlueStacks-5)
+
+BlueStacks also documents settings for individual games. Its PUBG guide pairs an in-game Extreme frame-rate setting with a target of up to 60 FPS. Its graphics guide lists games for which it prompts the player to switch renderers. The test below keeps Lobby at High on both players to reproduce the menu transitions. [PUBG settings](https://support.bluestacks.com/hc/en-us/articles/4405793595277-Recommended-settings-for-PUBG-Mobile-on-BlueStacks-5) · [Renderer selection by game](https://support.bluestacks.com/hc/en-us/articles/360059893151-How-to-use-a-graphics-renderer-on-BlueStacks-5)
+
+BlueStacks exposed an Adreno 650 name to its Android guest even when the Windows player log identified the Radeon 780M as the active OpenGL renderer. Both Android displays had a resolution of 1600 × 900. Android reported a density of 240 dpi on BlueStacks and 320 dpi on RustEmuDroid. The comparison therefore includes differences in the device configuration seen by the game.
+
+#### When the game's next frame is ready
+
+We matched Android's buffer-ready and actual presentation timestamps for the same two frames around the longest gap after the first Inventory close. These are timestamps reported by the Android compositor for PUBG's SurfaceView. The RustEmuDroid tests cover two GPU configurations. Both used the Radeon for the game's Vulkan device. The Android compositor used RTX GLES for the mixed tests and Radeon GLES for the tests with both Android graphics paths on the integrated GPU. The desktop window's final Windows composition is outside this measurement.
+
+| Configuration | Run | Gap between ready frames | Gap between presentations |
+|---|---|---:|---:|
+| BlueStacks Pie64, RTX | First | 174.26 ms | 183.33 ms |
+| BlueStacks Pie64, RTX | Repeat | 174.93 ms | 166.67 ms |
+| BlueStacks Pie64, Radeon | First | Two reported values, see below | 450.00 ms |
+| BlueStacks Pie64, Radeon | Repeat | 183.05 ms | 183.33 ms |
+| RustEmuDroid 0.13.3, Radeon game Vulkan / RTX compositor GLES | First | 1,551.55 ms | 1,555.01 ms |
+| RustEmuDroid 0.13.3, Radeon game Vulkan / RTX compositor GLES | Repeat | 1,615.49 ms | 1,615.42 ms |
+| RustEmuDroid, Radeon game Vulkan and compositor GLES | First | 1,631.27 ms | 1,631.25 ms |
+| RustEmuDroid, Radeon game Vulkan and compositor GLES | Repeat | 1,649.11 ms | 1,650.07 ms |
+
+The long gaps in those RustEmuDroid runs were already present when the next game buffer became ready. In an independent RTX trace, the game's main thread ran for 1.32 seconds during a 2.17-second producer gap. In the display streaming experiment below, the guest still paused for over a second with the desktop stream disconnected. Together these observations point to work upstream of the Rust window. Game code, ARM translation, loading and GPU completion can all contribute at that point. [Relative buffer-ready and presentation timestamps](../benchmarks/pubg-mobile/inventory-ready-timing.csv) · [Android FrameTracker column definitions](https://android.googlesource.com/platform/frameworks/native/+/master/services/surfaceflinger/FrameTracker.cpp)
+
+To reproduce a rate from the CSV, count distinct presentation times from 0 inclusive to 48 seconds exclusive for the chosen run, then divide by 48. Timestamps are relative to the first scheduled Inventory tap. For the first close, select consecutive presentations within seconds 7–12 and find their longest interval. Compare the ready timestamps attached to those same presentations. The CSV preserves both ready values whenever the compositor associates two buffers with one presentation. The mixed-GPU repeat included an extra diagnostic screenshot near the start of its first Inventory open.
+
+#### Inventory on the Radeon 780M
+
+Selecting the Radeon for Vulkan in RustEmuDroid initially left Android's GLES compositor on the RTX. A temporary Windows graphics preference on the specific SDK `qemu-system-x86_64.exe` process placed both on the Radeon. Before measuring, we verified the Android compositor renderer and the game's own ANGLE renderer string from the newly launched PUBG process. BlueStacks' player log independently identified the Radeon as its physical OpenGL renderer.
+
+| Android player on the Radeon | Presentations/s, first / repeat | Pooled presentations/s | P99 interval, first / repeat | Gaps over 250 ms per 96 s | One-second windows below 15 presentations |
+|---|---:|---:|---:|---:|---:|
+| BlueStacks Pie64 | 29.23 / 29.50 | **29.36** | 66.67 / 66.67 ms | 4 | 1 |
+| RustEmuDroid 0.13.3, Android 17 | 25.38 / 24.85 | **25.11** | 251.30 / 250.10 ms | 27 | 10 |
+
+Each primary run started a fresh game process with disk caches retained and used the same 48-second Balanced/High route as the RTX comparison above. BlueStacks delivered 2,819 presentations to RustEmuDroid's 2,411 in 96 seconds, a difference of 4.25/s (16.9% relative to RustEmuDroid). The slowest one-second window contained 13 presentations on BlueStacks and two on RustEmuDroid. On RustEmuDroid the ready-to-ready gaps were within 1 ms of the presentation gaps in both first closes. Using the same adapter for game Vulkan and compositor GLES therefore still produced the long pause on this host. The game accounts, displayed inventory and Android density differed between players.
+
+The second presentation of the 450 ms BlueStacks gap in the first pass had two ready timestamps. They imply ready-to-ready intervals of 4.12 or 14.77 ms for those same endpoints. The following presentation had a ready time more than 450 ms later than either value. The timestamps support a disruption around this transition, with some uncertainty about the individual buffers. A separate diagnostic pass with tracing on and Inventory already visited presented 1,432 frames in 48 seconds (29.83/s). The diagnostic pass is excluded from the primary rates. [Relative frame timestamps for both GPUs](../benchmarks/pubg-mobile/inventory-ready-timing.csv)
+
+Both primary BlueStacks Radeon passes and the mixed-GPU RustEmuDroid repeat restarted the game and retained its disk caches. The first mixed-GPU RustEmuDroid pass followed a fresh launch and in-game preset selection. Its collection restarted in the same game process after a surface-selection error, before the first Inventory tap.
+
+#### How CPU time was spent during a warm BlueStacks transition
+
+In the separate BlueStacks Radeon diagnostic pass, the game's render hardware interface thread queued two buffers 69.846 ms apart during the first close. Their ready times in SurfaceFlinger differed by 69.847 ms and their presentations by 83.333 ms. Across the retained trace, 1,305 of 1,312 ready timestamps matched a queue event within 20 microseconds. During the 69.846 ms interval, the Unreal game thread ran for 45.114 ms, the rendering thread for 2.342 ms, the render hardware interface thread for 2.314 ms, and the SurfaceFlinger main thread for 0.543 ms. These intervals can overlap across the four virtual CPUs. The trace buffer lost its oldest events but retained these two endpoints. This pass describes a warm transition. The larger 450 ms and 183 ms stalls in the two primary Radeon passes were recorded without CPU tracing.
+
+The raw BlueStacks scheduler events show the render hardware interface thread spending 61.3 ms runnable during that ready-to-ready interval. In the earlier RustEmuDroid 0.4.0 RTX recording with a first-close marker, the 1,674 ms producer gap included 1,293 ms of game-thread CPU, 93 ms of game-thread runnable wait and 4.8 ms of SurfaceFlinger main-thread CPU. These recordings cover different configurations and process warm-up states. They identify where time accumulated within each transition. A controlled trial changing just the ARM translator, game driver or Android image would be needed to assign a speed difference to that component.
+
 ### PUBG startup on Kemu Android 16
 
 We tested the existing Original profile in RustEmuDroid 0.13.3 on Windows with Kemu Android 16, the RTX 5070 Ti, 1600 × 900 and the same ARM64 PUBG build 4.7.0 (21718). Each test had its own VM boot. We verified the selected GPU, game version, AVD and Berberis translation mode on each launch.
