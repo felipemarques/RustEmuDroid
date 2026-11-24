@@ -160,9 +160,14 @@ Clique em **? → Atalhos** na barra de título para ver as teclas disponíveis,
 | Tirar print | **Ctrl+Shift+S** | PNG na resolução da tela do Android |
 | Iniciar ou parar o vídeo | **Ctrl+Shift+R** | MP4 H.264 sem áudio, com alvo de 30 FPS |
 | Gravar um momento | **Ctrl+Shift+J** | Os próximos três segundos em JPEG XL animado a 10 FPS |
+| Salvar um lance recente | **Ctrl+Shift+H** | Os três segundos anteriores em JPEG XL animado a 10 FPS, com o replay instantâneo ligado |
 | Gravar um GIF | Botão GIF na barra lateral | Os próximos três segundos em GIF em loop a 10 FPS |
 
-O botão de pasta na barra lateral abre `captures/`, ao lado de `launcher.json`. O Rust grava o PNG diretamente. Para MP4, instale FFmpeg com `libx264`. Para JPEG XL animado, procure o codificador `libjxl_anim`. Se o FFmpeg estiver fora do PATH, informe o caminho do executável em `RUSTEMUDROID_FFMPEG`. As animações preservam a proporção da imagem e cabem em 720 × 720. A gravação começa ao apertar o atalho. Ao fechar a janela, o cliente espera o arquivo terminar de gravar.
+Para guardar um gol ou uma ultrapassagem que acabou de acontecer, abra o relógio na barra lateral e ative o replay instantâneo **antes** de jogar. Quando estiver pronto, aperte **Ctrl+Shift+H** depois do lance ou salve pelo próprio menu. O replay começa desligado a cada sessão do Android. Desligá-lo descarta o trecho que ainda estava na memória.
+
+![Menu de replay instantâneo no aplicativo em português](docs/screenshots/pt-br/replay.png)
+
+O botão de pasta na barra lateral abre `captures/`, ao lado de `launcher.json`. O Rust grava o PNG diretamente. Para MP4, instale FFmpeg com `libx264`. Para JPEG XL animado, use o codificador `libjxl_anim`. Se o FFmpeg estiver fora do PATH, informe o caminho do executável em `RUSTEMUDROID_FFMPEG`. As animações preservam a proporção da imagem e cabem em 720 × 720. Ao fechar a janela, o cliente aguarda as exportações em andamento.
 
 ## Criar um esquema de controle
 
@@ -186,7 +191,7 @@ A paleta tem 15 opções para 14 tipos de controle. **Roda do mouse** é um **De
 
 ![Editor de controles com um direcional W, A, S, D sobre o menu principal do SuperTuxKart](docs/screenshots/pt-br/editor.png)
 
-*O SuperTuxKart aparece em inglês. O jogo tem sua própria configuração de idioma.*
+*O idioma do SuperTuxKart pode ser alterado nas configurações do próprio jogo.*
 
 ## Compilar o projeto
 

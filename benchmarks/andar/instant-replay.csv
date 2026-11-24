@@ -1,0 +1,5 @@
+run,windows_version,replay_buffer,guest_intervals,guest_span_s,guest_presentations_per_s,guest_median_ms,guest_p95_ms,desktop_cpu_s,host_span_s,desktop_private_bytes_before,desktop_private_bytes_after
+prior-070,0.7.0,unavailable,633,21.49995,29.4419,33.3492,46.5078,4.89062,22.30162,133582848,133668864
+off-a1,0.8.0,off,670,21.53202,31.1165,33.1991,36.2659,5.06250,22.31690,188657664,188674048
+on-b,0.8.0,on,663,21.53263,30.7905,33.2995,35.8875,5.87500,22.31785,213348352,214069248
+off-a2,0.8.0,off,689,21.53419,31.9956,33.1134,36.1421,4.84375,22.31919,189411328,189300736

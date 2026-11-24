@@ -160,9 +160,14 @@ Click **? → Shortcuts** in the title bar to see the available keys, what each 
 | Screenshot | **Ctrl+Shift+S** | Full-resolution PNG of the guest display |
 | Start or stop video | **Ctrl+Shift+R** | Silent H.264 MP4 with a 30 FPS target |
 | Record a moment | **Ctrl+Shift+J** | The next three seconds as an animated JPEG XL at 10 FPS |
+| Save a recent highlight | **Ctrl+Shift+H** | The previous three seconds as an animated JPEG XL at 10 FPS, with instant replay enabled |
 | Record a GIF | GIF tool in the sidebar | The next three seconds as a looping GIF at 10 FPS |
 
-Open the folder button on the sidebar to find your files in `captures/` beside `launcher.json`. PNG works directly in Rust. Install FFmpeg with `libx264` for MP4 and `libjxl_anim` for animated JPEG XL. Set `RUSTEMUDROID_FFMPEG` to an executable path if FFmpeg is outside PATH. The two short animations fit within 720 × 720 and keep their aspect ratio. Recording starts when you press the shortcut. The window waits for the file to finish writing when you close it.
+To keep a goal or an overtake you just saw, open the clock on the sidebar and enable instant replay **before** playing. Once the buffer is ready, press **Ctrl+Shift+H** after the highlight, or save it from that menu. The buffer is off at the start of each Android session. Turning it off discards its unsaved footage.
+
+![Instant replay menu in the English desktop client](docs/screenshots/en-us/replay.png)
+
+Open the folder button on the sidebar to find your files in `captures/` beside `launcher.json`. PNG works directly in Rust. Install FFmpeg with `libx264` for MP4 and `libjxl_anim` for animated JPEG XL. Set `RUSTEMUDROID_FFMPEG` to an executable path if FFmpeg is outside PATH. Animations fit within 720 × 720 and keep their aspect ratio. The window waits for pending exports when you close it.
 
 ## Create a control scheme
 
@@ -186,7 +191,7 @@ The palette has 15 tiles for 14 control types. **Mouse wheel** is a ready-made *
 
 ![The controls editor showing a W, A, S, D D-pad over the SuperTuxKart main menu](docs/screenshots/en-us/editor.png)
 
-*SuperTuxKart is shown in English. The game manages its language separately from the control editor.*
+*SuperTuxKart's language can be changed in the game's own settings.*
 
 ## Build from source
 

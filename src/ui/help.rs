@@ -124,6 +124,9 @@ fn shortcuts(ui: &mut egui::Ui, l: Locale) {
             Tool::AnimatedClip => l.pick("Grave os próximos três segundos em JPEG XL animado. O clipe é salvo automaticamente.",
                 "Record the next three seconds as an animated JPEG XL. The clip saves automatically.",
                 "Graba los tres segundos siguientes en JPEG XL animado. El clip se guarda automáticamente."),
+            Tool::SaveReplay => l.pick("Ative o buffer no menu de replay da barra lateral. Quando estiver pronto, salve os últimos três segundos em JPEG XL animado. O buffer fica na memória até você desativá-lo ou encerrar a sessão.",
+                "Enable the buffer in the sidebar replay menu. When it is ready, save the last three seconds as an animated JPEG XL. The buffer stays in memory until you disable it or end the session.",
+                "Activa el búfer en el menú de repetición de la barra lateral. Cuando esté listo, guarda los últimos tres segundos en JPEG XL animado. El búfer se guarda en la memoria hasta que lo desactives o termines la sesión."),
             other => other.label(l),
         };
         entry(ui, &chord(key, l), description);
@@ -148,9 +151,9 @@ fn shortcuts(ui: &mut egui::Ui, l: Locale) {
         ),
     );
     #[cfg(windows)]
-    entry(ui, "Alt+F4", l.pick("Feche o RustEmuDroid. A janela aguarda o Android desligar e a gravação terminar.",
-        "Close RustEmuDroid. The window waits for Android to shut down and recording to finish.",
-        "Cierra RustEmuDroid. La ventana espera a que Android se apague y la grabación termine."));
+    entry(ui, "Alt+F4", l.pick("Feche o RustEmuDroid. A janela aguarda o Android desligar e a captura em andamento terminar.",
+        "Close RustEmuDroid. The window waits for Android to shut down and the current capture to finish.",
+        "Cierra RustEmuDroid. La ventana espera a que Android se apague y termine la captura en curso."));
 
     heading(
         ui,

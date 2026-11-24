@@ -28,7 +28,7 @@ use std::{
     time::Duration,
 };
 
-use capture_panel::consume_capture_shortcut;
+use capture_panel::{consume_capture_shortcut, replay_popup_id};
 use eframe::egui::{self, Color32};
 use i18n::Locale;
 
@@ -323,6 +323,7 @@ impl Launcher {
             });
         self.stop_after_tilt = None;
         self.display = None;
+        self.set_replay_armed(false);
         self.capture.stop();
         self.controls = None;
         self.home_ready = false;
@@ -357,6 +358,7 @@ impl Launcher {
         if self.stopping() {
             return;
         }
+        self.set_replay_armed(false);
         if let Some(display) = &mut self.display {
             display.release();
             if !display.tilt_restored() {
@@ -476,12 +478,14 @@ impl Launcher {
                 .hover_pos()
                 .is_some_and(|p| p.y < 42. || p.x >= i.content_rect().right() - 48.)
         });
+        let replay_menu_was_open = egui::Popup::is_id_open(ctx, replay_popup_id());
         let show_chrome = !fullscreen
             || !self.playing
             || reveal
             || self.settings.is_some()
             || self.help_open
             || self.external_dialog_open()
+            || replay_menu_was_open
             || self.display.as_ref().is_some_and(|d| d.controls_open());
         let resizing = chrome::handle_resize(ctx);
         if show_chrome {
@@ -506,6 +510,7 @@ impl Launcher {
             {
                 display.toggle_mapping();
             }
+            let mut save_replay = false;
             if capture_interactive {
                 for (key, tool) in crate::toolbar::PLAYER_SHORTCUTS {
                     if tool == Tool::Keymap || !consume_capture_shortcut(ctx, key) {
@@ -513,6 +518,7 @@ impl Launcher {
                     }
                     match tool {
                         Tool::RecordVideo => self.capture_action(self.record_tool()),
+                        Tool::SaveReplay => save_replay = true,
                         other => self.capture_action(other),
                     }
                 }
@@ -541,7 +547,7 @@ impl Launcher {
                                 }
                             }
                             if self.home_ready {
-                                self.show_capture_tools(ui, capture_interactive);
+                                save_replay |= self.show_capture_tools(ui, capture_interactive);
                             }
                         });
                     });
@@ -549,6 +555,8 @@ impl Launcher {
             let interactive = self.settings.is_none()
                 && !self.help_open
                 && !self.external_dialog_open()
+                && !replay_menu_was_open
+                && !egui::Popup::is_id_open(ctx, replay_popup_id())
                 && !self.stopping()
                 && !resizing;
             egui::CentralPanel::default()
@@ -557,7 +565,11 @@ impl Launcher {
                     if self.home_ready
                         && let Some(display) = &mut self.display
                     {
+                        let rotation = display.rotation();
                         display.show(ui, interactive, locale);
+                        if rotation != display.rotation() {
+                            self.capture.reset_replay();
+                        }
                         if let Some(shot) = display.take_new_shot() {
                             self.capture.update(shot);
                         }
@@ -565,6 +577,10 @@ impl Launcher {
                         self.show_boot(ui, ctx);
                     }
                 });
+            self.sample_replay(ctx);
+            if save_replay {
+                self.capture_action(Tool::SaveReplay);
+            }
             return;
         }
         egui::CentralPanel::default()

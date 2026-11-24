@@ -1,4 +1,4 @@
-//! Capture Android's existing RGBA stream without a GPU readback or a rolling recorder.
+//! Capture Android's existing RGBA stream without a GPU readback.
 use std::{
     fs,
     io::{self, Read, Seek, Write},
@@ -13,6 +13,9 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tempfile::NamedTempFile;
+
+mod replay;
+use replay::Replay;
 
 #[derive(Clone)]
 pub(crate) struct Shot {
@@ -56,10 +59,20 @@ struct Stream {
     stopped: AtomicBool,
 }
 
+enum Job {
+    Png,
+    Recording,
+    Replay,
+}
+
+type Completed = mpsc::Sender<(Job, io::Result<PathBuf>)>;
+
 pub(crate) struct Capture {
     active: Option<Arc<Stream>>,
-    tx: mpsc::Sender<(bool, io::Result<PathBuf>)>,
-    rx: mpsc::Receiver<(bool, io::Result<PathBuf>)>,
+    replay: Option<Replay>,
+    replay_saving: bool,
+    tx: Completed,
+    rx: mpsc::Receiver<(Job, io::Result<PathBuf>)>,
     jobs: usize,
 }
 
@@ -68,6 +81,8 @@ impl Default for Capture {
         let (tx, rx) = mpsc::channel();
         Self {
             active: None,
+            replay: None,
+            replay_saving: false,
             tx,
             rx,
             jobs: 0,
@@ -81,6 +96,45 @@ impl Capture {
     }
     pub fn busy(&self) -> bool {
         self.jobs != 0
+    }
+    pub fn set_replay_armed(&mut self, armed: bool) -> io::Result<()> {
+        if armed && self.replay.is_none() {
+            self.replay = Some(Replay::new()?);
+        } else if !armed {
+            self.replay = None;
+        }
+        Ok(())
+    }
+    pub fn replay_armed(&self) -> bool {
+        self.replay.is_some()
+    }
+    pub fn replay_ready(&self) -> bool {
+        self.replay
+            .as_ref()
+            .is_some_and(|replay| replay.ready(Instant::now()))
+    }
+    pub fn replay_saving(&self) -> bool {
+        self.replay_saving
+    }
+    pub fn reset_replay(&mut self) {
+        if let Some(replay) = &mut self.replay {
+            replay.reset();
+        }
+    }
+    pub fn update_replay(&mut self, shot: &Shot) {
+        if let Some(replay) = &mut self.replay {
+            replay.observe(shot, Instant::now());
+        }
+    }
+    pub fn save_replay(&mut self, dir: &Path) -> io::Result<()> {
+        if self.busy() {
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
+        let replay = self.replay.as_ref().ok_or(io::ErrorKind::NotFound)?;
+        replay.save(Instant::now(), dir, self.tx.clone())?;
+        self.replay_saving = true;
+        self.jobs += 1;
+        Ok(())
     }
     pub fn update(&self, shot: &Shot) {
         if let Some(stream) = &self.active {
@@ -107,7 +161,7 @@ impl Capture {
         thread::Builder::new()
             .name("capture-png".into())
             .spawn(move || {
-                let _ = tx.send((false, save_png(&shot, &dir)));
+                let _ = tx.send((Job::Png, save_png(&shot, &dir)));
             })?;
         self.jobs += 1;
         Ok(())
@@ -126,17 +180,19 @@ impl Capture {
         thread::Builder::new()
             .name("capture-encoder".into())
             .spawn(move || {
-                let _ = tx.send((true, record(&worker, &dir)));
+                let _ = tx.send((Job::Recording, record(&worker, &dir)));
             })?;
         self.active = Some(stream);
         self.jobs += 1;
         Ok(())
     }
     pub fn poll(&mut self) -> Option<Event> {
-        let (was_recording, result) = self.rx.try_recv().ok()?;
+        let (job, result) = self.rx.try_recv().ok()?;
         self.jobs -= 1;
-        if was_recording {
-            self.active = None;
+        match job {
+            Job::Png => {}
+            Job::Recording => self.active = None,
+            Job::Replay => self.replay_saving = false,
         }
         Some(match result {
             Ok(path) => Event::Saved(path),
@@ -179,14 +235,49 @@ fn save_png(shot: &Shot, dir: &Path) -> io::Result<PathBuf> {
 }
 
 fn record(stream: &Stream, dir: &Path) -> io::Result<PathBuf> {
-    let (ext, fps) = match stream.mode {
+    let initial = stream.latest.lock().unwrap().clone();
+    encode(
+        stream.mode,
+        (initial.width, initial.height),
+        "rgba",
+        dir,
+        |pipe, fps| {
+            let period = Duration::from_secs_f64(1.0 / f64::from(fps));
+            let mut tick = Instant::now();
+            let mut frame_count = 0;
+            loop {
+                let shot = stream.latest.lock().unwrap().clone();
+                pipe.write_all(&shot.pixels)?;
+                frame_count += 1;
+                if stream.stopped.load(Ordering::Acquire)
+                    || (stream.mode != Mode::Video && frame_count >= 3 * fps)
+                {
+                    return Ok(());
+                }
+                tick += period;
+                thread::sleep(tick.saturating_duration_since(Instant::now()));
+                if stream.mode == Mode::Video {
+                    tick = tick.max(Instant::now());
+                }
+            }
+        },
+    )
+}
+
+fn encode(
+    mode: Mode,
+    (width, height): (u32, u32),
+    pixel_format: &str,
+    dir: &Path,
+    write: impl FnOnce(&mut std::process::ChildStdin, u32) -> io::Result<()>,
+) -> io::Result<PathBuf> {
+    let (ext, fps) = match mode {
         Mode::Video => ("mp4", 30u32),
-        Mode::Moment => ("jxl", 10),
+        Mode::Moment => ("jxl", replay::FPS),
         Mode::Gif => ("gif", 10),
     };
     let (temp, path) = output(dir, ext)?;
     let mut log = tempfile::tempfile()?;
-    let initial = stream.latest.lock().unwrap().clone();
     let mut cmd =
         Command::new(std::env::var_os("RUSTEMUDROID_FFMPEG").unwrap_or_else(|| "ffmpeg".into()));
     #[cfg(windows)]
@@ -203,13 +294,13 @@ fn record(stream: &Stream, dir: &Path) -> io::Result<PathBuf> {
         "-f",
         "rawvideo",
         "-pixel_format",
-        "rgba",
+        pixel_format,
         "-video_size",
     ])
-    .arg(format!("{}x{}", initial.width, initial.height))
+    .arg(format!("{width}x{height}"))
     .arg("-framerate")
     .arg(fps.to_string());
-    if stream.mode == Mode::Video {
+    if mode == Mode::Video {
         cmd.args(["-use_wallclock_as_timestamps", "1"]);
     }
     cmd.args([
@@ -221,7 +312,7 @@ fn record(stream: &Stream, dir: &Path) -> io::Result<PathBuf> {
         "-threads",
         "2",
     ]);
-    match stream.mode {
+    match mode {
         Mode::Video => {
             cmd.args([
                 "-vf",
@@ -243,11 +334,13 @@ fn record(stream: &Stream, dir: &Path) -> io::Result<PathBuf> {
             ]);
         }
         Mode::Moment | Mode::Gif => {
-            cmd.args([
-                "-vf",
-                "scale=w='min(720,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease",
-            ]);
-            if stream.mode == Mode::Moment {
+            if pixel_format == "rgba" {
+                cmd.args([
+                    "-vf",
+                    "scale=w='min(720,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease",
+                ]);
+            }
+            if mode == Mode::Moment {
                 cmd.args([
                     "-c:v",
                     "libjxl_anim",
@@ -273,27 +366,7 @@ fn record(stream: &Stream, dir: &Path) -> io::Result<PathBuf> {
         .spawn()
         .map_err(|err| io::Error::new(err.kind(), format!("FFmpeg: {err}")))?;
     let mut pipe = child.stdin.take().expect("configured piped input");
-    let begin = Instant::now();
-    let period = Duration::from_secs_f64(1.0 / f64::from(fps));
-    let mut tick = begin;
-    let mut frame_count = 0;
-    let write_result = loop {
-        let shot = stream.latest.lock().unwrap().clone();
-        if let Err(e) = pipe.write_all(&shot.pixels) {
-            break Err(e);
-        }
-        frame_count += 1;
-        if stream.stopped.load(Ordering::Acquire)
-            || (stream.mode != Mode::Video && frame_count >= 3 * fps)
-        {
-            break Ok(());
-        }
-        tick += period;
-        thread::sleep(tick.saturating_duration_since(Instant::now()));
-        if stream.mode == Mode::Video {
-            tick = tick.max(Instant::now());
-        }
-    };
+    let write_result = write(&mut pipe, fps);
     drop(pipe);
     if !child.wait()?.success() {
         log.rewind()?;

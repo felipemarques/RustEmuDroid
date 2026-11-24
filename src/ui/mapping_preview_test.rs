@@ -2,7 +2,7 @@ use super::*;
 use crate::capture::Shot;
 
 const PACKAGE: &str = "org.supertuxkart.stk";
-const SCENES: [&str; 5] = ["games", "controls", "editor", "idle", "shutdown"];
+const SCENES: [&str; 6] = ["games", "controls", "editor", "replay", "idle", "shutdown"];
 
 struct MappingPreview {
     app: Launcher,
@@ -32,7 +32,7 @@ impl MappingPreview {
             session.worker.join().unwrap().unwrap();
         }
         self.app.closing = scene == "shutdown";
-        self.app.playing = matches!(scene, "games" | "controls" | "editor");
+        self.app.playing = matches!(scene, "games" | "controls" | "editor" | "replay");
         self.app.home_ready = self.app.playing;
         self.app.stage = if self.app.playing {
             BootStage::Booted
@@ -58,7 +58,7 @@ impl MappingPreview {
             self.app.controls = Some(Controls::for_screenshot(package, state));
             display.set_package(Some(package));
             match scene {
-                "games" => {}
+                "games" | "replay" => {}
                 "controls" => {
                     display.toggle_controls_menu(140.);
                 }
@@ -114,6 +114,11 @@ impl App for MappingPreview {
         if self.step == Locale::ALL.len() * SCENES.len() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
+        }
+        if SCENES[self.step % SCENES.len()] == "replay" {
+            egui::Popup::open_id(ctx, capture_panel::replay_popup_id());
+        } else {
+            egui::Popup::close_id(ctx, capture_panel::replay_popup_id());
         }
         self.app.update(ctx, frame);
         assert_eq!(self.app.task.is_some(), self.app.closing);

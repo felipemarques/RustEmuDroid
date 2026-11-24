@@ -6,6 +6,8 @@ use winit::platform::windows::EventLoopBuilderExtWindows;
 
 #[path = "mapping_preview_test.rs"]
 mod mapping_preview_test;
+#[path = "rolling_replay_test.rs"]
+mod rolling_replay_test;
 
 #[test]
 #[ignore = "creates a native Windows window and checks the caption and taskbar HICONs"]

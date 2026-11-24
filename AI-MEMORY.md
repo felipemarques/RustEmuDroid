@@ -11,6 +11,8 @@
 
 ## Verification history
 
+- On Windows with Android 17, the rolling replay test decoded a 720 × 405 JPEG XL with 30 frames spaced 100 ms apart. Its first frames showed Android Home, its last frames showed Settings, and Quick Settings opened after the save shortcut was absent. Replay starts off and requires three seconds of continuous sampling after arming or resetting. [Live shortcut and clip check](src/ui/rolling_replay_test.rs)
+
 - On Windows v0.7.0, PUBG's Lobby Adaptive Graphics setting did not resolve the Inventory stalls. All three 48-second runs paused for over a second after the first close. The original settings were restored. [Adaptive Graphics comparison](docs/game-testing.md#does-disabling-adaptive-graphics-help-inventory)
 
 - The Linux v0.7.0 release booted Android 17 Google Play under WSLg and KVM, with the bundled Home as default. On Ubuntu 24.04 the selected Mesa D3D12 driver exposed the Radeon 780M to native GLES. BombSquad presented 60.00 frames/s in Death Match with its per-app driver set to `native`. The default ANGLE path presented 29.81/s in King of the Hill using CPU Vulkan. The random scenes differed. The test restored the original per-app settings. [Boot times, driver selection and game data](docs/linux-runtime.md)

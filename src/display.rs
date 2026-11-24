@@ -350,6 +350,15 @@ impl Display {
         self.shot.as_ref()
     }
 
+    pub(crate) fn replay_shot(&self) -> Option<&Shot> {
+        self.shot()
+            .filter(|_| self.state.lock().unwrap().error.is_none())
+    }
+
+    pub(crate) fn rotation(&self) -> i32 {
+        self.rotation
+    }
+
     pub(crate) fn take_new_shot(&mut self) -> Option<&Shot> {
         std::mem::take(&mut self.shot_changed)
             .then_some(self.shot.as_ref())

@@ -193,7 +193,7 @@ fn ffprobe(path: &Path) -> serde_json::Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
-fn decoded_motion(path: &Path) -> (f64, usize, usize) {
+pub(super) fn decoded_motion(path: &Path) -> (f64, usize, usize) {
     let ffmpeg = std::env::var_os("RUSTEMUDROID_FFMPEG").unwrap_or_else(|| "ffmpeg".into());
     let output = Command::new(ffmpeg)
         .args(["-v", "error", "-i"])

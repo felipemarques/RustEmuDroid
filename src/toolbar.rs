@@ -1,5 +1,6 @@
 use crate::ui::i18n::Locale;
 use eframe::egui::{self, Color32, Pos2, Shape, Stroke, Vec2};
+use std::borrow::Cow;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
@@ -19,6 +20,8 @@ pub enum Tool {
     StopRecording,
     AnimatedClip,
     AnimatedGif,
+    Replay,
+    SaveReplay,
     CapturesFolder,
     Fullscreen,
     Help,
@@ -30,11 +33,12 @@ pub enum Tool {
 }
 
 pub(crate) const FULLSCREEN_KEY: egui::Key = egui::Key::F11;
-pub(crate) const PLAYER_SHORTCUTS: [(egui::Key, Tool); 4] = [
+pub(crate) const PLAYER_SHORTCUTS: [(egui::Key, Tool); 5] = [
     (egui::Key::A, Tool::Keymap),
     (egui::Key::S, Tool::Screenshot),
     (egui::Key::R, Tool::RecordVideo),
     (egui::Key::J, Tool::AnimatedClip),
+    (egui::Key::H, Tool::SaveReplay),
 ];
 
 pub(crate) fn chord(key: egui::Key, locale: Locale) -> String {
@@ -98,6 +102,16 @@ impl Tool {
                 "Record the next 3 seconds as GIF",
                 "Grabar los próximos 3 s en GIF",
             ),
+            Self::Replay => locale.pick(
+                "Replay dos últimos 3 s",
+                "Replay the last 3 seconds",
+                "Repetición de los últimos 3 s",
+            ),
+            Self::SaveReplay => locale.pick(
+                "Salvar os últimos 3 s em JPEG XL",
+                "Save the last 3 seconds as JPEG XL",
+                "Guardar los últimos 3 s en JPEG XL",
+            ),
             Self::CapturesFolder => locale.pick(
                 "Abrir pasta de capturas",
                 "Open captures folder",
@@ -117,21 +131,21 @@ impl Tool {
         }
     }
 
-    pub fn button(self, ui: &mut egui::Ui, locale: Locale) -> bool {
+    pub(crate) fn label_with_shortcut(self, locale: Locale) -> Cow<'static, str> {
         let base = self.label(locale);
         let action = if self == Self::StopRecording {
             Self::RecordVideo
         } else {
             self
         };
-        let rendered;
-        let label =
-            if let Some((key, _)) = PLAYER_SHORTCUTS.iter().find(|(_, tool)| *tool == action) {
-                rendered = format!("{base} ({})", chord(*key, locale));
-                &rendered
-            } else {
-                base
-            };
+        if let Some((key, _)) = PLAYER_SHORTCUTS.iter().find(|(_, tool)| *tool == action) {
+            Cow::Owned(format!("{base} ({})", chord(*key, locale)))
+        } else {
+            Cow::Borrowed(base)
+        }
+    }
+
+    pub(crate) fn icon_button(self, ui: &mut egui::Ui, label: &str) -> egui::Response {
         let response = ui.add(
             egui::Button::new("")
                 .min_size(Vec2::splat(32.0))
@@ -142,7 +156,11 @@ impl Tool {
         });
         let color = ui.style().interact(&response).fg_stroke.color;
         self.paint(ui.painter(), response.rect.center(), color);
-        let response = response.on_hover_text(label);
+        response.on_hover_text(label)
+    }
+
+    pub fn button(self, ui: &mut egui::Ui, locale: Locale) -> bool {
+        let response = self.icon_button(ui, &self.label_with_shortcut(locale));
         if !matches!(self, Self::Louder | Self::Quieter) {
             return response.clicked();
         }
@@ -224,6 +242,17 @@ impl Tool {
                     egui::FontId::proportional(9.),
                     color,
                 );
+            }
+            Self::Replay | Self::SaveReplay => {
+                let arc = (0..=24)
+                    .map(|i| {
+                        let angle = (-145.0_f32 + i as f32 * 285. / 24.).to_radians();
+                        center + Vec2::angled(angle) * 7.5
+                    })
+                    .collect();
+                painter.add(Shape::line(arc, stroke));
+                path(&[(-7., -8.), (-7., -4.), (-3., -4.)]);
+                path(&[(0., -3.), (0., 0.), (3., 2.)]);
             }
             Self::CapturesFolder => path(&[
                 (-8., 6.),

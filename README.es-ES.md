@@ -160,9 +160,14 @@ Pulsa **? → Atajos** en la barra de título para consultar las teclas disponib
 | Tomar una captura | **Ctrl+Mayús+S** | PNG a la resolución de la pantalla de Android |
 | Iniciar o detener el vídeo | **Ctrl+Mayús+R** | MP4 H.264 sin sonido con un objetivo de 30 FPS |
 | Grabar un momento | **Ctrl+Mayús+J** | Los tres segundos siguientes en JPEG XL animado a 10 FPS |
+| Guardar una jugada reciente | **Ctrl+Mayús+H** | Los tres segundos anteriores en JPEG XL animado a 10 FPS, con la repetición instantánea activada |
 | Grabar un GIF | Botón GIF de la barra lateral | Los tres segundos siguientes en un GIF en bucle a 10 FPS |
 
-El botón de carpeta abre `captures/` junto a `launcher.json`. Rust guarda los PNG directamente. Para MP4, instala FFmpeg con `libx264`. Para JPEG XL animado, utiliza una compilación con `libjxl_anim`. Si FFmpeg no está en el PATH, configura `RUSTEMUDROID_FFMPEG` con la ruta del ejecutable. Las animaciones caben en 720 × 720 y conservan su proporción. La grabación comienza al pulsar el atajo. Al cerrar la ventana, el cliente espera a que se termine de escribir el archivo.
+Para guardar un gol o un adelantamiento que acabas de ver, abre el reloj de la barra lateral y activa la repetición instantánea **antes** de jugar. Cuando esté lista, pulsa **Ctrl+Mayús+H** después de la jugada o guárdala desde el menú. La repetición empieza desactivada en cada sesión de Android. Al desactivarla se descarta el fragmento que quedaba en la memoria.
+
+![Menú de repetición instantánea en la aplicación en español](docs/screenshots/es-es/replay.png)
+
+El botón de carpeta abre `captures/` junto a `launcher.json`. Rust guarda los PNG directamente. Para MP4, instala FFmpeg con `libx264`. Para JPEG XL animado, utiliza una compilación con `libjxl_anim`. Si FFmpeg no está en el PATH, configura `RUSTEMUDROID_FFMPEG` con la ruta del ejecutable. Las animaciones caben en 720 × 720 y conservan sus proporciones. Al cerrar la ventana, el cliente espera a que terminen las exportaciones en curso.
 
 ## Crear un esquema de controles
 
@@ -186,7 +191,7 @@ La paleta tiene 15 opciones para 14 tipos de control. **Rueda del ratón** ofrec
 
 ![Editor de controles con una cruceta W, A, S, D sobre el menú principal de SuperTuxKart](docs/screenshots/es-es/editor.png)
 
-*SuperTuxKart aparece en inglés. El juego tiene su propio ajuste de idioma.*
+*El idioma de SuperTuxKart se puede cambiar en los ajustes del propio juego.*
 
 ## Compilar desde el código fuente
 

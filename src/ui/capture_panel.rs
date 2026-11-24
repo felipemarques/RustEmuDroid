@@ -1,4 +1,4 @@
-use super::{Display, ERROR, Launcher, MINT, MUTED, PANEL, Tool, theme};
+use super::{Display, ERROR, Launcher, Locale, MINT, MUTED, PANEL, Tool, theme};
 use crate::capture::{Event as CaptureEvent, Mode};
 use eframe::egui::{self, RichText, vec2};
 use std::{
@@ -8,6 +8,53 @@ use std::{
 
 pub(super) const CAPTURE_MODIFIERS: egui::Modifiers =
     egui::Modifiers::CTRL.plus(egui::Modifiers::SHIFT);
+
+pub(super) fn replay_popup_id() -> egui::Id {
+    egui::Id::new("capture-replay-menu")
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReplayState {
+    Off,
+    Buffering,
+    Ready,
+    Saving,
+}
+
+impl ReplayState {
+    fn status(self, locale: Locale) -> (&'static str, egui::Color32) {
+        match self {
+            Self::Off => (
+                locale.pick("Replay desativado", "Replay off", "Repetición desactivada"),
+                MUTED,
+            ),
+            Self::Buffering => (
+                locale.pick(
+                    "Preenchendo o buffer de replay…",
+                    "Buffering replay…",
+                    "Llenando el búfer de repetición…",
+                ),
+                theme::ACCENT,
+            ),
+            Self::Ready => (
+                locale.pick(
+                    "Replay pronto · últimos 3 s",
+                    "Replay ready · last 3 s",
+                    "Repetición lista · últimos 3 s",
+                ),
+                MINT,
+            ),
+            Self::Saving => (
+                locale.pick(
+                    "Salvando replay em JPEG XL…",
+                    "Saving replay as JPEG XL…",
+                    "Guardando repetición en JPEG XL…",
+                ),
+                theme::ACCENT,
+            ),
+        }
+    }
+}
 
 impl Launcher {
     pub(super) fn capture_dir(&self) -> PathBuf {
@@ -25,7 +72,7 @@ impl Launcher {
         }
     }
 
-    pub(super) fn show_capture_tools(&mut self, ui: &mut egui::Ui, interactive: bool) {
+    pub(super) fn show_capture_tools(&mut self, ui: &mut egui::Ui, interactive: bool) -> bool {
         let locale = self.config.locale;
         let record = self.record_tool();
         ui.separator();
@@ -46,15 +93,21 @@ impl Launcher {
                 }
             });
         }
+        let save_replay = self.show_replay_tools(ui, interactive);
         if Tool::CapturesFolder.button(ui, locale) {
             self.capture_action(Tool::CapturesFolder);
         }
+        save_replay
     }
 
     pub(super) fn capture_action(&mut self, tool: Tool) {
         let path = self.capture_dir();
         let result = match tool {
             Tool::CapturesFolder => open_capture_dir(&path),
+            Tool::SaveReplay => {
+                self.save_replay(&path);
+                return;
+            }
             Tool::StopRecording => {
                 self.capture.stop();
                 Ok(())
@@ -79,14 +132,165 @@ impl Launcher {
             }
         };
         if let Err(error) = result {
-            self.capture_notice = Some((CaptureEvent::Failed(error.to_string()), Instant::now()));
+            self.capture_failed(error.to_string());
         }
+    }
+
+    fn capture_failed(&mut self, details: impl Into<String>) {
+        self.capture_notice = Some((CaptureEvent::Failed(details.into()), Instant::now()));
+    }
+
+    fn replay_state(&self) -> ReplayState {
+        if self.capture.replay_saving() {
+            ReplayState::Saving
+        } else if !self.capture.replay_armed() {
+            ReplayState::Off
+        } else if self.capture.replay_ready() {
+            ReplayState::Ready
+        } else {
+            ReplayState::Buffering
+        }
+    }
+
+    fn show_replay_tools(&mut self, ui: &mut egui::Ui, interactive: bool) -> bool {
+        let locale = self.config.locale;
+        let popup_id = replay_popup_id();
+        let state = self.replay_state();
+        let (status, color) = state.status(locale);
+        let response = ui
+            .add_enabled_ui(interactive, |ui| {
+                let label = format!("{}\n{status}", Tool::Replay.label(locale));
+                Tool::Replay.icon_button(ui, &label)
+            })
+            .inner;
+        if state != ReplayState::Off {
+            ui.painter()
+                .circle_filled(response.rect.center() + vec2(9., -8.), 2.5, color);
+        }
+        if !interactive {
+            egui::Popup::close_id(ui.ctx(), popup_id);
+            return false;
+        }
+        egui::Popup::menu(&response)
+            .id(popup_id)
+            .align(egui::RectAlign::LEFT_END)
+            .gap(5.)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| {
+                let armed = self.capture.replay_armed();
+                let label = if armed {
+                    locale.pick(
+                        "Desativar buffer de replay",
+                        "Disable replay buffer",
+                        "Desactivar el búfer de repetición",
+                    )
+                } else {
+                    locale.pick(
+                        "Ativar buffer de replay",
+                        "Enable replay buffer",
+                        "Activar el búfer de repetición",
+                    )
+                };
+                ui.label(RichText::new(status).strong().color(color));
+                ui.separator();
+                if ui
+                    .add_enabled(
+                        armed
+                            || self
+                                .display
+                                .as_ref()
+                                .and_then(Display::replay_shot)
+                                .is_some(),
+                        egui::Button::new(label),
+                    )
+                    .clicked()
+                {
+                    self.set_replay_armed(!armed);
+                }
+                let save_replay = ui
+                    .add_enabled(
+                        state == ReplayState::Ready && !self.capture.busy(),
+                        egui::Button::new(Tool::SaveReplay.label_with_shortcut(locale)),
+                    )
+                    .clicked();
+                if save_replay {
+                    ui.close();
+                }
+                save_replay
+            })
+            .is_some_and(|response| response.inner)
+    }
+
+    pub(super) fn set_replay_armed(&mut self, armed: bool) {
+        if let Err(error) = self.capture.set_replay_armed(armed) {
+            self.capture_failed(error.to_string());
+        }
+    }
+
+    pub(super) fn sample_replay(&mut self, ctx: &egui::Context) {
+        if !self.capture.replay_armed() {
+            return;
+        }
+        if let Some(shot) = self.display.as_ref().and_then(Display::replay_shot) {
+            self.capture.update_replay(shot);
+            ctx.request_repaint_after(Duration::from_millis(100));
+        } else {
+            self.set_replay_armed(false);
+            self.capture_failed(self.replay_source_unavailable());
+        }
+    }
+
+    fn replay_source_unavailable(&self) -> &'static str {
+        self.config.locale.pick(
+            "A imagem do Android não está disponível para replay.",
+            "The Android display is unavailable for replay.",
+            "La imagen de Android no está disponible para la repetición.",
+        )
+    }
+
+    fn save_replay(&mut self, path: &Path) {
+        let locale = self.config.locale;
+        let details = if self
+            .display
+            .as_ref()
+            .and_then(Display::replay_shot)
+            .is_none()
+        {
+            self.set_replay_armed(false);
+            self.replay_source_unavailable()
+        } else if !self.capture.replay_armed() {
+            locale.pick(
+                "Ative o buffer de replay no menu da barra lateral.",
+                "Enable the replay buffer from the sidebar menu.",
+                "Activa el búfer de repetición en el menú de la barra lateral.",
+            )
+        } else if self.capture.busy() {
+            locale.pick(
+                "Aguarde a captura em andamento terminar.",
+                "Wait for the current capture to finish.",
+                "Espera a que termine la captura en curso.",
+            )
+        } else if !self.capture.replay_ready() {
+            locale.pick(
+                "Aguarde o buffer acumular três segundos.",
+                "Wait for the buffer to collect three seconds.",
+                "Espera a que el búfer acumule tres segundos.",
+            )
+        } else {
+            match self.capture.save_replay(path) {
+                Ok(()) => self.capture_notice = None,
+                Err(error) => self.capture_failed(error.to_string()),
+            }
+            return;
+        };
+        self.capture_failed(details);
     }
 
     pub(super) fn show_capture_notice(&self, ctx: &egui::Context) {
         let locale = self.config.locale;
-        let (message, details, color) = match self.capture.mode() {
-            Some(Mode::Video) => (
+        let replay = self.replay_state();
+        let notice = match self.capture.mode() {
+            Some(Mode::Video) => Some((
                 locale
                     .pick(
                         "Gravando MP4 sem áudio",
@@ -96,8 +300,8 @@ impl Launcher {
                     .to_owned(),
                 None,
                 ERROR,
-            ),
-            Some(Mode::Moment) => (
+            )),
+            Some(Mode::Moment) => Some((
                 locale
                     .pick(
                         "Gravando clipe JXL de 3 segundos",
@@ -107,8 +311,8 @@ impl Launcher {
                     .to_owned(),
                 None,
                 theme::ACCENT,
-            ),
-            Some(Mode::Gif) => (
+            )),
+            Some(Mode::Gif) => Some((
                 locale
                     .pick(
                         "Gravando GIF de 3 segundos",
@@ -118,17 +322,14 @@ impl Launcher {
                     .to_owned(),
                 None,
                 theme::ACCENT,
-            ),
-            None => {
-                let Some((event, time)) = &self.capture_notice else {
-                    return;
-                };
-                let expires = Duration::from_secs(10);
-                if time.elapsed() >= expires {
-                    return;
+            )),
+            None => self.capture_notice.as_ref().and_then(|(event, time)| {
+                let remaining = Duration::from_secs(10).saturating_sub(time.elapsed());
+                if remaining.is_zero() {
+                    return None;
                 }
-                ctx.request_repaint_after(expires.saturating_sub(time.elapsed()));
-                match event {
+                ctx.request_repaint_after(remaining);
+                Some(match event {
                     CaptureEvent::Saved(path) => (
                         format!(
                             "{} {}",
@@ -147,9 +348,13 @@ impl Launcher {
                         Some(error.as_str()),
                         ERROR,
                     ),
-                }
-            }
+                })
+            }),
         };
+        let replay_notice = matches!(replay, ReplayState::Buffering | ReplayState::Saving);
+        if notice.is_none() && !replay_notice {
+            return;
+        }
         egui::Area::new("capture-notice".into())
             .anchor(egui::Align2::RIGHT_BOTTOM, vec2(-58., -18.))
             .order(egui::Order::Foreground)
@@ -157,9 +362,15 @@ impl Launcher {
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).fill(PANEL).show(ui, |ui| {
                     ui.set_max_width(400.);
-                    ui.label(RichText::new(message).color(color));
-                    if let Some(details) = details {
-                        ui.label(RichText::new(details).small().color(MUTED));
+                    if let Some((message, details, color)) = notice {
+                        ui.label(RichText::new(message).color(color));
+                        if let Some(details) = details {
+                            ui.label(RichText::new(details).small().color(MUTED));
+                        }
+                    }
+                    if replay_notice {
+                        let (status, color) = replay.status(locale);
+                        ui.label(RichText::new(status).color(color));
                     }
                 });
             });
@@ -167,7 +378,16 @@ impl Launcher {
 }
 
 pub(super) fn consume_capture_shortcut(ctx: &egui::Context, key: egui::Key) -> bool {
-    ctx.input_mut(|input| {
+    if !ctx.input(|input| {
+        input.events.iter().any(
+            |event| matches!(event, egui::Event::Key { key: event_key, .. } if *event_key == key),
+        )
+    }) {
+        return false;
+    }
+    let id = egui::Id::new(("capture-shortcut-held", key));
+    let mut consumed = ctx.data(|data| data.get_temp(id).unwrap_or(false));
+    let activated = ctx.input_mut(|input| {
         let mut activated = false;
         input.events.retain(|event| {
             let egui::Event::Key {
@@ -180,14 +400,28 @@ pub(super) fn consume_capture_shortcut(ctx: &egui::Context, key: egui::Key) -> b
             else {
                 return true;
             };
-            if *event_key != key || !modifiers.matches_exact(CAPTURE_MODIFIERS) {
+            if *event_key != key {
                 return true;
             }
-            activated |= *pressed && !*repeat;
-            false
+            if !*pressed {
+                return !std::mem::take(&mut consumed);
+            }
+            if !*repeat {
+                consumed = modifiers.matches_exact(CAPTURE_MODIFIERS);
+                activated |= consumed;
+            }
+            !consumed
         });
         activated
-    })
+    });
+    ctx.data_mut(|data| {
+        if consumed {
+            data.insert_temp(id, true);
+        } else {
+            data.remove::<bool>(id);
+        }
+    });
+    activated
 }
 
 fn open_capture_dir(path: &Path) -> std::io::Result<()> {

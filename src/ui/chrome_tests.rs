@@ -452,6 +452,96 @@ fn capture_shortcut_consumes_activation_and_repeat_before_android_input() {
 }
 
 #[test]
+fn replay_shortcut_consumes_the_chord_and_preserves_plain_h_and_forward_jxl() {
+    use crate::toolbar::PLAYER_SHORTCUTS;
+
+    assert!(PLAYER_SHORTCUTS.contains(&(egui::Key::H, Tool::SaveReplay)));
+    assert!(PLAYER_SHORTCUTS.contains(&(egui::Key::J, Tool::AnimatedClip)));
+    let ctx = egui::Context::default();
+    let send = |key, pressed, modifiers| Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed,
+        repeat: false,
+        modifiers,
+    };
+    let plain_h = send(egui::Key::H, true, egui::Modifiers::NONE);
+    let plain_h_release = send(egui::Key::H, false, CAPTURE_MODIFIERS);
+    let _ = ctx.run(
+        RawInput {
+            events: vec![
+                send(egui::Key::H, true, CAPTURE_MODIFIERS),
+                send(egui::Key::H, true, CAPTURE_MODIFIERS),
+                send(egui::Key::H, false, egui::Modifiers::NONE),
+                send(egui::Key::J, true, CAPTURE_MODIFIERS),
+                plain_h.clone(),
+                plain_h_release.clone(),
+            ],
+            ..Default::default()
+        },
+        |ctx| {
+            assert!(consume_capture_shortcut(ctx, egui::Key::H));
+            assert!(!consume_capture_shortcut(ctx, egui::Key::H));
+            assert!(consume_capture_shortcut(ctx, egui::Key::J));
+            ctx.input(|i| assert_eq!(i.events, [plain_h.clone(), plain_h_release.clone()]));
+        },
+    );
+}
+
+#[test]
+fn replay_menu_shows_localized_opt_in_and_session_stop_disarms() {
+    let ctx = egui::Context::default();
+    let dir = tempfile::tempdir().unwrap();
+    let prefs = dir.path().join("launcher.json");
+    let brand = ctx.load_texture(
+        "brand",
+        egui::ColorImage::filled([2, 2], INK),
+        Default::default(),
+    );
+    for (locale, off, enable) in [
+        (Locale::PtBr, "Replay desativado", "Ativar buffer de replay"),
+        (Locale::EnUs, "Replay off", "Enable replay buffer"),
+        (
+            Locale::EsEs,
+            "Repetición desactivada",
+            "Activar el búfer de repetición",
+        ),
+    ] {
+        let mut config = LaunchConfig::load(None, dir.path().into(), None, &prefs);
+        config.locale = locale;
+        let mut app = Launcher::new(brand.clone(), config, prefs.clone(), false);
+        assert!(!app.capture.replay_armed());
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(610., 510.));
+        let mut render = || {
+            ctx.run(
+                RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::Popup::open_id(ctx, replay_popup_id());
+                    egui::SidePanel::right("android-tools").show(ctx, |ui| {
+                        assert!(!app.show_capture_tools(ui, true));
+                    });
+                },
+            )
+        };
+        render();
+        let out = render();
+        for text in [off, enable, &Tool::SaveReplay.label_with_shortcut(locale)] {
+            let rects = labels(&out, text);
+            assert_eq!(rects.len(), 1, "{locale:?} {text}");
+            assert!(screen.contains_rect(rects[0]), "{locale:?} {text}");
+        }
+        app.set_replay_armed(true);
+        assert!(app.capture.replay_armed());
+        app.request_stop();
+        assert!(!app.capture.replay_armed());
+        assert!(!app.capture.replay_ready());
+    }
+}
+
+#[test]
 fn closing_waits_for_vm_without_blocking_frames_or_restarting() {
     let ctx = egui::Context::default();
     let brand = ctx.load_texture(
