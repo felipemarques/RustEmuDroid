@@ -96,7 +96,33 @@ The stock system’s `lib/modules/4.19.195/modules.builtin` lists 480 entries, i
 
 Pie64 and the AOSP Pie emulator both target API 28 on x86-64. Their graphics components expect different interfaces. The copied Pie64 system declares `ro.treble.enabled=false`, stores its vendor files in `/system/vendor`, and uses a non-isolated linker namespace. Its device manifest declares the graphics allocator 2.0 as `passthrough` (loaded in the caller), and its framework manifest declares the composer 2.1 service. AOSP’s Pie Goldfish device manifest declares the allocator as `hwbinder` (a separate service) and puts the composer in the device manifest. The AOSP x86-64 board also specifies a separate vendor image and VNDK. [AOSP Pie Goldfish manifest](https://android.googlesource.com/device/generic/goldfish/+/refs/tags/android-9.0.0_r61/manifest.xml) · [AOSP Pie x86-64 board configuration](https://android.googlesource.com/platform/build/+/refs/tags/android-9.0.0_r61/target/board/generic_x86_64/BoardConfig.mk)
 
-Keeping the copied Android framework while changing boards would require integrating the graphics services, their native library dependencies and device policy. This comparison inspected manifests, properties and ELF dependencies offline. The comparison did not run `checkvintf` or boot a mixed image. Installing the complete SDK image would test a different Android system.
+An offline comparison used the vendor partition from Google's API 28 revision 4 x86-64 emulator image. Its device matrix requires Vendor NDK version 28 and lists zero individual Vendor NDK libraries. The copied Pie64 framework manifest declares System SDK 28 and has no Vendor NDK entry. Android 9's compatibility check looks for a matching Vendor NDK version even when the matrix lists zero libraries. The framework includes FCM level 3, which matches Goldfish's target level. The Pie64 framework's composer has instance name `vr`, while the Goldfish device's composer uses `default`. [Google API 28 x86-64 image](https://dl.google.com/android/repository/sys-img/android/x86_64-28_r04.zip) · [Android 9 manifest compatibility checks](https://android.googlesource.com/platform/system/libvintf/+/android-9.0.0_r61/HalManifest.cpp)
+
+We ran the Android 9 r61 host `checkvintf` against both sets of original XML files offline. The staged tree placed the Pie64 framework metadata under `system/etc/vintf`, the Goldfish manifest at `vendor/manifest.xml` and the Goldfish device matrix at `vendor/etc/vintf/compatibility_matrix.xml`. The host build used the Pie compatibility implementation and HIDL sources, GCC 13, Ubuntu Android base/log libraries and TinyXML2. The GCC adaptations supplied missing standard C++ includes and reordered initializers without changing their values.
+
+| Check | Observed result |
+|---|---|
+| Goldfish device manifest against the assembled Pie64 framework matrix | Passed in the full-tree check with `ro.product.first_api_level=28`. |
+| Pie64 framework manifest against the Goldfish device matrix | Failed because the framework declares no supported Vendor NDK version 28. The original tool's direct pairwise command printed `false` and exited with status 1. |
+
+To reproduce the two invocations with that staged tree, run
+
+```sh
+checkvintf --check-compat --rootdir="$tree" --property ro.product.first_api_level=28
+checkvintf "$tree/system/etc/vintf/manifest.xml" "$tree/vendor/etc/vintf/compatibility_matrix.xml"
+```
+
+The r61 full-tree CLI logged the incompatibility on stderr but printed `true` and returned 0. Its loop checks each result yet returns a separate variable initialized to success. A build with an added diagnostic print exposed internal status 1 and the same Vendor NDK reason as the direct pairwise command. The SHA-256 values for that pair were `8e831bf90f12bb101691e06b3db1a89070abd8b69c92844d96e90d767572f0ca` (Pie64 framework manifest) and `8286655f853c49d8483f363a6a577d28a5fe166bfee0f19c2df407c6887f6fd0` (Goldfish device matrix). [Full-tree CLI return value](https://android.googlesource.com/platform/system/libvintf/+/android-9.0.0_r61/check_vintf.cpp#286) · [Order of the two checks](https://android.googlesource.com/platform/system/libvintf/+/android-9.0.0_r61/VintfObject.cpp#517)
+
+### Private Goldfish board overlay
+
+The official reference archive was 564,792,723 bytes and matched the Android SDK repository's SHA-1 `d47a85c8f4e9fd57df97814ad8884eeb0f3a0ef0`. Its SHA-256 was `ff6ce81aa1424951a214da5f392f8e12382de46d33c08aeaa5d21caba6a39b62`. As a control, the unmodified SDK system and vendor metadata passed both the full-tree and direct pairwise checks. [Android SDK image index](https://dl.google.com/android/repository/sys-img/android/sys-img2-3.xml)
+
+On a private copy, we added the SDK's Vendor NDK 28 declaration to the Pie64 framework manifest and staged the matching 439 runtime libraries under `system/lib` and `system/lib64` in the `vndk-28` and `vndk-sp-28` directories. With this single declaration added, the resulting manifest matched the stock SDK framework manifest byte-for-byte (SHA-256 `44c91c8aa54bd2958cec15e05b5e80228b97229d951ee7aa5b57a61a4681587f`). The adapted Pie64 framework metadata and Goldfish vendor metadata then passed both checks, including the full check's per-tree diagnostic. The local overlay includes per-file hashes and the original, control and candidate check logs.
+
+The Goldfish graphics allocator and composer services are x86-64 ELF executables. Fourteen graphics service and implementation binaries led to 74 distinct ELF files through their recursive `DT_NEEDED` dependencies. A static search found a file of the requested name and ABI for each edge in the Pie64 system and Goldfish vendor search directories. This checks names and architectures. Resolving versioned symbols, loading modules at runtime and presenting a frame require further tests.
+
+The original Pie64 product sets `ro.treble.enabled=false`. Its legacy linker configuration does not search the new versioned VNDK directories. Goldfish's Android 9 linker configuration does. The board port still needs a working path for native library loading, hardware services and device policy before it can claim an Android boot or accelerated game rendering. [Android linker namespaces](https://source.android.com/docs/core/architecture/vndk/linker-namespace)
 
 ## Opt-in data storage probe
 
@@ -118,3 +144,9 @@ python3 -B tools/bluestacks_data_probe.py --images "$lab/Pie64" --output "$lab/d
 The original Pie64 kernel starts a small initramfs with BusyBox and a storage probe. QEMU attaches the seed through a read-only QCOW2 overlay and uses an empty first disk so that the seed can appear as Linux `/dev/sdb1`. The probe disables networking and checks that both QEMU disks are read-only.
 
 On QEMU 8.2.2, the original kernel recognized the VirtIO SCSI controller and the seed's MBR partition. The guest confirmed the partition was read-only, read the ext4 superblock signature, and mounted ext4 at `/data` with `ro,noload`. It verified the read-only mount through `/proc/mounts` and unmounted it. The probe reads filesystem metadata and never browses the mounted tree. The command exits successfully when QEMU exits successfully and the partition, ext4 signature, and read-only mount are all observed. See `serial.log` and `result.json` for the observed milestones, including incomplete runs. The separate system-mount test still stops at the original BlueStacks host configuration.
+
+### Populated data disk
+
+The private copy of the populated `Data.vhdx` also passed an offline filesystem check. Both it and the factory seed had a single Linux MBR partition starting at sector 2,048 and spanning 268,433,408 sectors. The populated partition's ext4 superblock reported 33,554,176 blocks of 4,096 bytes, which matches that partition's length.
+
+QEMU 8.2.2 exported only the populated partition through a read-only FUSE file in an existing Ubuntu 24.04 session. `e2fsck 1.47.0 -fn` completed all five passes and returned status 0. It reported 17,152 allocated inodes and 3,150,138 allocated blocks (12.02 GiB). The check covered filesystem metadata, including directory connectivity. The ext4 filesystem stayed unmounted. Application launch, Android boot and the content of individual saves require separate verification.

@@ -11,6 +11,10 @@
 
 ## Verification history
 
+- On Windows v0.8.0, the Android EGL multifile cache and a 128 MiB cache limit both left the PUBG first-close Inventory pause in place. During the longest measured gaps, QEMU's RTX 5070 Ti 3D engine was active 0.70% with the 128 MiB limit and 0.00% with the original settings. Both guest overrides were restored. [Game and host measurements](docs/game-testing.md#egl-shader-cache-and-host-gpu-activity-during-inventory)
+
+- An offline Android 9 VINTF check found that the Goldfish device matrix requires a Vendor NDK 28 declaration absent from the Pie64 framework. The original r61 full-tree CLI can exit with success after logging an incompatibility. Use the direction-specific pairwise result as well. The populated Pie64 data filesystem separately passed all five read-only fsck passes. [Board compatibility](docs/bluestacks-lab.md#could-the-android-9-sdk-supply-the-missing-drivers) · [Populated data](docs/bluestacks-lab.md#populated-data-disk)
+
 - On Windows with Android 17, the rolling replay test decoded a 720 × 405 JPEG XL with 30 frames spaced 100 ms apart. Its first frames showed Android Home, its last frames showed Settings, and Quick Settings opened after the save shortcut was absent. Replay starts off and requires three seconds of continuous sampling after arming or resetting. [Live shortcut and clip check](src/ui/rolling_replay_test.rs)
 
 - On Windows v0.7.0, PUBG's Lobby Adaptive Graphics setting did not resolve the Inventory stalls. All three 48-second runs paused for over a second after the first close. The original settings were restored. [Adaptive Graphics comparison](docs/game-testing.md#does-disabling-adaptive-graphics-help-inventory)
