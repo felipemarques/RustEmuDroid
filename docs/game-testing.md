@@ -18,6 +18,19 @@ The game recorded 2,282–2,288 frames per run. FPS is the frame count divided b
 
 To repeat, verify the AVD path and GPU for each desktop version, then run `python benchmarks/stk-1.5/compare.py --adb <adb> --rust <serial> --rounds 2 --presets high-vulkan --output <new-folder>` with one emulator open. The 0.2.4 and 0.3.0 runs took place in that order. The 0.4.0, 0.4.1 and 0.7.0 runs followed in separate sessions. The harness restored the game's configuration byte-for-byte after each run. [Replay harness](../benchmarks/stk-1.5/compare.py)
 
+### BlueStacks preview and SuperTuxKart replay FPS
+
+On November 24, 2026, one BlueStacks 5.22.166.1003 Pie64 guest ran the SuperTuxKart 1.5 Black Forest replay on the GeForce RTX 5070 Ti. The High preset used OpenGL ES 3.2, 1600 x 900 at 100% render scale, four vCPUs, 8 GiB and a 60 FPS cap. All four reports gave the same graphics settings. The local RustEmuDroid 0.14.0 release build displayed the DWM preview in the same window throughout both On runs, with its control server active in that guest. The preview was visible while another desktop window retained focus. The test sent no game input.
+
+| Lap | Preview | Game frames | Replay duration | Game FPS | Main-loop P95 |
+|---|---|---:|---:|---:|---:|
+| A1 | Off | 2,287 | 38.170 s | 59.916 | 17.846 ms |
+| B1 | On | 2,287 | 38.122 s | 59.992 | 17.679 ms |
+| B2 | On | 2,287 | 38.122 s | 59.992 | 17.888 ms |
+| A2 | Off | 2,287 | 38.122 s | 59.992 | 17.771 ms |
+
+Pooling frames and durations gave 59.954 game FPS with the preview closed and 59.992 with it open. The difference was smaller than the spread between the two closed-preview runs. The observed game FPS stayed near the 60 FPS cap. FPS is 1,000 times frames divided by the game-reported replay duration in milliseconds. Main-loop P95 uses the nearest-rank percentile of positive game profiler durations. The original game configuration was restored byte-for-byte and the preview left the BlueStacks source windows in place. [Per-run measurements](../benchmarks/stk-1.5/bluestacks-preview-abba.csv) · [Replay harness](../benchmarks/stk-1.5/compare.py)
+
 ## PUBG MOBILE
 
 The stationary test sampled the same Showroom view for about 18 seconds per run. Only guest display resolution changed between the three samples.
