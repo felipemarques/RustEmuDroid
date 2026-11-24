@@ -326,6 +326,37 @@ The same release build also ran four Black Forest replays in SuperTuxKart 1.5. T
 
 The desktop client ran continuously through both pairs, with the off pair first. Each race lasted about 38 seconds. FPS comes from the game's frame count and replay duration. P95 uses the nearest rank across the positive main-loop times in each pair. The measured difference was 0.08 FPS at this frame cap. Encoding ran outside these races. [Game reports, renderer and frame timings](../benchmarks/stk-1.5/v0.8.0-instant-replay.zip)
 
+## The Real Wonder Demo
+
+The developer calls this Unity demo **The Real Wonder**. Its Android launcher label is **THE REAL WORLD (TRW)**. Open it from **Games**, choose **Play**, and use the bottom-left stick to walk between the cars. The ARM64 build (version 1.0.2, code 1) includes the map in the APK. [Developer's download](https://kanhashivansh.itch.io/trw-demo)
+
+RustEmuDroid v0.8.0 ran the demo in the embedded Windows client on the Android 17 Google Play x86-64 profile at 1600 × 900, with the game's initial graphics settings. The SDK logged creation of the Unity game's Vulkan device. The first sample kept the character stationary at the spawn point. The second applied the touch stick continuously and the character moved through the starting area.
+
+| GPU | Scene | Android presentations/s | P95 frame interval | QEMU 3D engine active |
+|---|---|---:|---:|---:|
+| RTX 5070 Ti | Standing between the cars | 29.86 | 37.97 ms | 20.89% |
+| RTX 5070 Ti | Walking | 29.92 | 36.32 ms | 9.21% |
+| Radeon 780M | Standing between the cars | 29.91 | 40.93 ms | 26.48% |
+| Radeon 780M | Walking | 29.26 | 42.27 ms | 19.12% |
+
+The RTX ran the game's default Vulkan renderer. On the Radeon 780M, with **Shared Vulkan memory** enabled, two default launches exited before reaching the map. The guest recorded a native crash in the Vulkan graphics driver. Starting Unity with `-force-gles30` and selecting ANGLE for this app let the same APK load the map. ANGLE identified Vulkan 1.3 on the Radeon as its backend. The two adapters therefore used different rendering paths.
+
+The two stationary samples used the same view. The walking samples used the same stick input from spawn, but the camera faced different scenery partway through each run. The Android figures use distinct positive presentation timestamps from the game's SurfaceView. The host column measures the QEMU process's running time on the named adapter's 3D engine over an overlapping window. These short runs clustered around 30 presentations per second and left 3D-engine headroom on both adapters. APK SHA-256 `2f686f28fd389ddc10162ae6042e1f4b9197c88ec36d644307c473d6464f58cd`. [Measurement intervals and GPU counters](../benchmarks/trw-demo/frame-timing.csv)
+
+![The playable character walking between parked cars on the outdoor map.](trw-demo-world.webp)
+
+## Racing League Mobile
+
+On Windows v0.8.0, the Android 17 Google Play profile installed Racing League Mobile 2.5 (build 8, ARM64) from the developer's APK. The car, garage and controls rendered in the vehicle selector. After the race started, the timer, minimap and pedals remained visible over a black scene. [Developer's download](https://nirvana-studio.itch.io/racingleague)
+
+| Class and track | Quality | Guest graphics path | Race scene |
+|---|---|---|---|
+| Open Wheels, Imola, Hass | High | Default emulator GLES driver | Black, including after switching cameras |
+| Open Wheels, Imola, Hass | High | ANGLE over Vulkan on the RTX 5070 Ti | Black |
+| JDM, Silverston, AE87 | Low | Same ANGLE driver | Black |
+
+The guest display was 1600 × 900 and AI opponents were enabled. We excluded these races from the FPS comparison because the game only drew the HUD. After testing, we restored the previous per-app driver settings. APK SHA-256 `0585742c414056e833116155ad85a599bead7e9fdefbc32166f8a80af9f21733`.
+
 ## Repeat the measurements
 
 1. Start one idle test profile and confirm the Android image, guest resolution and active renderer in the session diagnostics. Run `adb devices -l` and use the test guest’s serial for every command. Keep recording and screenshot capture idle during the sample.

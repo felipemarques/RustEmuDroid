@@ -122,7 +122,48 @@ On a private copy, we added the SDK's Vendor NDK 28 declaration to the Pie64 fra
 
 The Goldfish graphics allocator and composer services are x86-64 ELF executables. Fourteen graphics service and implementation binaries led to 74 distinct ELF files through their recursive `DT_NEEDED` dependencies. A static search found a file of the requested name and ABI for each edge in the Pie64 system and Goldfish vendor search directories. This checks names and architectures. Resolving versioned symbols, loading modules at runtime and presenting a frame require further tests.
 
-The original Pie64 product sets `ro.treble.enabled=false`. Its legacy linker configuration does not search the new versioned VNDK directories. Goldfish's Android 9 linker configuration does. The board port still needs a working path for native library loading, hardware services and device policy before it can claim an Android boot or accelerated game rendering. [Android linker namespaces](https://source.android.com/docs/core/architecture/vndk/linker-namespace)
+The original Pie64 product sets `ro.treble.enabled=false`. Its legacy linker configuration does not search the new versioned VNDK directories. Goldfish's Android 9 linker configuration does. The R1 assembly below stages the SDK linker configuration and device policy. The static dependency check leaves native runtime loading and rendering unverified. [Android linker namespaces](https://source.android.com/docs/core/architecture/vndk/linker-namespace)
+
+## Cold-boot the Goldfish system-as-root candidate
+
+The R1 experiment used RustEmuDroid 0.8.0, Android Emulator 37.3.10, WHPX and the SDK's normal x86-64 Goldfish boot path. Its system image retained the 47 factory APKs and the Pie64 framework and libraries from the copied `/android/system` tree. The root outside `/system` came from the official API 28 revision 4 SDK image. The board graft added the verified VNDK payload and framework manifest, the SDK's split SELinux policy, `prop.default`, `ld.config.28.txt`, and the `/system/vendor -> /vendor` link. The original SDK vendor image remained separate and supplied the matching policy, device properties and fstab. The SDK kernel, ramdisk and factory userdata seed were also kept with the board. This test did not attach the populated BlueStacks data disk.
+
+The new GPT disk retained the reference partition layout. Its ext4 system partition begins at 1,048,576 bytes and is 2,684,354,560 bytes long. The host ran a read-only filesystem check, then checked all 4,151 paths against the assembly records for file data or link targets, UID, GID, mode, SELinux label and capabilities. The host metadata check does not start init or validate service transitions. In the compiled SDK policy the allocator and composer have their normal transitions, while the retained `bstsvcmgrtest`, `report_daemon` and `vendor.RTVboxGuestService` entry points match the generic `system_file` type and have no automatic transition from init. None is declared critical.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Official SDK archive `x86_64-28_r04.zip` | `ff6ce81aa1424951a214da5f392f8e12382de46d33c08aeaa5d21caba6a39b62` |
+| Stock SDK `system.img` | `5dc8e30fadfc905b383acc76981c4a79c98f0e175bf4a20422eb1c0bcd157d9b` |
+| Shared stock SDK `vendor.img` | `7e43799e0c0d4f59ac885ba3e1c4955cd3b0c118cfccd8b71f0f24db86914f62` |
+| R1 `system.img` | `1073aa89548a65c2575736b69cc1123cc918091d92bb09366bb1da1561b64f6b` |
+| R1 framework manifest | `44c91c8aa54bd2958cec15e05b5e80228b97229d951ee7aa5b57a61a4681587f` |
+
+The unmodified SDK control reached `sys.boot_completed=1` in **29.5 seconds** on the RustEmuDroid clock. Guest checks reported SELinux enforcing, Launcher3 as Home, the SurfaceFlinger, input, package and activity services, multitouch axes, and NVIDIA-backed guest GLES on the RTX 5070 Ti. The R1 run ended after **183.83 seconds** of host observation without confirming Android boot. ADB listed a transport and the emulator console returned the expected AVD path. Attempts to open a guest shell repeatedly returned `error: closed`. The first run recorded host graphics initialization but could not query the guest compositor, input or launcher through the closed shell.
+
+A separate R1 run captured guest output through the SDK's kernel console and logcat stream. SurfaceFlinger reported OpenGL ES 2.0 through the Android Emulator OpenGL ES Translator on the RTX 5070 Ti and generated a cache of 24 shaders. The guest reached hardware-backed GLES initialization. The same trace showed the initial `/data` mount, read-only errors during `post-fs-data`, `vold` reporting a missing `/fstab.pie`, and userdata `cryptfs` commands. Those events identify a board configuration discrepancy to test. The log alone does not establish which error prevented Android boot or whether it explains the closed ADB shell.
+
+### R2 fstab compatibility test
+
+R2 uses the validated R1 disk and adds only `/fstab.pie` at the system-as-root filesystem root. Its contents are byte-for-byte the official SDK vendor's `/etc/fstab.ranchu`. The file keeps `forceencrypt=/dev/block/vdd` for `/data` on `/dev/block/vdc`. Its owner is root, mode is `0644`, and SELinux file type is `rootfs`. The read-only ext4 check passed and an offline content and metadata comparison found that new file as the only tree change. The SDK companion files, including the separate vendor image, are the same. R2's `system.img` SHA-256 is `5ba882a7b7c3af4e021b5a14a61d1e003e6cdc17cf39e6148be76905b80b0d4d`.
+
+The first R2 diagnostic ran for 100.0 seconds and used a fresh profile that exposed the 1 MiB SDK userdata seed directly instead of the formatted 6 GiB userdata used by the earlier runs. Android reported an invalid ext4 superblock on `/dev/block/vdc` and could not find `/misc` on its recovery path. That run did not record `cryptfs enablecrypto` or a Zygote start. The verified ADB console continued to work while shell calls returned `error: closed`. The run cannot isolate the fstab change. SurfaceFlinger again logged hardware-backed GLES.
+
+A second R2 diagnostic used separately prepared, filesystem-checked ext4 userdata at the control's 6 GiB size; its companion encryption key image was the original blank SDK seed. With that state and the same R2 system image, `vold` mounted encrypted userdata at `/data` from `/dev/block/dm-0`. The trace then recorded successful `cryptfs init_user0`, `trigger_restart_framework`, and Zygote creating `system_server` about 22 seconds after the kernel started. SELinux audit records showed that process still in `u:r:zygote:s0` and denied access to the secondary Zygote socket and Binder services. The guest later logged a null `IInstalld` reference during system-server dexopt. Those observations locate the next failure during framework startup. They do not establish the cause of the missing domain transition. The ADB console continued to identify the AVD, while the last shell check at 99.0 seconds still returned `error: closed`. The watchdog stopped the run after 100.0 seconds without confirming Launcher or Android boot completion.
+
+Use a dedicated state directory for each test. Keep an untouched, complete copy of the matching SDK image directory for the reference. For R1, point to a separate directory containing the exact validated R1 `system.img` and its unchanged SDK companion files. The following PowerShell commands reproduce the harness's boot arguments using an existing RustEmuDroid 0.8.0 binary. Use `init` once for each new state directory. Select the installed GPU name when running on different hardware.
+
+```powershell
+$emu = 'C:\Lab\rustemudroid.exe'
+$system = 'C:\Lab\pie28-hybrid-r1'
+$state = 'C:\Lab\pie28-hybrid-r1-state'
+$gpu = 'NVIDIA GeForce RTX 5070 Ti'
+
+Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $system 'system.img')
+& $emu --lang en-us --state-dir $state init --system-dir $system
+& $emu --lang en-us --state-dir $state boot --engine sdk --gpu host --gpu-device $gpu --headless --timeout 180
+```
+
+Repeat with the stock SDK directory and a second state directory for the control. To inspect a run, list ADB devices and use `adb -s <serial> emu avd path` to match the running transport to the expected `avd/RustEmuDroid.avd` inside that state directory. Then use the same serial with `adb shell getprop sys.boot_completed`. Only query or stop the emulator whose console path matches the test profile. Preserve the profile's `boot-*.log` and the first shell or boot-property result for comparison.
 
 ## Opt-in data storage probe
 

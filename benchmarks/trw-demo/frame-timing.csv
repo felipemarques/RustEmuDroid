@@ -1,0 +1,5 @@
+gpu,scene,interval_count,guest_span_s,guest_presentations_per_s,median_interval_ms,p95_interval_ms,gpu_wall_100ns,qemu_gpu_3d_running_100ns,qemu_gpu_3d_active_percent
+RTX 5070 Ti,Standing between two cars,643,21.532242,29.8622,33.2688,37.966,190599980,39812509,20.89
+RTX 5070 Ti,Moving through the starting area,524,17.515499,29.9164,33.2715,36.3194,150585872,13867624,9.21
+Radeon 780M,Standing between two cars,644,21.531137,29.9102,33.397,40.9347,190736670,50504409,26.48
+Radeon 780M,Moving through the starting area,513,17.532802,29.2594,33.4736,42.2664,150527951,28774750,19.12
