@@ -79,6 +79,8 @@ libcore
 libnativehelper
 prebuilts/build-tools
 prebuilts/clang/host/linux-x86
+prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.15-4.8
+prebuilts/gcc/linux-x86/x86/x86_64-linux-android-4.9
 prebuilts/go/linux-x86
 prebuilts/jdk/jdk8
 prebuilts/misc

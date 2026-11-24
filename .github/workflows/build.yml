@@ -3,6 +3,10 @@ on:
   push:
     branches: [lab/pie-platform-build]
 
+concurrency:
+  group: stock-pie-platform-lab
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -39,6 +43,7 @@ jobs:
           set -euo pipefail
           export LC_ALL=en_US.UTF-8
           cd "$RUNNER_TEMP/pie-src"
+          exec > >(tee "$RUNNER_TEMP/pie-result/checkout.log") 2>&1
           repo init --no-clone-bundle --depth=1 --no-tags -u https://android.googlesource.com/platform/manifest -b refs/tags/android-9.0.0_r61
           test "$(git -C .repo/manifests rev-parse HEAD)" = 3564dc0e96454f300e34543781448fa4185682c5
           mapfile -t projects < "$GITHUB_WORKSPACE/tools/pie-build/projects.txt"
