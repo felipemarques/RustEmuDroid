@@ -91,10 +91,27 @@ def main():
                 assert "Success" in guest("install", "-r", apk)
             window = run("xdotool", "search", "--onlyvisible", "--name", "^RustEmuDroid").splitlines()[-1]
             run("xdotool", "windowfocus", "--sync", window)
-            run("xdotool", "mousemove", "--window", window, "380", "390")
+            geometry = dict(line.split("=", 1) for line in
+                run("xdotool", "getwindowgeometry", "--shell", window).splitlines() if "=" in line)
+            run("xdotool", "mousemove", "--window", window,
+                str(int(geometry["WIDTH"]) // 2), str(int(geometry["HEIGHT"]) * 3 // 5))
+            system_waits = 0
             def cards(kind):
                 guest("shell", "uiautomator", "dump", "/data/local/tmp/home-grid.xml")
                 dom = ET.fromstring(guest("shell", "cat", "/data/local/tmp/home-grid.xml"))
+                nonlocal system_waits
+                # A software-rendered cold boot on a hosted runner can briefly stall System UI.
+                # Only acknowledge that exact Android dialog, never a Home or game failure.
+                if any(n.get("resource-id") == "android:id/alertTitle" and
+                       n.get("text") == "System UI isn't responding" for n in dom.iter("node")):
+                    wait = next(n for n in dom.iter("node") if n.get("resource-id") == "android:id/aerr_wait")
+                    if system_waits >= 3:
+                        raise RuntimeError("System UI still unresponsive after three waits")
+                    x1, y1, x2, y2 = map(int, re.findall(r"\d+", wait.get("bounds", "")))
+                    guest("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+                    system_waits += 1
+                    print(f"Waiting for System UI after cold boot ({system_waits}/3)", flush=True)
+                    return []
                 return sorted({int(match[1]) for node in dom.iter("node")
                     for key in ("text", "content-desc")
                     if (match := re.search(rf"AA {kind} (\d+)", node.get(key, "")))})
