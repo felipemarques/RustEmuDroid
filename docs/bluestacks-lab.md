@@ -68,3 +68,9 @@ sudo python3 -B tools/bluestacks_lab.py --images "$lab/Pie64" --output "$lab/sys
 ```
 
 The guest has no network or attached disks. The temporary boot script omits the proprietary `bstinput` load, leaves the standard Linux input devices active, and loop-mounts the complete copied root as read-only SquashFS. The original Android ramdisk and later BlueStacks initialization and configuration checks run as shipped. QEMU mounted the copied root, extracted the original Android ramdisk, and attached the original Android system directory. The original configuration then reported `ERROR: android_id is empty` and the guest stopped before Android completed startup. `system-mount.json` describes the staged image and `result.json` records the observed milestones. The temporary carrier is removed when the diagnostic exits.
+
+### What the image still needs from its host
+
+In the tested Pie64 ramdisk, the configuration reads run before its explicit VirtualBox guest and shared-folder driver loads. The boot scripts also reference BlueStacks-specific message, input, audio, graphics and camera modules. A later data check expects a partition at `/dev/block/sdb1`. That check was identified in the scripts and was never reached in this run.
+
+A matching host configuration interface and working guest devices are still needed to demonstrate a full boot and play a game. The public VirtualBox guest-properties documentation describes its own Guest Additions interface. The BlueStacks recovery procedure restores an offline `Data.vhdx` into the same version of its App Player. Neither document specifies the early Pie64 host interface used here. [VirtualBox Guest Additions](https://docs.oracle.com/en/virtualization/virtualbox/7.0/user/guestadditions.html) ? [BlueStacks backup and restore](https://support.bluestacks.com/hc/en-us/articles/360059480692-How-to-backup-and-restore-data-on-BlueStacks-5)
