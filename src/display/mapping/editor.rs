@@ -411,6 +411,7 @@ impl Mapping {
                 "Desplazamiento en bordes",
             ),
             locale.pick("Inclinar", "Tilt", "Inclinar"),
+            locale.pick("Analógico MOBA", "MOBA joystick", "Palanca MOBA"),
         ];
         let width = ((ui.available_width() - 2. * ui.spacing().item_spacing.x) / 3.).max(46.);
         for row in (0..labels.len()).step_by(3) {
@@ -482,10 +483,10 @@ impl Mapping {
                         let label = format!(
                             "{} · {}",
                             gesture_name(&binding.gesture, locale),
-                            if binding.input.is_empty() {
+                            if binding.primary_input().is_empty() {
                                 locale.pick("Sem tecla", "Unbound", "Sin tecla")
                             } else {
-                                binding_input_name(&binding.input, locale)
+                                binding_input_name(binding.primary_input(), locale)
                             }
                         );
                         ui.selectable_value(&mut self.selected_control, Some(index), label);
@@ -670,6 +671,37 @@ impl Mapping {
                             "Alternar con tecla",
                         ),
                     );
+                }
+                Gesture::MobaMove { radius, speed, .. } => {
+                    ui.weak(locale.pick(
+                        "Clique com o botão direito no destino.",
+                        "Right-click a destination.",
+                        "Haz clic derecho en el destino.",
+                    ));
+                    ui.add(egui::Slider::new(radius, 0.02..=0.35)
+                        .text(locale.pick("Raio", "Radius", "Radio")));
+                    ui.add(egui::Slider::new(speed, 0.1..=5.).text(locale.pick(
+                        "Velocidade do herói", "Hero speed", "Velocidad del héroe",
+                    )));
+                    set_endpoint = ui.selectable_label(
+                        self.placing_endpoint,
+                        locale.pick("Posicionar herói", "Place hero", "Situar al héroe"),
+                    ).clicked();
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(locale.pick("Parar movimento", "Stop movement", "Detener movimiento"));
+                        let name = if binding.input.is_empty() {
+                            locale.pick("Atribuir tecla", "Assign key", "Asignar tecla")
+                        } else {
+                            binding_input_name(&binding.input, locale)
+                        };
+                        set_binding = ui.selectable_label(self.await_binding, name).clicked();
+                        if !binding.input.is_empty() && ui.button("×")
+                            .on_hover_text(locale.pick("Limpar tecla", "Clear key", "Quitar tecla"))
+                            .clicked()
+                        {
+                            binding.input.clear();
+                        }
+                    });
                 }
                 Gesture::Moba { radius, quick_cast } => {
                     ui.add(egui::Slider::new(radius, 0.035..=0.35).text(locale.pick(
@@ -856,6 +888,7 @@ pub(super) fn profile_name(name: &str, locale: Locale) -> &str {
 
 fn binding_input_name(input: &str, locale: Locale) -> &str {
     match input {
+        "Mouse:Secondary" => locale.pick("Botão direito", "Right mouse button", "Botón derecho"),
         "Wheel:Up" => locale.pick("Rolar para cima", "Scroll up", "Desplazar arriba"),
         "Wheel:Down" => locale.pick("Rolar para baixo", "Scroll down", "Desplazar abajo"),
         "Wheel:Left" => locale.pick(
@@ -885,6 +918,7 @@ fn gesture_name(gesture: &Gesture, locale: Locale) -> &'static str {
         }
         Gesture::Aim { .. } => locale.pick("Mira ou câmera", "Aim or camera", "Mira o cámara"),
         Gesture::Moba { .. } => locale.pick("Habilidade MOBA", "MOBA ability", "Habilidad MOBA"),
+        Gesture::MobaMove { .. } => locale.pick("Analógico MOBA", "MOBA joystick", "Palanca MOBA"),
         Gesture::EdgeScroll { .. } => locale.pick(
             "Rolagem de borda",
             "Edge scroll",
@@ -923,7 +957,7 @@ impl FileAction {
     }
 }
 
-fn presets() -> [Gesture; 12] {
+fn presets() -> [Gesture; 13] {
     [
         Gesture::Hold,
         Gesture::Tap { duration_ms: 100 },
@@ -973,6 +1007,11 @@ fn presets() -> [Gesture; 12] {
         Gesture::Tilt {
             axis: TiltAxis::X,
             degrees: 20.,
+        },
+        Gesture::MobaMove {
+            hero: [0.5, 0.5],
+            radius: 0.10,
+            speed: 1.0,
         },
     ]
 }

@@ -70,6 +70,11 @@ pub(super) enum Gesture {
         radius: f32,
         quick_cast: bool,
     },
+    MobaMove {
+        hero: Point,
+        radius: f32,
+        speed: f32,
+    },
     EdgeScroll {
         margin_x: f32,
         margin_y: f32,
@@ -83,17 +88,49 @@ pub(super) enum Gesture {
 }
 
 impl Gesture {
+    pub(super) fn unique_tool(&self) -> bool {
+        matches!(self, Self::MobaMove { .. } | Self::EdgeScroll { .. })
+    }
+
     pub(super) fn needs_binding(&self) -> bool {
-        !matches!(self, Self::Dpad { .. } | Self::EdgeScroll { .. })
+        !matches!(
+            self,
+            Self::Dpad { .. } | Self::EdgeScroll { .. } | Self::MobaMove { .. }
+        )
+    }
+
+    pub(super) fn endpoint_mut(&mut self) -> Option<&mut Point> {
+        match self {
+            Self::Swipe { end, .. } => Some(end),
+            Self::MobaMove { hero, .. } => Some(hero),
+            _ => None,
+        }
+    }
+
+    pub(super) fn endpoint(&self) -> Option<Point> {
+        match *self {
+            Self::Swipe { end, .. } => Some(end),
+            Self::MobaMove { hero, .. } => Some(hero),
+            _ => None,
+        }
     }
 }
 
 impl Binding {
+    pub(super) fn primary_input(&self) -> &str {
+        if matches!(self.gesture, Gesture::MobaMove { .. }) {
+            "Mouse:Secondary"
+        } else {
+            &self.input
+        }
+    }
+
     pub(super) fn captures(&self, input: &str) -> bool {
         !input.is_empty()
             && match &self.gesture {
                 Gesture::Dpad { directions, .. } => directions.iter().any(|key| key == input),
                 Gesture::EdgeScroll { .. } => false,
+                Gesture::MobaMove { .. } => input == "Mouse:Secondary" || input == self.input,
                 _ => self.input == input,
             }
     }
@@ -198,7 +235,29 @@ impl Gestures {
             .enumerate()
             .filter(|(_, b)| b.captures(input))
         {
-            if matches!(binding.gesture, Gesture::Dpad { .. }) {
+            if let Gesture::MobaMove {
+                hero,
+                radius,
+                speed,
+            } = binding.gesture
+            {
+                self.stop(i, changes);
+                self.deadlines.remove(&i);
+                if input == "Mouse:Secondary"
+                    && let Some(cursor) = frame.cursor
+                {
+                    let delta = (point(cursor) - point(hero)) * frame.size;
+                    let distance = delta.length() / frame.size.min_elem();
+                    if distance > 0.01 && self.start(i, &[binding.at], frame, changes) {
+                        let target = offset(frame.size, binding.at, delta.normalized() * radius);
+                        self.move_to(i, &[target], changes);
+                        self.deadlines.insert(
+                            i,
+                            frame.time + f64::from((distance / speed).clamp(0.035, 5.)),
+                        );
+                    }
+                }
+            } else if matches!(binding.gesture, Gesture::Dpad { .. }) {
                 self.update_dpad(i, binding, frame, changes);
             } else if matches!(binding.gesture, Gesture::Aim { toggle: true, .. }) {
                 if !self.toggled.insert(i) {
@@ -245,6 +304,15 @@ impl Gestures {
                 .map_or(0., |active| frame.time - active.started);
             match &binding.gesture {
                 Gesture::Hold => {}
+                Gesture::MobaMove { .. }
+                    if self
+                        .deadlines
+                        .get(&index)
+                        .is_some_and(|end| frame.time >= *end) =>
+                {
+                    self.stop(index, changes);
+                    self.deadlines.remove(&index);
+                }
                 Gesture::Tap { duration_ms } => {
                     if has_contacts && elapsed >= duration(*duration_ms) {
                         self.stop(index, changes);
@@ -699,6 +767,60 @@ mod tests {
         assert!(events.iter().any(|c| c.id == 2 && c.down));
         assert_eq!(touch.release().count(), 3);
         assert!(!touch.waiting());
+    }
+
+    #[test]
+    fn moba_joystick_uses_hero_relative_pixel_direction_and_click_distance() {
+        let bindings = [Binding {
+            input: "X".into(),
+            at: [0.15, 0.8],
+            gesture: Gesture::MobaMove {
+                hero: [0.5, 0.5],
+                radius: 0.1,
+                speed: 1.0,
+            },
+        }];
+        let mut state = Gestures::default();
+        let mut events = Vec::new();
+        // Ninety pixels right and ninety up in a 1600 × 900 game.
+        let click = Frame {
+            cursor: Some([0.55625, 0.4]),
+            ..frame(1.)
+        };
+        state.input(&bindings, "Mouse:Secondary", true, &click, &mut events);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].pos, bindings[0].at);
+        let end = events[1];
+        assert!(end.down && end.id == events[0].id);
+        assert!(((end.pos[0] - 0.15) * 1600. - 63.64).abs() < 0.1);
+        assert!(((end.pos[1] - 0.8) * 900. + 63.64).abs() < 0.1);
+        events.clear();
+        state.input(&bindings, "Mouse:Secondary", false, &click, &mut events);
+        state.frame(&bindings, &frame(1.1), &mut events);
+        assert!(events.is_empty());
+        state.frame(&bindings, &frame(1.15), &mut events);
+        assert_eq!(events.len(), 1);
+        assert!(!events[0].down && events[0].id == end.id);
+        assert!(!state.waiting());
+
+        events.clear();
+        state.input(&bindings, "Mouse:Secondary", true, &click, &mut events);
+        state.input(&bindings, "X", true, &click, &mut events);
+        assert_eq!(events.len(), 3);
+        assert!(!events[2].down && !state.waiting());
+        assert_eq!(state.release().count(), 0);
+        events.clear();
+        state.input(
+            &bindings,
+            "Mouse:Secondary",
+            true,
+            &Frame {
+                cursor: Some([0.5, 0.5]),
+                ..click
+            },
+            &mut events,
+        );
+        assert!(events.is_empty());
     }
 
     #[test]

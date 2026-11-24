@@ -498,7 +498,9 @@ impl Mapping {
                     && let Some(slot) = directions.get_mut(direction)
                 {
                     *slot = input.to_owned();
-                } else {
+                } else if !matches!(binding.gesture, Gesture::MobaMove { .. })
+                    || input != "Mouse:Secondary"
+                {
                     binding.input = input.to_owned();
                 }
                 self.await_binding = false;
@@ -680,7 +682,17 @@ impl Mapping {
                             && self.await_binding
                             && self.canvas_contains(visible, pos))
                     {
-                        self.handle_input(pointer_id(button), pressed, &frame, &mut changes);
+                        // Use the click position even if the pointer moved again in this UI frame.
+                        let click = Frame {
+                            cursor: rect.contains(pos).then(|| {
+                                [
+                                    (pos.x - rect.left()) / rect.width(),
+                                    (pos.y - rect.top()) / rect.height(),
+                                ]
+                            }),
+                            ..frame
+                        };
+                        self.handle_input(pointer_id(button), pressed, &click, &mut changes);
                     }
                 }
                 egui::Event::MouseWheel { delta, .. }
@@ -787,6 +799,13 @@ fn valid_layout(layout: &Layout) -> bool {
         && layout
             .controls
             .iter()
+            .filter(|binding| matches!(binding.gesture, Gesture::MobaMove { .. }))
+            .take(2)
+            .count()
+            <= 1
+        && layout
+            .controls
+            .iter()
             .filter(|binding| matches!(binding.gesture, Gesture::EdgeScroll { .. }))
             .take(2)
             .count()
@@ -829,6 +848,16 @@ fn valid_layout(layout: &Layout) -> bool {
                             && duration(*duration_ms)
                     }
                     Gesture::Moba { radius: value, .. } => radius(*value),
+                    Gesture::MobaMove {
+                        hero,
+                        radius: value,
+                        speed,
+                    } => {
+                        point(*hero)
+                            && radius(*value)
+                            && (0.1..=5.).contains(speed)
+                            && binding.input != "Mouse:Secondary"
+                    }
                     Gesture::EdgeScroll {
                         margin_x,
                         margin_y,
@@ -888,6 +917,7 @@ fn direction(input: &str) -> Option<Vec2> {
 
 fn label(input: &str) -> &str {
     match input {
+        "Mouse:Secondary" => "M2",
         "Pad:South" => "A / ×",
         "Pad:East" => "B / ○",
         "Pad:West" => "X / □",

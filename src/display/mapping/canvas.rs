@@ -203,6 +203,12 @@ impl Mapping {
             painter.circle_filled(end, 5., Color32::from_rgb(26, 34, 42));
             painter.circle_stroke(end, 5., (1.5, theme::ACCENT));
         }
+        if let Gesture::MobaMove { hero, radius, .. } = binding.gesture {
+            painter.circle_stroke(at, radius * rect.size().min_elem(), (1.5, theme::ACCENT));
+            let hero = screen(rect, hero);
+            painter.circle_stroke(hero, 8., (1.5, theme::ACCENT));
+            painter.circle_filled(hero, 2.5, theme::ACCENT);
+        }
         if selected
             && let Gesture::EdgeScroll {
                 margin_x, margin_y, ..
@@ -221,10 +227,10 @@ impl Mapping {
             at,
             if listening {
                 "…"
-            } else if binding.input.is_empty() {
+            } else if binding.primary_input().is_empty() {
                 gesture_icon(&binding.gesture)
             } else {
-                label(&binding.input)
+                label(binding.primary_input())
             },
             selected,
         );
@@ -334,7 +340,7 @@ impl Mapping {
             if let Some(binding) = self
                 .selected_control
                 .and_then(|index| self.draft.controls.get_mut(index))
-                && let Gesture::Swipe { end, .. } = &mut binding.gesture
+                && let Some(end) = binding.gesture.endpoint_mut()
             {
                 *end = at;
             }
@@ -379,13 +385,16 @@ impl Mapping {
 
     fn place_control(&mut self, at: Point) {
         self.reset_placement();
-        if matches!(self.preset, Gesture::EdgeScroll { .. })
-            && let Some((index, binding)) = self
-                .draft
-                .controls
-                .iter_mut()
-                .enumerate()
-                .find(|(_, binding)| matches!(binding.gesture, Gesture::EdgeScroll { .. }))
+        if self.preset.unique_tool()
+            && let Some((index, binding)) =
+                self.draft
+                    .controls
+                    .iter_mut()
+                    .enumerate()
+                    .find(|(_, binding)| {
+                        std::mem::discriminant(&binding.gesture)
+                            == std::mem::discriminant(&self.preset)
+                    })
         {
             binding.at = at;
             self.selected_control = Some(index);
@@ -420,15 +429,15 @@ impl Mapping {
                     .map(|direction| Marker::Direction(index, direction))
                     .or_else(|| (at.distance(pos) <= 14.).then_some(Marker::Control(index)));
             }
-            let text = if binding.input.is_empty() {
+            let text = if binding.primary_input().is_empty() {
                 gesture_icon(&binding.gesture)
             } else {
-                label(&binding.input)
+                label(binding.primary_input())
             };
             if key_rect(at, text).expand(3.).contains(pos) {
                 return Some(Marker::Control(index));
             }
-            if let Gesture::Swipe { end, .. } = binding.gesture
+            if let Some(end) = binding.gesture.endpoint()
                 && screen(rect, end).distance(pos) <= 10.
             {
                 return Some(Marker::Endpoint(index));
@@ -481,7 +490,7 @@ impl Mapping {
                 self.draft.controls[index].at
             }
             Marker::Endpoint(index) => {
-                let Gesture::Swipe { end, .. } = self.draft.controls[index].gesture else {
+                let Some(end) = self.draft.controls[index].gesture.endpoint() else {
                     return;
                 };
                 self.selected_control = Some(index);
@@ -511,7 +520,7 @@ impl Mapping {
         match drag.marker {
             Marker::Control(index) => self.draft.controls[index].at = at,
             Marker::Endpoint(index) => {
-                if let Gesture::Swipe { end, .. } = &mut self.draft.controls[index].gesture {
+                if let Some(end) = self.draft.controls[index].gesture.endpoint_mut() {
                     *end = at;
                 }
             }
@@ -610,6 +619,7 @@ fn gesture_icon(gesture: &Gesture) -> &'static str {
         Gesture::Pinch { .. } => "↔",
         Gesture::Rotate { .. } => "↻",
         Gesture::Moba { .. } => "◎",
+        Gesture::MobaMove { .. } => "⊕",
         Gesture::EdgeScroll { .. } => "⇆",
         Gesture::Tilt { .. } => "◇",
     }

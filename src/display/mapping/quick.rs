@@ -283,7 +283,10 @@ impl Mapping {
             if key.is_empty() {
                 return;
             }
-            let label = key.strip_prefix("Pad:").unwrap_or(key);
+            let label = match key {
+                "Mouse:Secondary" => "M2",
+                _ => key.strip_prefix("Pad:").unwrap_or(key),
+            };
             let font = FontId::proportional(13.);
             let text = paint.layout_no_wrap(label.to_owned(), font, Color32::WHITE);
             let r = Rect::from_center_size(at, text.size() + vec2(12., 6.));
@@ -327,7 +330,7 @@ impl Mapping {
                     directions.each_ref().map(String::as_str),
                 );
             } else {
-                badge(pos(binding.at), &binding.input);
+                badge(pos(binding.at), binding.primary_input());
             }
         }
     }

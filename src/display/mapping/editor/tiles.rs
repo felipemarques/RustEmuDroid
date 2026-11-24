@@ -172,6 +172,12 @@ pub(super) fn draw(painter: &Painter, center: Pos2, icon: usize, color: Color32)
             ));
             line(&[(-8., -2.), (-8., -7.), (-3., -7.)]);
         }
+        12 => {
+            ring(-3., 3., 6.5);
+            dot(-3., 3.);
+            line(&[(-1., 1.), (7., -7.)]);
+            line(&[(2., -7.), (7., -7.), (7., -2.)]);
+        }
         _ => {}
     }
 }
