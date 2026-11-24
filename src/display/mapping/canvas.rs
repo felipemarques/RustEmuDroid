@@ -1,4 +1,4 @@
-use super::{Binding, Gesture, Mapping, Point, label};
+use super::{Binding, Gesture, Mapping, Point, gestures::dpad_radius, label};
 use crate::ui::theme;
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, StrokeKind, Vec2, vec2};
 
@@ -168,7 +168,7 @@ impl Mapping {
                 directions, radius, ..
             } = &self.preset
             {
-                Dpad::new(pos, *radius, rect).paint(
+                Dpad::new(pos, dpad_radius(*radius), rect).paint(
                     &painter,
                     directions.each_ref().map(String::as_str),
                     true,
@@ -189,7 +189,7 @@ impl Mapping {
         } = &binding.gesture
         {
             let listening = listening.then_some(self.direction_binding).flatten();
-            Dpad::new(at, *radius, rect).paint(
+            Dpad::new(at, dpad_radius(*radius), rect).paint(
                 painter,
                 directions.each_ref().map(String::as_str),
                 selected,
@@ -420,7 +420,7 @@ impl Mapping {
         let hit = |index, binding: &Binding| {
             let at = screen(rect, binding.at);
             if let Gesture::Dpad { radius, .. } = binding.gesture {
-                let dpad = Dpad::new(at, radius, rect);
+                let dpad = Dpad::new(at, dpad_radius(radius), rect);
                 if self.selected_control == Some(index) && dpad.handle().distance(pos) <= 9. {
                     return Some(Marker::Resize(index));
                 }
@@ -504,7 +504,7 @@ impl Mapping {
         let radius = if let Marker::Resize(index) = marker
             && let Gesture::Dpad { radius, .. } = self.draft.controls[index].gesture
         {
-            Some(radius)
+            Some(dpad_radius(radius))
         } else {
             None
         };
@@ -531,8 +531,7 @@ impl Mapping {
                 {
                     let delta = (pos - center).length() - drag.offset.length();
                     let minimum = rect.width().min(rect.height());
-                    // Match the radius range used by the gameplay gesture.
-                    *radius = (initial_radius + delta / minimum).clamp(0.02, 0.35);
+                    *radius = dpad_radius(initial_radius + delta / minimum);
                 }
             }
             Marker::LegacyStick => self.draft.stick = Some(at),
@@ -777,3 +776,6 @@ mod tests {
         assert!((radius - 0.2).abs() < 0.0001);
     }
 }
+
+#[cfg(test)]
+mod editor_interaction_tests;

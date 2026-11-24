@@ -11,6 +11,11 @@ pub(super) struct Binding {
 }
 
 pub(super) const MAX_TILT: f32 = 45.;
+pub(super) const DPAD_RADIUS: std::ops::RangeInclusive<f32> = 0.02..=0.35;
+
+pub(super) fn dpad_radius(value: f32) -> f32 {
+    value.clamp(*DPAD_RADIUS.start(), *DPAD_RADIUS.end())
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DpadStick {
@@ -768,7 +773,7 @@ impl Gestures {
             let pos = offset(
                 frame.size,
                 binding.at,
-                limited(movement, 1.) * radius.clamp(0.02, 0.35),
+                limited(movement, 1.) * dpad_radius(*radius),
             );
             self.start(index, &[binding.at], frame, changes);
             self.move_to(index, &[pos], changes);

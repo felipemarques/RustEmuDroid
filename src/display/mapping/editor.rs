@@ -1,6 +1,6 @@
 mod tiles;
 
-use super::gestures::{DpadStick, MAX_TILT, SteeringWheel, TiltAxis};
+use super::gestures::{DPAD_RADIUS, DpadStick, MAX_TILT, SteeringWheel, TiltAxis};
 use super::{Gesture, Mapping, SchemeError};
 use crate::ui::{i18n::Locale, theme};
 use eframe::egui;
@@ -661,7 +661,8 @@ impl Mapping {
                 } => {
                     choose_direction(ui, directions);
                     ui.add(
-                        egui::Slider::new(radius, 0.035..=0.25)
+                        egui::Slider::new(radius, DPAD_RADIUS)
+                            .clamping(egui::SliderClamping::Edits)
                             .text(locale.pick("Raio", "Radius", "Radio")),
                     );
                     let stick = DpadStick::from_flags(*left_stick, *right_stick);

@@ -1,4 +1,8 @@
-use super::{GameProfiles, Gesture, Layout, Mapping, Point, gestures::DpadStick, label};
+use super::{
+    GameProfiles, Gesture, Layout, Mapping, Point,
+    gestures::{DpadStick, dpad_radius},
+    label,
+};
 use crate::ui::{i18n::Locale, theme};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Stroke, vec2};
 use serde::{Deserialize, Serialize};
@@ -107,7 +111,7 @@ impl Mapping {
         let bounds = viewport.shrink(7.);
         let (width, height, y) = if self.editing {
             (
-                310_f32.min(bounds.width() * 0.52),
+                310_f32.min(bounds.width() * 0.48),
                 bounds.height(),
                 bounds.top(),
             )
@@ -419,7 +423,7 @@ fn visit_hints(
                 left_stick: left,
                 right_stick: right,
             } => {
-                let radius = distance(*radius);
+                let radius = distance(dpad_radius(*radius));
                 directions(
                     at,
                     radius,

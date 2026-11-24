@@ -175,7 +175,7 @@ Open a game and click the keyboard icon in the sidebar to open **Game controls**
 
 ![Game controls menu over SuperTuxKart](docs/screenshots/en-us/controls.png)
 
-Choose **Controls editor** from the menu or press **Ctrl+Shift+A**. Drag a control from the palette onto the game, then select it to bind an input and adjust its properties. For movement, drop a **D-pad** over the game's virtual joystick. Assign **Up**, **Down**, **Left**, and **Right** individually in **Control settings**, then set the radius to match the game's joystick. Under **Controller stick**, choose **Left** or **Right** to steer with that stick alongside the direction keys. Choose **Off** to use only the assigned directions. Click **Save** to apply the scheme.
+Choose **Controls editor** from the menu or press **Ctrl+Shift+A**. Drag a control from the palette onto the game, then select it to bind an input and adjust its properties. For movement, drop a **D-pad** over the game's virtual joystick. Assign **Up**, **Down**, **Left**, and **Right** individually in **Control settings**. Click the center of the D-pad to select it and drag the lower-right handle to match the game's joystick. The handle and panel adjust the same radius. Under **Controller stick**, choose **Left** or **Right** to steer with that stick alongside the direction keys. Choose **Off** to use only the assigned directions. Click **Save** to apply the scheme.
 
 For maps that pan when dragged, drop **Edge scroll** on a clear spot in the map and save. Move the pointer to an edge of the game display to pan toward it. Adjust the horizontal and vertical margins and speeds in **Control settings**. Move the pointer away from the edge to stop.
 
