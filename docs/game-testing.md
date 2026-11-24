@@ -95,9 +95,23 @@ Each emulator ran **Balanced → Smooth → Balanced** under **Customize → Lob
 
 Pooling the two Balanced runs for each emulator gives **29.50 presentations/s on BlueStacks and 25.15 on RustEmuDroid**, a difference of 4.35/s (17.3% relative to RustEmuDroid). Over the same 96 seconds, BlueStacks had 2 intervals above 250 ms and RustEmuDroid had 24. On the first return from Inventory, the two Balanced runs paused for 1.097 s and 1.081 s on RustEmuDroid, compared with 183 ms and 167 ms on BlueStacks. BlueStacks recorded its longest gap during the first Inventory opening on all three custom runs.
 
+To quantify the visible drops, we divided the two Balanced routes into 96 consecutive one-second windows per emulator, aligned to the start of each route. RustEmuDroid delivered fewer than 15 presentations in eight windows and fewer than 20 in 19 windows. BlueStacks delivered fewer than 15 in zero windows and fewer than 20 in two windows. The slowest one-second window contained one presentation on RustEmuDroid and 19 on BlueStacks.
+
 We measured distinct presentations on PUBG's Android SurfaceView using column two of `dumpsys SurfaceFlinger --latency`. The 48-second window includes the menu transitions. BlueStacks' presentation times fell on multiples of a 16.67 ms display refresh. Its frame-ready timestamps advanced independently. The game accounts and languages differed. The private mid-run captures confirm Inventory in each run, with differences in the visible clothing panel. These runs measure the lobby and Inventory on this PC. Combat FPS and the game's internal render rate require separate measurements. [Relative timestamps for all seven routes](../benchmarks/pubg-mobile/bluestacks-pie64-inventory.csv)
 
 One additional BlueStacks pass kept its original global Balanced preference, HD lobby and Lobby Graphics Enhancement enabled. It returned 29.85 presentations/s with a 117 ms maximum gap. This warm pass included an Inventory check before the run. The averages in the table use only the matched custom runs.
+
+### PUBG startup on Kemu Android 16
+
+We tested the existing Original profile in RustEmuDroid 0.13.3 on Windows with Kemu Android 16, the RTX 5070 Ti, 1600 × 900 and the same ARM64 PUBG build 4.7.0 (21718). Each test had its own VM boot. We verified the selected GPU, game version, AVD and Berberis translation mode on each launch.
+
+| Berberis mode | Last observed screen |
+|---|---|
+| Default, first boot | The game's initial studio logos were still visible at 276 seconds. |
+| Lightweight ARM translation | A 3.89 MB update prompt was visible by 56 seconds. After the download, the welcome screen offered Battle or Train by 137 seconds. |
+| Default, after the game update | The same studio logos were still visible at 183 seconds. |
+
+The two default runs showed identical splash captures at multiple points, including their final samples. We stopped at the welcome screen to preserve the player's choice of Battle or Train. This profile did not reach the Inventory benchmark route, so it has no comparable FPS result. The observed timings are measured from the game launch request to the screen capture.
 
 ### Does disabling Adaptive Graphics help Inventory?
 
