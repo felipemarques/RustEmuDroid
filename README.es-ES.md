@@ -33,6 +33,8 @@ El ejecutable incluye el APK de la pantalla de inicio de RustEmuDroid. Instala e
 | Gráficos y escritorio | Instala el controlador de la GPU del equipo. | Utiliza una sesión X11 o Wayland con OpenGL. El selector de APK usa el portal de archivos del escritorio. |
 | Herramientas | En SDK Manager instala Android Emulator, Platform-Tools y una imagen x86-64. | Instala las versiones para Linux, también si utilizas WSL2. |
 
+Si ya tienes los componentes, `--sdk` puede apuntar a una carpeta con los paquetes `emulator` y `platform-tools` y la imagen en `system-images`. Android Studio, Gradle, el NDK y las herramientas de compilación del SDK son opcionales para ejecutar el cliente publicado. La versión 0.8.1 también busca el emulador del SDK y ADB cuando selecciona el motor de Kemu en Windows.
+
 Con `sdkmanager` en el PATH, instala el entorno y la imagen opcional de Google Play. Acepta las licencias del SDK cuando se soliciten.
 
 ```sh

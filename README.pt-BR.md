@@ -31,6 +31,8 @@ O executável já inclui o APK da Home do RustEmuDroid. O SDK, as imagens Androi
 | Vídeo e desktop | Instale o driver da placa de vídeo para usar aceleração da GPU. | Use uma sessão gráfica X11 ou Wayland com OpenGL. O seletor de APK depende do portal de arquivos do desktop. |
 | Ferramentas Android | Instale Android Emulator, Platform-Tools e uma imagem de sistema x86-64 pelo SDK Manager do Android Studio ou pelas ferramentas de linha de comando. | Instale as versões Linux desses mesmos componentes, inclusive no WSL2. |
 
+Se os componentes já estiverem instalados, `--sdk` pode apontar para uma pasta com os pacotes `emulator` e `platform-tools` e a imagem em `system-images`. Para rodar o cliente publicado, você pode dispensar Android Studio, Gradle, NDK e as ferramentas de compilação do SDK. A versão 0.8.1 procura o emulador do SDK e o ADB mesmo quando seleciona o motor do Kemu no Windows.
+
 Com `sdkmanager` disponível no PATH, este comando instala as ferramentas e a imagem opcional do Google Play. Aceite as licenças do SDK quando forem apresentadas.
 
 ```sh
