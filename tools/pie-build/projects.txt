@@ -97,9 +97,11 @@ system/libhwbinder
 system/libvintf
 system/media
 system/netd
+system/sepolicy
 system/timezone
 system/tools/aidl
 system/tools/hidl
+system/vold
 test/vts
 tools/apksig
 tools/metalava

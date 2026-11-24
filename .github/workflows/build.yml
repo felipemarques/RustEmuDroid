@@ -54,6 +54,7 @@ jobs:
         run: |
           set -eo pipefail
           cd "$RUNNER_TEMP/pie-src"
+          exec > >(tee "$RUNNER_TEMP/pie-result/build.log") 2>&1
           export LC_ALL=en_US.UTF-8
           ln -s "$PWD/prebuilts/python/linux-x86/2.7.5/bin/python2.7" "$RUNNER_TEMP/pie-bin/python"
           ln -s "$PWD/prebuilts/python/linux-x86/2.7.5/bin/python2.7" "$RUNNER_TEMP/pie-bin/python2"
@@ -61,7 +62,7 @@ jobs:
           python --version
           source build/envsetup.sh
           lunch sdk_phone_x86_64-userdebug
-          m -j3 libandroid_runtime 2>&1 | tee "$RUNNER_TEMP/pie-result/build.log"
+          m -j3 libandroid_runtime
           report="$RUNNER_TEMP/pie-result"
           for abi in lib lib64; do
             output="$ANDROID_PRODUCT_OUT/system/$abi/libandroid_runtime.so"
