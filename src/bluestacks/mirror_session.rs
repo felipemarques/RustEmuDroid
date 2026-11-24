@@ -76,6 +76,19 @@ impl MirrorSession {
         Self::spawn(instance, None, Some(adb), Some(pid))
     }
 
+    #[cfg(test)]
+    pub(crate) fn input_recorder() -> (Self, Receiver<MirrorInput>) {
+        let (_, events) = mpsc::channel();
+        let (input, receiver) = mpsc::channel();
+        let session = Self {
+            events,
+            input,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            worker: None,
+        };
+        (session, receiver)
+    }
+
     fn spawn(
         instance: String,
         package: Option<String>,

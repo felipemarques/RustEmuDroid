@@ -27,7 +27,7 @@ fn input_frame(panel: &mut MirrorPanel, ctx: &egui::Context, focused: bool, even
             events,
             ..Default::default()
         },
-        |ctx| panel.handle_input(ctx, SLOT, 1.0, GUEST),
+        |ctx| panel.handle_input(ctx, SLOT, 1.0, GUEST, false),
     );
 }
 
@@ -95,8 +95,139 @@ fn dragging_outside_or_losing_native_focus_clears_a_held_touch() {
 }
 
 #[test]
-fn obscured_preview_releases_input_without_discarding_the_connected_display_size() {
+fn releasing_outside_without_a_pointer_move_cancels_the_held_touch() {
+    let (session, input) = MirrorSession::input_recorder();
     let mut panel = MirrorPanel {
+        session: Some(session),
+        ..Default::default()
+    };
+    let ctx = egui::Context::default();
+    input_frame(&mut panel, &ctx, true, vec![primary(CENTER, true)]);
+    input_frame(&mut panel, &ctx, true, vec![primary(TOOLBAR, false)]);
+    assert!(matches!(
+        input.try_iter().collect::<Vec<_>>().as_slice(),
+        [
+            MirrorInput::Touch(TouchAction::Down, [100, 50], GUEST),
+            MirrorInput::Release
+        ]
+    ));
+    assert!(panel.last_touch.is_none());
+    assert!(!panel.input_focused);
+
+    input_frame(
+        &mut panel,
+        &ctx,
+        true,
+        vec![primary(CENTER, true), primary(CENTER, false)],
+    );
+    assert!(matches!(
+        input.try_iter().collect::<Vec<_>>().as_slice(),
+        [
+            MirrorInput::Touch(TouchAction::Down, [100, 50], GUEST),
+            MirrorInput::Touch(TouchAction::Up, [100, 50], GUEST)
+        ]
+    ));
+}
+
+#[test]
+fn back_releases_the_primary_contact_before_navigation_and_ignores_its_old_up() {
+    for back in [
+        Event::PointerButton {
+            pos: CENTER,
+            button: PointerButton::Secondary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        },
+        Event::Key {
+            key: Key::Escape,
+            physical_key: Some(Key::Escape),
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        },
+    ] {
+        let (session, input) = MirrorSession::input_recorder();
+        let mut panel = MirrorPanel {
+            session: Some(session),
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        input_frame(&mut panel, &ctx, true, vec![primary(CENTER, true)]);
+        assert!(matches!(
+            input.try_recv().unwrap(),
+            MirrorInput::Touch(TouchAction::Down, [100, 50], GUEST)
+        ));
+
+        input_frame(&mut panel, &ctx, true, vec![back]);
+        input_frame(&mut panel, &ctx, true, vec![primary(CENTER, false)]);
+        assert!(matches!(
+            input.try_iter().collect::<Vec<_>>().as_slice(),
+            [MirrorInput::Release, MirrorInput::Back]
+        ));
+        assert!(panel.last_touch.is_none());
+    }
+}
+
+#[test]
+fn changed_preview_geometry_discards_unfinished_contact_before_reprojecting_input() {
+    let (session, input) = MirrorSession::input_recorder();
+    let mut panel = MirrorPanel {
+        session: Some(session),
+        ..Default::default()
+    };
+    let ctx = egui::Context::default();
+    input_frame(&mut panel, &ctx, true, vec![primary(CENTER, true)]);
+    assert!(matches!(
+        input.try_recv().unwrap(),
+        MirrorInput::Touch(TouchAction::Down, [100, 50], GUEST)
+    ));
+
+    let shifted = PreviewRect {
+        left: 150,
+        right: 550,
+        ..SLOT
+    };
+    let _ = ctx.run(
+        RawInput {
+            focused: true,
+            events: vec![Event::PointerMoved(CENTER), primary(CENTER, false)],
+            ..Default::default()
+        },
+        |ctx| panel.handle_input(ctx, shifted, 1.0, GUEST, false),
+    );
+    assert!(matches!(
+        input.try_iter().collect::<Vec<_>>().as_slice(),
+        [MirrorInput::Release]
+    ));
+    assert!(panel.last_touch.is_none());
+}
+
+#[test]
+fn native_resize_gesture_keeps_its_pointer_press_out_of_the_guest() {
+    let (session, input) = MirrorSession::input_recorder();
+    let mut panel = MirrorPanel {
+        session: Some(session),
+        ..Default::default()
+    };
+    let ctx = egui::Context::default();
+    let _ = ctx.run(
+        RawInput {
+            focused: true,
+            events: vec![primary(CENTER, true)],
+            ..Default::default()
+        },
+        |ctx| panel.handle_input(ctx, SLOT, 1.0, GUEST, true),
+    );
+    assert!(input.try_recv().is_err());
+    assert!(panel.last_touch.is_none());
+    assert!(!panel.input_focused);
+}
+
+#[test]
+fn obscured_preview_releases_input_without_discarding_the_connected_display_size() {
+    let (session, input) = MirrorSession::input_recorder();
+    let mut panel = MirrorPanel {
+        session: Some(session),
         size: Some(GUEST),
         last_touch: Some([100, 50]),
         input_focused: true,
@@ -104,12 +235,20 @@ fn obscured_preview_releases_input_without_discarding_the_connected_display_size
     };
     let ctx = egui::Context::default();
     let _ = ctx.run(RawInput::default(), |ctx| {
-        panel.show(ctx, Locale::EnUs, true, true)
+        panel.show(ctx, Locale::EnUs, true, true, false)
     });
 
     assert_eq!(panel.size, Some(GUEST));
     assert!(panel.last_touch.is_none());
     assert!(!panel.input_focused);
+    assert!(matches!(
+        input.try_iter().collect::<Vec<_>>().as_slice(),
+        [MirrorInput::Release]
+    ));
+
+    // The up event belongs to the contact the modal cancelled, even when the preview is visible again.
+    input_frame(&mut panel, &ctx, true, vec![primary(CENTER, false)]);
+    assert!(input.try_recv().is_err());
 }
 
 #[test]
@@ -122,7 +261,7 @@ fn view_only_does_not_lose_the_player_while_waiting_for_a_preview() {
     };
     let ctx = egui::Context::default();
     let out = ctx.run(RawInput::default(), |ctx| {
-        panel.show(ctx, Locale::EnUs, false, true)
+        panel.show(ctx, Locale::EnUs, false, true, false)
     });
 
     assert_eq!(panel.player, Some((731, 1492)));

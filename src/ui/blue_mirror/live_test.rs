@@ -21,6 +21,11 @@ const OPERATOR_WAIT: Duration = Duration::from_secs(90);
 enum Phase {
     WaitingForMirror,
     TouchGate,
+    CancelDownPosted,
+    CancelHidden,
+    CancelRestoring,
+    CancelUp,
+    CancelUpPosted,
     TouchPosted,
     BackGate,
     BackPosted,
@@ -121,6 +126,7 @@ struct MirrorWindowTest {
     started: Instant,
     deadline: Instant,
     posted: Option<Placement>,
+    tested_cancel: bool,
     failure: Option<String>,
     finished: Rc<Cell<bool>>,
 }
@@ -158,6 +164,7 @@ impl MirrorWindowTest {
         ctx: &egui::Context,
         raw: &mut RawInput,
         button: PointerButton,
+        presses: &[bool],
         phase: Phase,
     ) {
         let Some(layout) = self.layout(ctx) else {
@@ -166,11 +173,9 @@ impl MirrorWindowTest {
             );
             return;
         };
-        raw.focused = true;
-        raw.modifiers = Modifiers::NONE;
-        raw.viewports.entry(raw.viewport_id).or_default().focused = Some(true);
+        focus_fixture_input(raw);
         raw.events.push(Event::PointerMoved(layout.position));
-        for pressed in [true, false] {
+        for &pressed in presses {
             raw.events.push(Event::PointerButton {
                 pos: layout.position,
                 button,
@@ -204,19 +209,62 @@ impl MirrorWindowTest {
     }
 }
 
+fn focus_fixture_input(raw: &mut RawInput) {
+    raw.focused = true;
+    raw.modifiers = Modifiers::NONE;
+    raw.viewports.entry(raw.viewport_id).or_default().focused = Some(true);
+}
+
 impl App for MirrorWindowTest {
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut RawInput) {
         // This fixture drives only its own egui RawInput. It never sends native OS input.
         raw.events.clear();
         match self.phase {
+            Phase::TouchGate if !self.tested_cancel && marker(&self.path, ".cancel").is_file() => {
+                self.post(
+                    ctx,
+                    raw,
+                    PointerButton::Primary,
+                    &[true],
+                    Phase::CancelDownPosted,
+                );
+            }
+            Phase::CancelHidden | Phase::CancelRestoring => focus_fixture_input(raw),
+            Phase::CancelUp => {
+                self.post(
+                    ctx,
+                    raw,
+                    PointerButton::Primary,
+                    &[false],
+                    Phase::CancelUpPosted,
+                );
+            }
             Phase::TouchGate if marker(&self.path, ".touch").is_file() => {
-                self.post(ctx, raw, PointerButton::Primary, Phase::TouchPosted);
+                self.post(
+                    ctx,
+                    raw,
+                    PointerButton::Primary,
+                    &[true, false],
+                    Phase::TouchPosted,
+                );
             }
             Phase::BackGate if marker(&self.path, ".back").is_file() => {
-                self.post(ctx, raw, PointerButton::Secondary, Phase::BackPosted);
+                self.post(
+                    ctx,
+                    raw,
+                    PointerButton::Secondary,
+                    &[true, false],
+                    Phase::BackPosted,
+                );
             }
             Phase::SecondBackOrClose if marker(&self.path, ".back2").is_file() => {
-                self.post(ctx, raw, PointerButton::Secondary, Phase::SecondBackPosted);
+                self.post(
+                    ctx,
+                    raw,
+                    PointerButton::Secondary,
+                    &[true, false],
+                    Phase::SecondBackPosted,
+                );
             }
             Phase::SecondBackOrClose | Phase::CloseGate
                 if marker(&self.path, ".close").is_file() =>
@@ -259,6 +307,58 @@ impl App for MirrorWindowTest {
                 if let Some(layout) = self.layout(ctx) {
                     self.write("ready", layout.evidence(self.guest_point));
                     self.advance(Phase::TouchGate);
+                }
+            }
+            Phase::CancelDownPosted => {
+                let posted = self.posted.take();
+                if let Some(layout) = posted
+                    && self.app.blue_mirror.last_touch == Some(self.guest_point)
+                {
+                    self.write("cancel_down_sent", layout.evidence(self.guest_point));
+                    self.app.help_open = true;
+                    self.advance(Phase::CancelHidden);
+                } else {
+                    self.fail(
+                        "The fixture did not establish a primary touch before opening Help"
+                            .to_owned(),
+                    );
+                }
+            }
+            Phase::CancelHidden => {
+                let mirror = &self.app.blue_mirror;
+                if self.app.help_open
+                    && mirror.layout.is_none()
+                    && mirror.last_touch.is_none()
+                    && !mirror.input_focused
+                    && ctx.input(|input| input.pointer.primary_down())
+                {
+                    self.write(
+                        "cancel_hidden",
+                        json!({"help_open": true, "primary_still_down": true}),
+                    );
+                    self.app.help_open = false;
+                    self.advance(Phase::CancelRestoring);
+                } else {
+                    self.fail("Help did not cancel the guest contact while the fixture button remained down".to_owned());
+                }
+            }
+            Phase::CancelRestoring if self.layout(ctx).is_some() => self.advance(Phase::CancelUp),
+            Phase::CancelUpPosted => {
+                let posted = self.posted.take();
+                let mirror = &self.app.blue_mirror;
+                if let Some(layout) = posted
+                    && mirror.last_touch.is_none()
+                    && !mirror.input_focused
+                    && !ctx.input(|input| input.pointer.primary_down())
+                {
+                    self.write("cancel_up_ignored", layout.evidence(self.guest_point));
+                    self.tested_cancel = true;
+                    self.advance(Phase::TouchGate);
+                } else {
+                    self.fail(
+                        "The previous button release became guest input after Help closed"
+                            .to_owned(),
+                    );
                 }
             }
             Phase::TouchPosted => self.confirm_posted(ctx, "touch_sent", Phase::BackGate),
@@ -308,7 +408,7 @@ fn live_player_routes_raw_input_through_the_launcher() {
         "choose a path outside the worktree or inside its private .rustemudroid/qa directory"
     );
     let path = directory.join(given.file_name().unwrap());
-    for suffix in [".touch", ".back", ".back2", ".close"] {
+    for suffix in [".cancel", ".touch", ".back", ".back2", ".close"] {
         assert!(
             !marker(&path, suffix).exists(),
             "test markers must begin absent"
@@ -354,6 +454,7 @@ fn live_player_routes_raw_input_through_the_launcher() {
                 started,
                 deadline: started + OPERATOR_WAIT,
                 posted: None,
+                tested_cancel: false,
                 failure: None,
                 finished: report,
             }))

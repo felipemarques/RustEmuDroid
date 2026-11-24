@@ -25,6 +25,7 @@ pub(super) struct MirrorPanel {
     player: Option<(u32, u64)>,
     size: Option<[u32; 2]>,
     last_touch: Option<[u32; 2]>,
+    input_geometry: Option<(PreviewRect, f32, [u32; 2])>,
     input_focused: bool,
     refresh_at: Option<Instant>,
     retry_at: Option<Instant>,
@@ -85,11 +86,13 @@ impl MirrorPanel {
         {
             self.destination = handle.hwnd.get();
         }
+        let mut release = false;
         if let Some(session) = &self.session {
             for event in session.events.try_iter() {
                 match event {
                     MirrorEvent::Player(pid, created) => self.player = Some((pid, created)),
                     MirrorEvent::Ready(size) => {
+                        release |= self.size.is_some_and(|previous| previous != size);
                         self.size = Some(size);
                         self.input_error = None;
                     }
@@ -97,6 +100,7 @@ impl MirrorPanel {
                         eprintln!("BlueStacks mirror (input): {error}");
                         self.size = None;
                         self.input_error = Some(error);
+                        release = true;
                     }
                     MirrorEvent::Failed(error) => {
                         eprintln!("BlueStacks mirror (player): {error}");
@@ -105,9 +109,13 @@ impl MirrorPanel {
                         self.preview = None;
                         self.layout = None;
                         self.view_error = Some(error);
+                        release = true;
                     }
                 }
             }
+        }
+        if release {
+            self.release();
         }
     }
 
@@ -123,6 +131,14 @@ impl MirrorPanel {
             self.last_touch = None;
             self.input_focused = false;
         }
+        self.input_geometry = None;
+    }
+
+    fn navigate(&mut self, input: MirrorInput) {
+        if self.last_touch.is_some() {
+            self.release();
+        }
+        self.send(input);
     }
 
     fn hide(&mut self) {
@@ -133,19 +149,19 @@ impl MirrorPanel {
         }
     }
 
-    fn toolbar(&mut self, ctx: &egui::Context, l: Locale) -> bool {
+    fn toolbar(&mut self, ctx: &egui::Context, l: Locale, host_gesture: bool) -> bool {
         let mut disconnect = false;
         egui::TopBottomPanel::top("blue-session").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.strong(format!("BlueStacks · {}", self.instance));
-                ui.add_enabled_ui(self.size.is_some(), |ui| {
+                ui.add_enabled_ui(self.size.is_some() && !host_gesture, |ui| {
                     for (tool, input) in [
                         (Tool::Back, MirrorInput::Back),
                         (Tool::Home, MirrorInput::Home),
                         (Tool::Recents, MirrorInput::Recents),
                     ] {
                         if tool.button(ui, l) {
-                            self.send(input);
+                            self.navigate(input);
                         }
                     }
                     for (tool, key) in [(Tool::Louder, 24), (Tool::Quieter, 25), (Tool::Mute, 164)] {
@@ -171,13 +187,20 @@ impl MirrorPanel {
         disconnect
     }
 
-    pub(super) fn show(&mut self, ctx: &egui::Context, l: Locale, obscured: bool, chrome: bool) {
+    pub(super) fn show(
+        &mut self,
+        ctx: &egui::Context,
+        l: Locale,
+        obscured: bool,
+        chrome: bool,
+        host_gesture: bool,
+    ) {
         ctx.request_repaint_after(Duration::from_millis(200));
         if obscured {
             self.hide();
             return;
         }
-        if chrome && self.toolbar(ctx, l) {
+        if chrome && self.toolbar(ctx, l, host_gesture) {
             self.disconnect();
             if ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
@@ -238,7 +261,7 @@ impl MirrorPanel {
                                 let aspect = (shown[0] as f64 * size[1] as f64)
                                     / (shown[1] as f64 * size[0] as f64);
                                 if (0.97..=1.03).contains(&aspect) {
-                                    self.handle_input(ctx, rect, ppp, size);
+                                    self.handle_input(ctx, rect, ppp, size, host_gesture);
                                 } else {
                                     self.release();
                                     if self.refresh_at.is_none_or(|time| time <= now) {
@@ -286,11 +309,26 @@ impl MirrorPanel {
         self.refresh_at = Some(now + Duration::from_secs(1));
     }
 
-    fn handle_input(&mut self, ctx: &egui::Context, rect: PreviewRect, ppp: f32, size: [u32; 2]) {
-        if !ctx.input(|i| i.focused) {
+    fn handle_input(
+        &mut self,
+        ctx: &egui::Context,
+        rect: PreviewRect,
+        ppp: f32,
+        size: [u32; 2],
+        host_gesture: bool,
+    ) {
+        if host_gesture || !ctx.input(|i| i.focused) {
             self.release();
             return;
         }
+        let geometry = (rect, ppp, size);
+        if self
+            .input_geometry
+            .is_some_and(|previous| previous != geometry)
+        {
+            self.release();
+        }
+        self.input_geometry = Some(geometry);
         let point = |pos: egui::Pos2| rect.guest_point([pos.x, pos.y], ppp, size);
         ctx.input(|i| {
             for event in &i.events {
@@ -301,18 +339,24 @@ impl MirrorPanel {
                         pressed,
                         ..
                     } => {
-                        if *pressed && let Some(p) = point(*pos) {
-                            self.send(MirrorInput::Touch(TouchAction::Down, p, size));
-                            self.last_touch = Some(p);
-                            self.input_focused = true;
-                        } else if *pressed {
-                            self.release();
-                        } else if let Some(last) = self.last_touch.take() {
-                            self.send(MirrorInput::Touch(
-                                TouchAction::Up,
-                                point(*pos).unwrap_or(last),
-                                size,
-                            ));
+                        if *pressed {
+                            if let Some(p) = point(*pos) {
+                                if self.last_touch.is_none() {
+                                    self.send(MirrorInput::Touch(TouchAction::Down, p, size));
+                                    self.last_touch = Some(p);
+                                    self.input_focused = true;
+                                    self.input_geometry = Some(geometry);
+                                }
+                            } else {
+                                self.release();
+                            }
+                        } else if self.last_touch.is_some() {
+                            if let Some(p) = point(*pos) {
+                                self.last_touch = None;
+                                self.send(MirrorInput::Touch(TouchAction::Up, p, size));
+                            } else {
+                                self.release();
+                            }
                         }
                     }
                     Event::PointerMoved(pos) if self.last_touch.is_some() => {
@@ -329,7 +373,7 @@ impl MirrorPanel {
                         button: PointerButton::Secondary,
                         pressed: true,
                         ..
-                    } if point(*pos).is_some() => self.send(MirrorInput::Back),
+                    } if point(*pos).is_some() => self.navigate(MirrorInput::Back),
                     Event::MouseWheel { unit, delta, .. } => {
                         if let Some(p) = i.pointer.hover_pos().and_then(point) {
                             let scale = match unit {
@@ -352,6 +396,10 @@ impl MirrorPanel {
                         modifiers,
                         ..
                     } if self.input_focused => {
+                        if *key == Key::Escape && *pressed && self.last_touch.is_some() {
+                            self.navigate(MirrorInput::Back);
+                            continue;
+                        }
                         if let Some(code) = keycode(*key) {
                             let meta = u32::from(modifiers.shift)
                                 | (u32::from(modifiers.alt) << 1)

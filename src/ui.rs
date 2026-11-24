@@ -554,7 +554,7 @@ impl Launcher {
         {
             display.set_package(controls.foreground_package(ctx));
         }
-        if (self.has_player_view() || fullscreen)
+        let toggling_fullscreen = (self.has_player_view() || fullscreen)
             && ctx.input(|i| {
                 i.events.iter().any(|e| {
                     matches!(
@@ -567,8 +567,8 @@ impl Launcher {
                         }
                     )
                 })
-            })
-        {
+            });
+        if toggling_fullscreen {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
         }
         let reveal = ctx.input(|i| {
@@ -592,7 +592,13 @@ impl Launcher {
         #[cfg(windows)]
         if self.blue_mirror.active() {
             let obscured = self.settings.is_some() || self.help_open || self.external_dialog_open();
-            self.blue_mirror.show(ctx, locale, obscured, show_chrome);
+            self.blue_mirror.show(
+                ctx,
+                locale,
+                obscured,
+                show_chrome,
+                resizing || toggling_fullscreen,
+            );
             return;
         }
         if self.playing {

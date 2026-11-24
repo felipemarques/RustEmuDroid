@@ -27,6 +27,7 @@ pub(crate) enum TouchAction {
     Down = 0,
     Up = 1,
     Move = 2,
+    Cancel = 3,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,7 +71,7 @@ fn touch_packet(action: TouchAction, position: Position) -> [u8; 32] {
     bytes[1] = action as u8;
     // Finger ID 0, with no mouse button bits.
     position.encode(&mut bytes[10..22]);
-    if action != TouchAction::Up {
+    if matches!(action, TouchAction::Down | TouchAction::Move) {
         bytes[22..24].copy_from_slice(&u16::MAX.to_be_bytes());
     }
     bytes
@@ -466,7 +467,7 @@ impl MirrorControl {
         let position = Position::new(point, display)?;
         match (action, self.touch) {
             (TouchAction::Down, None) => {}
-            (TouchAction::Move | TouchAction::Up, Some(previous))
+            (TouchAction::Move | TouchAction::Up | TouchAction::Cancel, Some(previous))
                 if previous.display == position.display => {}
             _ => {
                 return Err(io::Error::new(
@@ -476,7 +477,7 @@ impl MirrorControl {
             }
         }
         self.send(&touch_packet(action, position))?;
-        self.touch = (action != TouchAction::Up).then_some(position);
+        self.touch = matches!(action, TouchAction::Down | TouchAction::Move).then_some(position);
         Ok(())
     }
 
@@ -536,7 +537,8 @@ impl MirrorControl {
 
     pub(crate) fn release_all(&mut self) -> io::Result<()> {
         if let Some(position) = self.touch.take() {
-            self.send(&touch_packet(TouchAction::Up, position))?;
+            // Losing host capture must not complete an Android click on the last point.
+            self.send(&touch_packet(TouchAction::Cancel, position))?;
         }
         for (code, metastate) in std::mem::take(&mut self.keys) {
             self.send(&key_packet(KeyAction::Up, code, 0, metastate))?;
@@ -699,6 +701,9 @@ mod tests {
         );
         assert_eq!(touch_packet(TouchAction::Move, position)[1], 2);
         assert_eq!(touch_packet(TouchAction::Up, position)[22..24], [0, 0]);
+        let cancel = touch_packet(TouchAction::Cancel, position);
+        assert_eq!(cancel[..2], [2, 3]);
+        assert_eq!(cancel[22..24], [0, 0]);
         assert_eq!(
             key_packet(KeyAction::Up, 187, 2, 1),
             [0, 1, 0, 0, 0, 187, 0, 0, 0, 2, 0, 0, 0, 1]
