@@ -28,16 +28,19 @@ def export_project(project):
         gitdir = ["git", "--git-dir=" + temporary]
         subprocess.run(["git", "init", "--bare", "--quiet", temporary], check=True)
         remote = "https://android.googlesource.com/" + name
-        for attempt in range(3):
+        for attempt, delay in enumerate((0, 8, 25, 60, 110)):
+            if delay:
+                print(f"Retrying {path} after {delay}s", flush=True)
+                time.sleep(delay)
             fetched = subprocess.run(gitdir + ["fetch", "--quiet", "--depth=1", "--no-tags", remote, revision])
             if fetched.returncode == 0:
                 break
-            if attempt == 2:
+            if attempt == 4:
                 fetched.check_returncode()
-            time.sleep(5 * (attempt + 1))
         commit = subprocess.check_output(gitdir + ["rev-parse", "FETCH_HEAD^{commit}"], text=True).strip()
-        subprocess.run(gitdir + ["--work-tree=" + str(directory.resolve()), "checkout",
-                                 "--force", commit, "--", "."], cwd=directory, check=True)
+        subprocess.run(gitdir + ["read-tree", commit], check=True)
+        subprocess.run(gitdir + ["--work-tree=" + str(directory.resolve()), "checkout-index",
+                                 "--all", "--force"], cwd=directory, check=True)
     return path, commit
 
 
@@ -62,7 +65,9 @@ def main():
     print(f"Exporting {len(projects)} projects in addition to {len(checked)} pinned checkouts", flush=True)
     with (args.report / "projects.txt").open("a") as paths, (args.report / "revisions.txt").open("a") as commits:
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-            for index, (path, commit) in enumerate(pool.map(export_project, projects), 1):
+            jobs = {pool.submit(export_project, project): project[0] for project in projects}
+            for index, job in enumerate(concurrent.futures.as_completed(jobs), 1):
+                path, commit = job.result()
                 print(path, file=paths, flush=True)
                 print(path, commit, file=commits, flush=True)
                 if index % 20 == 0 or index == len(projects):

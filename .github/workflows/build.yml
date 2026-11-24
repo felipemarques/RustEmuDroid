@@ -67,6 +67,7 @@ jobs:
           source build/envsetup.sh
           lunch sdk_phone_x86_64-userdebug
           report="$RUNNER_TEMP/pie-result"
+          export NINJA_EXTRA_ARGS="-d keeprsp"
           repo list --all --path-only > "$RUNNER_TEMP/manifest-project-paths"
           while true; do
             if m -j3 libandroid_runtime 2>&1 | tee "$RUNNER_TEMP/last-build.log"; then
@@ -98,6 +99,11 @@ jobs:
           grep -q ELF64 "$report/lib64/elf.txt"
           grep -q 'X86-64' "$report/lib64/elf.txt"
           (cd "$report" && sha256sum lib/libandroid_runtime.so lib64/libandroid_runtime.so > SHA256SUMS)
+      - name: Collect stock compile and link input records
+        continue-on-error: true
+        run: |
+          cd "$RUNNER_TEMP/pie-src"
+          python3 "$GITHUB_WORKSPACE/tools/pie-build/runtime_build_inputs.py" "$RUNNER_TEMP/pie-result"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
