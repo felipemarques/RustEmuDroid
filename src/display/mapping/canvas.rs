@@ -694,7 +694,8 @@ mod tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        mapping.frame(ui, rect, &events, crate::locale::Locale::EnUs);
+                        let modifiers = ui.input(|i| i.modifiers);
+                        mapping.frame(ui, rect, &events, modifiers, crate::locale::Locale::EnUs);
                     });
                 },
             );

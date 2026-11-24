@@ -186,6 +186,8 @@ Abra o jogo e clique no ícone de teclado da barra lateral para abrir **Controle
 
 ![Gerenciador com dois perfis de controle para o SuperTuxKart](docs/screenshots/pt-br/profiles.png)
 
+Durante a partida, pressione **Ctrl+Shift+P** para ativar o próximo perfil salvo do jogo. Depois do último, o atalho volta ao primeiro. O nome aparece na tela para confirmar a troca.
+
 Selecione **Editor de controles** no menu ou pressione **Ctrl+Shift+A**. Arraste um controle da paleta para a tela do jogo e selecione-o para associar uma entrada e ajustar suas propriedades. Para movimento, solte um **Direcional** sobre o joystick virtual do jogo. Em **Configuração do controle**, associe **Cima**, **Baixo**, **Esquerda** e **Direita** individualmente. Clique no centro do direcional para selecioná-lo e arraste a alça no canto inferior direito para ajustar o raio ao tamanho do joystick. A alça e o painel ajustam o mesmo raio. Em **Analógico**, escolha **Esquerdo** ou **Direito** para usá-lo junto com as teclas de direção. Escolha **Desativado** para usar apenas as direções atribuídas. Clique em **Salvar** para aplicar o esquema.
 
 Para mapas que se movem ao arrastar, solte **Rolagem de borda** em uma área livre do mapa e salve. Mova o ponteiro até uma borda da tela do jogo para mover a câmera naquela direção. Em **Configuração do controle**, ajuste as margens e velocidades de cada eixo. Afaste o ponteiro da borda para parar.

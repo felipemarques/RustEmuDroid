@@ -1,4 +1,5 @@
-"""Exercise X11 wheel input against both grids in the packaged client on a disposable CI AVD."""
+"""Exercise library scrolling and the per-game profile shortcut through the packaged X11 window."""
+import json
 import os
 from pathlib import Path
 import re
@@ -66,6 +67,11 @@ def main():
         def adb_run(*args):
             return run(adb, *args, env=env)
         assert adb_run("devices").splitlines() == ["List of devices attached"], "Requires an idle runner"
+        game = "org.rustemudroid.qa.games"
+        maps = avd / "touch-maps.json"
+        with maps.open("x") as output:
+            empty = {"buttons": {}, "stick": None}
+            json.dump({game: {"active": "On foot", "layouts": {"Driving": empty, "On foot": empty}}}, output)
         client = subprocess.Popen([app / "rustemudroid", "--lang", "en-us", "--state-dir", state, "ui", "--gpu", "swiftshader"], env=env)
         serial = None
         seen = {}
@@ -95,8 +101,9 @@ def main():
             def cards(kind):
                 guest("shell", "uiautomator", "dump", "/data/local/tmp/home-grid.xml")
                 dom = ET.fromstring(guest("shell", "cat", "/data/local/tmp/home-grid.xml"))
-                return [int(n.attrib["content-desc"].split()[-1]) for n in dom.iter("node")
-                        if n.get("content-desc", "").startswith(f"AA {kind} ")]
+                return sorted({int(match[1]) for node in dom.iter("node")
+                    for key in ("text", "content-desc")
+                    if (match := re.search(rf"AA {kind} (\d+)", node.get(key, "")))})
             for kind in ("Games", "Apps"):
                 guest("shell", "am", "start", "-W", "-n", home + "/.HomeActivity", "--ez", "apps", str(kind == "Apps").lower())
                 wait_for(f"first {kind} card", lambda: 0 in cards(kind))
@@ -108,8 +115,23 @@ def main():
                 run("xdotool", "click", "--repeat", "22", "--delay", "70", "4")
                 wait_for(f"{kind} to return to the start", lambda: 0 in cards(kind), 15)
                 print(f"{kind}: first visible fixture card 0 -> {first} -> 0 via desktop wheel", flush=True)
+            guest("shell", "am", "start", "-W", "-n", game + "/.Card0")
+            wait_for("fixture in foreground", lambda: any(game in line for line in
+                guest("shell", "dumpsys", "window").splitlines() if "mCurrentFocus=" in line))
+            # The desktop refreshes the foreground Android package once per second.
+            time.sleep(1.5)
+            for expected in ("Driving", "On foot"):
+                run("xdotool", "key", "--clearmodifiers", "ctrl+shift+p")
+                wait_for(f"saved profile {expected}", lambda: json.loads(maps.read_text())[game]["active"] == expected, 7)
+            print("Game profiles: On foot -> Driving -> On foot via Ctrl+Shift+P", flush=True)
         except Exception:
             if serial:
+                report = temp / "boot-report"
+                names = guest("shell", "cmd", "package", "query-activities", "--brief", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER")
+                print("Fixture launcher activities:", "\n".join(s for s in names.splitlines() if "org.rustemudroid.qa" in s)[:3000], flush=True)
+                tree = guest("shell", "cat", "/data/local/tmp/home-grid.xml")
+                (report / "home-grid.xml").write_text(tree)
+                print("Visible labels:", [(n.get("package"), n.get("text"), n.get("content-desc")) for n in ET.fromstring(tree).iter("node") if n.get("text") or n.get("content-desc")][:35], flush=True)
                 print(guest("shell", "dumpsys", "activity", "top-resumed")[:1000], flush=True)
                 messages = guest("logcat", "-d", "-t", "200", "AndroidRuntime:E", "ActivityManager:W", "*:S")
                 print(messages[-3000:], flush=True)

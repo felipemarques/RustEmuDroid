@@ -130,6 +130,13 @@ fn shortcuts(ui: &mut egui::Ui, l: Locale) {
             other => other.label(l),
         };
         entry(ui, &chord(key, l), description);
+        if tool == Tool::Keymap {
+            entry(ui, &chord(crate::toolbar::PROFILE_KEY, l), l.pick(
+                "Durante o jogo, passe ao próximo perfil de controles salvo. Depois do último, volte ao primeiro.",
+                "During play, switch to the next saved control profile. After the last profile, return to the first.",
+                "Durante el juego, cambia al siguiente perfil de controles guardado. Después del último, vuelve al primero.",
+            ));
+        }
     }
     heading(ui, l.pick("Janela", "Window", "Ventana"));
     entry(

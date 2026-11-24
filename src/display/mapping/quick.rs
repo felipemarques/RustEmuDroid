@@ -295,7 +295,7 @@ impl Mapping {
         let profiles = self.package.as_ref().and_then(|p| self.profiles.get(p));
         let current = profiles.map(|p| p.active.as_str()).unwrap_or("Default");
         let mut picked = None;
-        egui::ComboBox::from_id_salt("quick-scheme")
+        let combo = egui::ComboBox::from_id_salt("quick-scheme")
             .width(ui.available_width())
             .selected_text(super::editor::profile_name(current, l))
             .show_ui(ui, |ui| {
@@ -312,20 +312,23 @@ impl Mapping {
                     ui.label(super::editor::profile_name(current, l));
                 }
             });
+        let shortcut = crate::toolbar::chord(crate::toolbar::PROFILE_KEY, l);
+        combo.response.on_hover_text(format!(
+            "{shortcut} · {}",
+            l.pick(
+                "Próximo perfil durante o jogo",
+                "Next profile during play",
+                "Siguiente perfil durante el juego",
+            )
+        ));
+        ui.small(format!(
+            "{shortcut} · {}",
+            l.pick("Próximo perfil", "Next profile", "Siguiente perfil")
+        ));
         if let Some(name) = picked
-            && let Some(package) = &self.package
+            && let Err(error) = self.activate_saved_profile(&name)
         {
-            let mut next = self.profiles.clone();
-            if let Some(game) = next.get_mut(package) {
-                game.active = name;
-                match crate::ui::write_json(&self.path, &next) {
-                    Ok(()) => {
-                        self.profiles = next;
-                        self.reset_draft();
-                    }
-                    Err(err) => self.error = Some(err.to_string()),
-                }
-            }
+            self.error = Some(error.to_string());
         }
         self.mouse_sensitivity_ui(ui, l);
         ui.add_space(3.);
