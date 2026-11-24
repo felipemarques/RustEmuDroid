@@ -22,10 +22,36 @@ pub(crate) fn parse() -> Result<Cli, ExitCode> {
 
 fn parse_args(args: Vec<OsString>) -> Result<Cli, (clap::Error, Locale)> {
     let locale = command_locale(&args);
+    // A file manager starts the desktop build without command-line arguments.
+    let desktop_start = (cfg!(feature = "ui") && args.len() == 1).then(|| OsString::from("ui"));
     let mut matches = cli_command(locale)
-        .try_get_matches_from(args)
+        .try_get_matches_from(args.into_iter().chain(desktop_start))
         .map_err(|e| (e, locale))?;
     Cli::from_arg_matches_mut(&mut matches).map_err(|e| (e, locale))
+}
+
+#[cfg(all(test, feature = "ui"))]
+#[test]
+fn desktop_binary_opens_ui_without_arguments_and_keeps_cli_flags() {
+    let parse = |args: &[&str]| parse_args(args.iter().map(OsString::from).collect());
+    assert!(matches!(
+        parse(&["rustemudroid"]),
+        Ok(Cli {
+            command: crate::Action::Ui { .. },
+            ..
+        })
+    ));
+    assert!(matches!(
+        parse(&["rustemudroid", "--version"]),
+        Err((error, _)) if error.kind() == ErrorKind::DisplayVersion
+    ));
+    assert!(matches!(
+        parse(&["rustemudroid", "doctor"]),
+        Ok(Cli {
+            command: crate::Action::Doctor,
+            ..
+        })
+    ));
 }
 
 fn command_locale(args: &[OsString]) -> Locale {
@@ -124,9 +150,9 @@ fn arguments<const N: usize>(mut cmd: Command, help: [(&'static str, &'static st
 fn root_help(command: Command, l: Locale) -> Command {
     arguments(command, [
             ("sdk", l.pick(
-                "Diretório raiz do Android SDK. Também lê ANDROID_HOME.",
-                "Android SDK root directory. Also reads ANDROID_HOME.",
-                "Directorio raíz del SDK de Android. También consulta ANDROID_HOME.",
+                "Pasta com emulator e platform-tools. Omita para detecção automática.",
+                "Directory containing emulator and platform-tools. Omit for automatic detection.",
+                "Carpeta con emulator y platform-tools. Omítela para la detección automática.",
             )),
             ("state_dir", l.pick(
                 "Diretório de dados do protótipo.",

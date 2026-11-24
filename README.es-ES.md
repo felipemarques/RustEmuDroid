@@ -14,16 +14,16 @@ Los juegos de la captura se instalaron en el perfil de prueba. Un perfil nuevo c
 
 1. Abre la [última versión en GitHub](https://github.com/felipemarques/RustEmuDroid/releases/latest) y busca **Assets**.
 2. En Windows, extrae `RustEmuDroid-vX.Y.Z-windows-x86_64.zip` en un directorio con permisos de escritura. En Linux, extrae `RustEmuDroid-vX.Y.Z-linux-x86_64.tar.gz` con `tar -xzf` para conservar el permiso de ejecución. El nombre del archivo incluye la versión en lugar de `X.Y.Z`.
-3. Instala el entorno Android indicado a continuación. Desde el directorio del ejecutable, utiliza los comandos de tu sistema.
+3. Elige uno de los entornos que se describen a continuación. Si ya tienes Kemu en Windows, haz doble clic en `rustemudroid.exe`. En Linux, ejecuta `./rustemudroid` desde la carpeta extraída. También puedes usar los siguientes comandos desde el terminal.
 
 | Tarea | Windows PowerShell | Linux |
 |---|---|---|
-| Comprobar el SDK y la virtualización | `.\rustemudroid.exe --lang es-es doctor` | `./rustemudroid --lang es-es doctor` |
+| Comprobar el entorno y la virtualización | `.\rustemudroid.exe --lang es-es doctor` | `./rustemudroid --lang es-es doctor` |
 | Abrir el emulador en español | `.\rustemudroid.exe --lang es-es ui` | `./rustemudroid --lang es-es ui` |
 
 Para descargar una compilación de desarrollo, inicia sesión en GitHub, abre una [ejecución correcta de Desktop builds](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml) y descarga el paquete en **Artifacts**.
 
-El ejecutable incluye el APK de la pantalla de inicio de RustEmuDroid. Instala el SDK, las imágenes y los juegos por separado. Solo se necesita Rust para compilar el proyecto.
+El ejecutable incluye el APK de la pantalla de inicio de RustEmuDroid. El motor y la imagen Android se suministran por separado. Para compilar el proyecto también hacen falta Rust y Cargo.
 
 ## Preparar el entorno Android
 
@@ -31,9 +31,13 @@ El ejecutable incluye el APK de la pantalla de inicio de RustEmuDroid. Instala e
 |---|---|---|
 | Virtualización | Activa Intel VT-x o AMD-V en la BIOS/UEFI y la **Plataforma del hipervisor de Windows** en las características de Windows. | Activa la virtualización de CPU y comprueba los permisos de lectura y escritura con `test -r /dev/kvm && test -w /dev/kvm`. |
 | Gráficos y escritorio | Instala el controlador de la GPU del equipo. | Utiliza una sesión X11 o Wayland con OpenGL. El selector de APK usa el portal de archivos del escritorio. |
-| Herramientas | En SDK Manager instala Android Emulator, Platform-Tools y una imagen x86-64. | Instala las versiones para Linux, también si utilizas WSL2. |
+| Entorno Android | Usa una instalación de Kemu o Android Emulator para Windows con Platform-Tools y una imagen x86-64. | Usa Android Emulator para Linux con Platform-Tools y una imagen x86-64. |
 
-Si ya tienes los componentes, `--sdk` puede apuntar a una carpeta con los paquetes `emulator` y `platform-tools` y la imagen en `system-images`. Android Studio, Gradle, el NDK y las herramientas de compilación del SDK son opcionales para ejecutar el cliente publicado. La versión 0.8.1 también busca el emulador del SDK y ADB cuando selecciona el motor de Kemu en Windows.
+**Windows con Kemu.** Con Kemu en la ubicación predeterminada, ejecuta `.\rustemudroid.exe ui` para abrir el perfil Original. Para una instalación en otra carpeta, indica su ruta en `RUSTEMUDROID_KEMU_ROOT`. Este modo utiliza el ADB, la imagen y el motor de Kemu con la GPU del equipo o la selección automática.
+
+**Entorno portátil en Windows o Linux.** Junto al ejecutable, crea una carpeta `runtime/`. Coloca en ella los paquetes completos `emulator/` y `platform-tools/` de tu sistema y el árbol `system-images/` con la imagen Android. Ejecuta `ui` desde la carpeta extraída. El cliente reconoce este entorno incluso sin Android Studio ni variables del SDK. Conserva las bibliotecas y todos los archivos de la imagen. Puedes seleccionar otra instalación mediante `--sdk`.
+
+**Instalación mediante el SDK.**
 
 Con `sdkmanager` en el PATH, instala el entorno y la imagen opcional de Google Play. Acepta las licencias del SDK cuando se soliciten.
 
@@ -41,7 +45,7 @@ Con `sdkmanager` en el PATH, instala el entorno y la imagen opcional de Google P
 sdkmanager --install "emulator" "platform-tools" "system-images;android-37.0;google_apis_playstore;x86_64"
 ```
 
-Otra imagen compatible es `system-images;android-35;google_apis;x86_64`. Consulta los paquetes disponibles con `sdkmanager --list`. El cliente busca el SDK mediante `--sdk`, `ANDROID_HOME`, `ANDROID_SDK_ROOT` y, por último, `%LOCALAPPDATA%\Android\Sdk` o `~/Android/Sdk`. [SDK Manager](https://developer.android.com/tools/sdkmanager) · [Aceleración del emulador](https://developer.android.com/studio/run/emulator-acceleration)
+Otra imagen compatible es `system-images;android-35;google_apis;x86_64`. Consulta los paquetes con `sdkmanager --list`. El cliente también localiza el SDK mediante `ANDROID_HOME`, `ANDROID_SDK_ROOT` y la carpeta predeterminada del sistema. [SDK Manager](https://developer.android.com/tools/sdkmanager) · [Aceleración del emulador](https://developer.android.com/studio/run/emulator-acceleration)
 
 En Ubuntu 24.04 con WSL2, la versión de Linux arrancó Android 17 con Google Play mediante KVM. En WSLg, BombSquad presentó 60 fotogramas/s en una ronda de Death Match con OpenGL ES nativo en la Radeon 780M mediante Mesa D3D12. Vulkan utilizó la CPU en ese equipo. [Configuración, selección del controlador y mediciones, en inglés](docs/linux-runtime.md)
 
@@ -52,7 +56,7 @@ En la barra de título, abre el engranaje. Cada perfil tiene su propio disco de 
 | Perfil | Primera ejecución |
 |---|---|
 | Original con Kemu | En Windows, Kemu puede proporcionar una imagen Android 16 / API 36 con su motor QEMU/gfxstream. La configuración probada utiliza ANGLE/Vulkan con la GPU del equipo. Utiliza `RUSTEMUDROID_KEMU_ROOT` para otras ubicaciones. |
-| Original con el SDK | En el primer arranque se buscan, por orden, Google Play API 37.0, Google APIs 36 y Google APIs 35. Para elegir otra imagen, usa `init --image`. |
+| Original con el SDK o un entorno portátil | En el primer arranque se buscan, por orden, Google Play API 37.0, Google APIs 36, Google APIs 35 y la imagen AOSP `default` x86-64 más reciente disponible. Para elegir otra imagen, usa `init --image`. |
 | Android 17 con Google Play | Instala la imagen Google Play API 37.0, selecciónala en los ajustes y guarda. Incluye Play Store y los servicios de Google Play. |
 
 Los perfiles de juego solicitan cuatro vCPU, 8 GiB de RAM y 1600 × 900 a 60 Hz. El perfil genérico del SDK solicita cuatro vCPU, 3 GiB y 1080 × 1920. En Windows, el disco de datos del motor de Kemu está en `gaming/`.

@@ -169,10 +169,74 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
+  portable-linux:
+    name: Boot the packaged Linux client
+    needs: desktop
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.desktop.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: RustEmuDroid-Linux-x86_64
+
+      - name: Prepare a portable Android 15 AOSP runtime
+        shell: bash
+        run: |
+          set -eu
+          sudo chgrp "$(id -gn)" /dev/kvm
+          sudo chmod g+rw /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+          app="$RUNNER_TEMP/rustemudroid"
+          android_image=system-images/android-35/default/x86_64
+          mkdir -p "$app/runtime/$(dirname "$android_image")" "$RUNNER_TEMP/guest-home" "$RUNNER_TEMP/boot-report"
+          tar -xzf "RustEmuDroid-v$VERSION-linux-x86_64.tar.gz" -C "$app"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install emulator platform-tools 'system-images;android-35;default;x86_64'
+          mv "$ANDROID_HOME/emulator" "$ANDROID_HOME/platform-tools" "$app/runtime/"
+          mv "$ANDROID_HOME/$android_image" "$app/runtime/$android_image"
+
+      - name: Check discovery, guest boot and shutdown
+        shell: bash
+        run: |
+          set -eu -o pipefail
+          unset ANDROID_HOME ANDROID_SDK_ROOT ANDROID_AVD_HOME ANDROID_USER_HOME
+          export HOME="$RUNNER_TEMP/guest-home" PATH=/usr/bin:/bin
+          app="$RUNNER_TEMP/rustemudroid"
+          report="$RUNNER_TEMP/boot-report"
+          cli=("$app/rustemudroid" --lang en-us --state-dir "$RUNNER_TEMP/profile")
+          cd "$HOME"
+          "${cli[@]}" doctor | tee "$report/doctor.txt"
+          grep -Fx "Portable: $app/runtime" "$report/doctor.txt"
+          "${cli[@]}" init
+          grep -Fx 'image.sysdir.1=system-images/android-35/default/x86_64/' "$RUNNER_TEMP/profile/avd/RustEmuDroid.avd/config.ini"
+          adb="$app/runtime/platform-tools/adb"
+          "$adb" start-server
+          "${cli[@]}" boot --headless --check --gpu swiftshader --timeout 300 | tee "$report/boot.txt"
+          grep -F 'sys.boot_completed=1' "$report/boot.txt"
+          serial=$(sed -n 's/.*(\(emulator-[0-9]*\), Android .*/\1/p' "$report/boot.txt")
+          test -n "$serial"
+          for attempt in {1..10}; do
+            "$adb" devices > "$report/devices-after.txt"
+            if ! grep -q "^$serial[[:space:]]" "$report/devices-after.txt"; then break; fi
+            sleep 1
+          done
+          if grep -q "^$serial[[:space:]]" "$report/devices-after.txt"; then exit 1; fi
+          cat "$report/boot.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: Linux-portable-boot
+          path: |
+            ${{ runner.temp }}/boot-report/*.txt
+            ${{ runner.temp }}/profile/boot-*.log
+          if-no-files-found: ignore
+
   release-plan:
     name: Resolve release target
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag')
-    needs: desktop
+    needs: [desktop, portable-linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:

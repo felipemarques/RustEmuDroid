@@ -193,7 +193,16 @@ fn run(cli: Cli) -> Result<()> {
         #[cfg(feature = "ui")]
         Action::Ui { .. } | Action::GpuInventory => unreachable!(),
         Action::Doctor => {
-            println!("SDK: {}", sdk.root.display());
+            let runtime = if sdk.is_standalone_kemu() {
+                "Kemu"
+            } else if sdk.is_portable() {
+                language.pick("Portátil", "Portable", "Portátil")
+            } else {
+                "SDK"
+            };
+            println!("{runtime}: {}", sdk.root.display());
+            let engine = language.pick("Motor", "Engine", "Motor");
+            println!("{engine}: {}", sdk.engine_path().display());
             println!("ADB: {}", sdk.adb.display());
             let label = language.pick("Dados", "Data", "Datos");
             println!("{label}: {}", profile.root.display());
@@ -201,10 +210,13 @@ fn run(cli: Cli) -> Result<()> {
         }
         Action::Init { image, system_dir } => {
             let image = match system_dir {
-                Some(path) => SystemImage::from_dir_localized(path, language)?,
+                Some(path) => {
+                    sdk.require_matching_image(&path)?;
+                    SystemImage::from_dir_localized(path, language)?
+                }
                 None => match image {
                     Some(package) => SystemImage::from_sdk(&sdk, &package)?,
-                    None => SystemImage::preferred_sdk(&sdk)?,
+                    None => SystemImage::preferred(&sdk)?,
                 },
             };
             profile.init(image)?;

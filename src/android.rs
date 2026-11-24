@@ -15,12 +15,22 @@ use crate::{Engine, Gpu, Result, locale::Locale};
 
 const AVD: &str = "RustEmuDroid";
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+const KEMU_EMULATOR: &str = "qemu/windows-x86_64/qemu-system-x86_64.exe";
+const KEMU_IMAGE: &str = "system-img";
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RuntimeKind {
+    Sdk,
+    Portable,
+    Kemu,
+}
 
 pub struct Sdk {
     pub root: PathBuf,
     pub adb: PathBuf,
     emulator: PathBuf,
     locale: Locale,
+    kind: RuntimeKind,
 }
 
 impl Sdk {
@@ -28,32 +38,104 @@ impl Sdk {
     pub fn find(explicit: Option<PathBuf>) -> Result<Self> {
         Self::find_localized(explicit, Locale::default())
     }
+
     pub fn find_localized(explicit: Option<PathBuf>, locale: Locale) -> Result<Self> {
-        let root = explicit
+        let configured = explicit
             .or_else(|| env::var_os("ANDROID_HOME").map(PathBuf::from))
-            .or_else(|| env::var_os("ANDROID_SDK_ROOT").map(PathBuf::from))
-            .or_else(default_sdk_path)
-            .ok_or(locale.pick(
-                "Informe --sdk ou configure ANDROID_HOME.",
-                "Pass --sdk or set ANDROID_HOME.",
-                "Indica --sdk o configura ANDROID_HOME.",
-            ))?;
+            .or_else(|| env::var_os("ANDROID_SDK_ROOT").map(PathBuf::from));
+        let portable = env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|parent| parent.join("runtime")));
+        Self::discover(
+            configured,
+            portable,
+            default_sdk_path(),
+            cfg!(windows).then(kemu_install_root).flatten(),
+            locale,
+        )
+    }
+
+    fn discover(
+        configured: Option<PathBuf>,
+        portable: Option<PathBuf>,
+        default: Option<PathBuf>,
+        kemu: Option<PathBuf>,
+        locale: Locale,
+    ) -> Result<Self> {
+        if let Some(root) = configured {
+            let kind = if portable.is_some_and(|path| same_directory(&root, &path)) {
+                RuntimeKind::Portable
+            } else {
+                RuntimeKind::Sdk
+            };
+            return Self::from_root(root, kind, locale);
+        }
+        if let Some(root) = portable
+            && let Ok(runtime) = Self::from_root(root, RuntimeKind::Portable, locale)
+        {
+            return Ok(runtime);
+        }
+        let sdk = default
+            .ok_or_else(|| -> Box<dyn std::error::Error> {
+                locale
+                    .pick(
+                        "Informe --sdk ou configure ANDROID_HOME.",
+                        "Pass --sdk or set ANDROID_HOME.",
+                        "Indica --sdk o configura ANDROID_HOME.",
+                    )
+                    .into()
+            })
+            .and_then(|root| Self::from_root(root, RuntimeKind::Sdk, locale));
+        if sdk.is_ok() {
+            return sdk;
+        }
+        if let Some(root) = kemu
+            && (root.join(KEMU_EMULATOR).is_file() || root.join("Kemu.exe").is_file())
+        {
+            return Self::from_root(root, RuntimeKind::Kemu, locale);
+        }
+        sdk
+    }
+
+    fn from_root(root: PathBuf, kind: RuntimeKind, locale: Locale) -> Result<Self> {
         let root = absolute(root)?;
-        let suffix = env::consts::EXE_SUFFIX;
-        let emulator = root.join("emulator").join(format!("emulator{suffix}"));
-        let adb = root.join("platform-tools").join(format!("adb{suffix}"));
+        let (emulator, adb) = if kind == RuntimeKind::Kemu {
+            (
+                root.join(KEMU_EMULATOR),
+                root.join("platform-tools/adb.exe"),
+            )
+        } else {
+            let suffix = env::consts::EXE_SUFFIX;
+            (
+                root.join("emulator").join(format!("emulator{suffix}")),
+                root.join("platform-tools").join(format!("adb{suffix}")),
+            )
+        };
         for tool in [&emulator, &adb] {
             if !tool.is_file() {
                 return Err(format!(
                     "{} {}",
                     locale.pick(
-                        "Ferramenta do Android SDK ausente em",
-                        "Android SDK tool missing at",
-                        "Falta la herramienta del SDK de Android en"
+                        "Ferramenta Android ausente em",
+                        "Android tool missing at",
+                        "Falta la herramienta de Android en",
                     ),
                     tool.display()
                 )
                 .into());
+            }
+        }
+        if kind == RuntimeKind::Kemu {
+            let image = root.join(KEMU_IMAGE);
+            SystemImage::from_dir_localized(image.clone(), locale)?;
+            if !is_kemu_image(&image) {
+                return Err(locale
+                    .pick(
+                        "A pasta system-img não identifica uma imagem do Kemu.",
+                        "The system-img directory does not identify a Kemu image.",
+                        "La carpeta system-img no identifica una imagen de Kemu.",
+                    )
+                    .into());
             }
         }
         Ok(Self {
@@ -61,10 +143,90 @@ impl Sdk {
             emulator,
             adb,
             locale,
+            kind,
         })
     }
 
+    pub fn is_standalone_kemu(&self) -> bool {
+        self.kind == RuntimeKind::Kemu
+    }
+
+    pub fn is_portable(&self) -> bool {
+        self.kind == RuntimeKind::Portable
+    }
+
+    pub fn engine_path(&self) -> &Path {
+        &self.emulator
+    }
+
+    fn require_sdk(&self) -> Result<()> {
+        if self.is_standalone_kemu() {
+            return Err(self
+                .locale
+                .pick(
+                    "Esse modo exige o Android SDK. Informe o caminho com --sdk.",
+                    "This mode requires the Android SDK. Set its path with --sdk.",
+                    "Este modo requiere el SDK de Android. Indica su ruta con --sdk.",
+                )
+                .into());
+        }
+        Ok(())
+    }
+
+    pub fn require_matching_image(&self, image: &Path) -> Result<()> {
+        if self.is_standalone_kemu() && !matching_kemu_image(&self.root, image) {
+            return Err(self
+                .locale
+                .pick(
+                    "Sem o Android SDK, use a imagem system-img da instalação do Kemu.",
+                    "With only Kemu installed, use that installation's system-img image.",
+                    "Si solo está instalado Kemu, usa la imagen system-img de esa instalación.",
+                )
+                .into());
+        }
+        Ok(())
+    }
+
+    fn validate_boot_mode(&self, engine: Engine, gpu: Gpu) -> Result<()> {
+        if engine == Engine::Sdk || !matches!(gpu, Gpu::Host | Gpu::Auto) {
+            self.require_sdk()?;
+        }
+        Ok(())
+    }
+
+    fn matching_runtime(
+        &self,
+        system: &Path,
+        engine: Engine,
+        gpu: Gpu,
+        installed_kemu: Option<PathBuf>,
+    ) -> Result<Option<PathBuf>> {
+        self.validate_boot_mode(engine, gpu)?;
+        if self.is_standalone_kemu() {
+            self.require_matching_image(system)?;
+            return Ok(Some(self.root.clone()));
+        }
+        Ok(installed_kemu.filter(|root| {
+            engine == Engine::Auto
+                && matches!(gpu, Gpu::Host | Gpu::Auto)
+                && matching_kemu_image(root, system)
+        }))
+    }
+
     pub fn check_acceleration(&self) -> Result<()> {
+        #[cfg(windows)]
+        if self.is_standalone_kemu() {
+            check_whpx(self.locale)?;
+            println!(
+                "{}",
+                self.locale.pick(
+                    "Hipervisor Windows disponível (WHPX).",
+                    "Windows hypervisor available (WHPX).",
+                    "Hipervisor de Windows disponible (WHPX).",
+                )
+            );
+            return Ok(());
+        }
         let status = Command::new(&self.emulator).arg("-accel-check").status()?;
         if !status.success() {
             return Err(format!(
@@ -81,7 +243,65 @@ impl Sdk {
     }
 }
 
-fn default_sdk_path() -> Option<PathBuf> {
+#[cfg(windows)]
+fn check_whpx(locale: Locale) -> Result<()> {
+    use windows_sys::{
+        Win32::{
+            Foundation::FreeLibrary,
+            System::LibraryLoader::{GetProcAddress, LOAD_LIBRARY_SEARCH_SYSTEM32, LoadLibraryExW},
+        },
+        w,
+    };
+
+    type GetCapability = unsafe extern "system" fn(u32, *mut u64, u32, *mut u32) -> i32;
+    // WHvCapabilityCodeHypervisorPresent returns BOOL in the capability buffer.
+    let available = unsafe {
+        let module = LoadLibraryExW(
+            w!("WinHvPlatform.dll"),
+            std::ptr::null_mut(),
+            LOAD_LIBRARY_SEARCH_SYSTEM32,
+        );
+        if module.is_null() {
+            false
+        } else {
+            let available = GetProcAddress(module, c"WHvGetCapability".as_ptr().cast())
+                .is_some_and(|address| {
+                    let capability = std::mem::transmute::<_, GetCapability>(address);
+                    let mut value = 0u64;
+                    let mut written = 0;
+                    capability(0, &mut value, 8, &mut written) == 0
+                        && written >= 4
+                        && value as u32 != 0
+                });
+            FreeLibrary(module);
+            available
+        }
+    };
+    if !available {
+        return Err(locale
+            .pick(
+                "O hipervisor Windows (WHPX) não está disponível para o Kemu.",
+                "The Windows hypervisor (WHPX) is unavailable for Kemu.",
+                "El hipervisor de Windows (WHPX) no está disponible para Kemu.",
+            )
+            .into());
+    }
+    Ok(())
+}
+
+fn same_directory(left: &Path, right: &Path) -> bool {
+    fs::canonicalize(left).is_ok_and(|path| fs::canonicalize(right).ok().as_ref() == Some(&path))
+}
+
+fn path_is_inside(path: &Path, root: &Path) -> bool {
+    fs::canonicalize(root).is_ok_and(|root| {
+        path.ancestors()
+            .find_map(|ancestor| fs::canonicalize(ancestor).ok())
+            .is_some_and(|parent| parent.starts_with(root))
+    })
+}
+
+pub(crate) fn default_sdk_path() -> Option<PathBuf> {
     if cfg!(windows) {
         env::var_os("LOCALAPPDATA").map(|home| PathBuf::from(home).join("Android/Sdk"))
     } else {
@@ -122,6 +342,7 @@ impl Profile {
     }
 
     fn init_disk(&self, image: SystemImage, gaming: bool) -> Result<()> {
+        self.ensure_writable_location()?;
         let SystemImage { api, tag, location } = image;
         let directory = self.avd_home.join(format!("{AVD}.avd"));
         let entry = self.avd_home.join(format!("{AVD}.ini"));
@@ -163,6 +384,32 @@ impl Profile {
         Ok(())
     }
 
+    fn ensure_writable_location(&self) -> Result<()> {
+        if cfg!(windows)
+            && let Some(root) = kemu_install_root()
+            && root.join(KEMU_EMULATOR).is_file()
+            && [
+                self.root.clone(),
+                self.root.join("vm-session.lock"),
+                self.user_home.clone(),
+                self.avd_home.join(format!("{AVD}.avd")),
+                self.avd_home.join(format!("{AVD}.ini")),
+            ]
+            .iter()
+            .any(|path| path_is_inside(path, &root))
+        {
+            return Err(self
+                .locale
+                .pick(
+                    "Escolha um diretório de dados fora da instalação do Kemu.",
+                    "Choose a data directory outside the Kemu installation.",
+                    "Elige un directorio de datos fuera de la instalación de Kemu.",
+                )
+                .into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn system_dir(&self, sdk: &Sdk) -> Result<PathBuf> {
         let directory = self.avd_home.join(format!("{AVD}.avd"));
         let entry = self.avd_home.join(format!("{AVD}.ini"));
@@ -196,7 +443,10 @@ pub struct SystemImage {
 }
 
 impl SystemImage {
-    pub fn preferred_sdk(sdk: &Sdk) -> Result<Self> {
+    pub fn preferred(sdk: &Sdk) -> Result<Self> {
+        if sdk.is_standalone_kemu() {
+            return Self::from_dir_localized(sdk.root.join(KEMU_IMAGE), sdk.locale);
+        }
         for package in [
             "system-images;android-37.0;google_apis_playstore;x86_64",
             "system-images;android-36;google_apis;x86_64",
@@ -205,6 +455,27 @@ impl SystemImage {
             if let Ok(image) = Self::from_sdk(sdk, package) {
                 return Ok(image);
             }
+        }
+        let images = sdk.root.join("system-images");
+        let newest_aosp = fs::read_dir(images)
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let api = entry.file_name().into_string().ok()?;
+                let version = api.strip_prefix("android-")?;
+                let (level, extension) = version.split_once('.').unwrap_or((version, "0"));
+                let version = (level.parse::<u16>().ok()?, extension.parse::<u16>().ok()?);
+                let package = format!("system-images;{api};default;x86_64");
+                Self::from_sdk(sdk, &package)
+                    .ok()
+                    .map(|image| (version, image))
+            })
+            .max_by(|(left, a), (right, b)| {
+                left.cmp(right).then_with(|| a.location.cmp(&b.location))
+            });
+        if let Some((_, image)) = newest_aosp {
+            return Ok(image);
         }
         Err(sdk
             .locale
@@ -216,6 +487,7 @@ impl SystemImage {
             .into())
     }
     pub fn from_sdk(sdk: &Sdk, package: &str) -> Result<Self> {
+        sdk.require_sdk()?;
         let (api, tag) = parse_image(package).map_err(|_| {
             sdk.locale.pick(
                 "Use um pacote system-images x86_64 válido.",
@@ -490,18 +762,10 @@ fn apply_amd_uma_vulkan(
     }
 }
 
-fn kemu_runtime(system: &Path, engine: Engine, gpu: Gpu) -> Option<PathBuf> {
-    kemu_install_root().filter(|root| {
-        cfg!(windows)
-            && engine == Engine::Auto
-            && matches!(gpu, Gpu::Host | Gpu::Auto)
-            && root
-                .join("qemu/windows-x86_64/qemu-system-x86_64.exe")
-                .is_file()
-            && fs::canonicalize(root.join("system-img"))
-                .is_ok_and(|path| fs::canonicalize(system).ok().as_ref() == Some(&path))
-            && is_kemu_image(system)
-    })
+fn matching_kemu_image(root: &Path, system: &Path) -> bool {
+    root.join(KEMU_EMULATOR).is_file()
+        && same_directory(&root.join(KEMU_IMAGE), system)
+        && is_kemu_image(system)
 }
 
 pub fn boot(
@@ -524,9 +788,16 @@ pub fn boot(
     if stop.load(Ordering::Acquire) {
         return Ok(());
     }
+    sdk.validate_boot_mode(engine, gpu)?;
+    profile.ensure_writable_location()?;
     let system_dir = profile.system_dir(sdk)?;
     // This guest Vulkan HAL uses the shared RX/TX extensions of the matching goldfish pipe.
-    let installed = kemu_runtime(&system_dir, engine, gpu);
+    let installed = sdk.matching_runtime(
+        &system_dir,
+        engine,
+        gpu,
+        cfg!(windows).then(kemu_install_root).flatten(),
+    )?;
     let runtime = installed.as_deref();
     let gaming;
     let profile = if runtime.is_some() {
@@ -573,7 +844,7 @@ pub fn boot(
         .create_new(true)
         .open(&log_path)?;
     let mut command = if let Some(root) = runtime {
-        let mut cmd = Command::new(root.join("qemu/windows-x86_64/qemu-system-x86_64.exe"));
+        let mut cmd = Command::new(root.join(KEMU_EMULATOR));
         let mut paths: Vec<_> = [
             "lib64/qt/lib",
             "lib64",
@@ -587,7 +858,7 @@ pub fn boot(
         if let Some(path) = env::var_os("PATH") {
             paths.extend(env::split_paths(&path));
         }
-        cmd.current_dir(root)
+        cmd.current_dir(&profile.root)
             .env("PATH", env::join_paths(paths)?)
             .env_remove("KEMU_UI")
             .env_remove("KEMU_INSTANCE_HANDLE")
@@ -1059,8 +1330,177 @@ impl Drop for RunningProcess {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_image, property};
+    use super::{
+        Engine, Gpu, KEMU_EMULATOR, KEMU_IMAGE, Locale, RuntimeKind, Sdk, SystemImage, env, fs,
+        parse_image, property,
+    };
+    use std::path::{Path, PathBuf};
 
+    struct TestRoot(PathBuf);
+
+    impl TestRoot {
+        fn new() -> Self {
+            let root = env::temp_dir().join(format!(
+                "rustemudroid-runtime-test-{}-{}",
+                std::process::id(),
+                super::SystemTime::now()
+                    .duration_since(super::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            fs::create_dir(&root).unwrap();
+            Self(root)
+        }
+    }
+
+    impl Drop for TestRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn file(root: &Path, name: &str, value: &str) {
+        let path = root.join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, value).unwrap();
+    }
+
+    fn sdk_layout(root: &Path) {
+        let suffix = env::consts::EXE_SUFFIX;
+        file(root, &format!("emulator/emulator{suffix}"), "");
+        file(root, &format!("platform-tools/adb{suffix}"), "");
+    }
+
+    fn kemu_layout(root: &Path) {
+        file(root, KEMU_EMULATOR, "");
+        file(root, "platform-tools/adb.exe", "");
+        file(root, "system-img/system.img", "");
+        file(
+            root,
+            "system-img/build.prop",
+            "ro.system.build.fingerprint=Kemu/test\nro.product.cpu.abi=x86_64\nro.build.version.sdk=36\n",
+        );
+    }
+
+    #[test]
+    fn portable_runtime_precedes_implicit_installs_but_respects_overrides() {
+        let dir = TestRoot::new();
+        let portable = dir.0.join("runtime");
+        let global = dir.0.join("global");
+        let kemu = dir.0.join("kemu");
+        sdk_layout(&portable);
+        sdk_layout(&global);
+        kemu_layout(&kemu);
+        let find = |configured| {
+            Sdk::discover(
+                configured,
+                Some(portable.clone()),
+                Some(global.clone()),
+                Some(kemu.clone()),
+                Locale::EnUs,
+            )
+        };
+        assert!(find(None).unwrap().kind == RuntimeKind::Portable);
+        assert!(find(Some(portable.join("emulator/.."))).unwrap().kind == RuntimeKind::Portable);
+        assert!(find(Some(global.clone())).unwrap().kind == RuntimeKind::Sdk);
+        assert!(find(Some(dir.0.join("missing"))).is_err());
+        fs::remove_file(portable.join(format!("platform-tools/adb{}", env::consts::EXE_SUFFIX)))
+            .unwrap();
+        assert_eq!(find(None).unwrap().root, global);
+    }
+
+    #[test]
+    fn standalone_kemu_requires_its_matching_image_and_hardware_rendering() {
+        let dir = TestRoot::new();
+        let kemu = dir.0.join("installed-kemu");
+        let fake = dir.0.join("other-kemu");
+        kemu_layout(&kemu);
+        kemu_layout(&fake);
+        let sdk = Sdk::discover(
+            None,
+            None,
+            Some(dir.0.join("missing-sdk")),
+            Some(kemu.clone()),
+            Locale::EnUs,
+        )
+        .unwrap();
+        let own_image = kemu.join(KEMU_IMAGE);
+        assert!(sdk.is_standalone_kemu());
+        assert_eq!(sdk.adb, kemu.join("platform-tools/adb.exe"));
+        let image = SystemImage::preferred(&sdk).unwrap();
+        assert!(super::same_directory(
+            Path::new(&image.location),
+            &own_image
+        ));
+        assert_eq!(
+            sdk.matching_runtime(&own_image, Engine::Auto, Gpu::Host, None)
+                .unwrap(),
+            Some(kemu),
+        );
+        let sdk_only = sdk.matching_runtime(&own_image, Engine::Sdk, Gpu::Host, None);
+        assert_eq!(
+            sdk_only.unwrap_err().to_string(),
+            "This mode requires the Android SDK. Set its path with --sdk.",
+        );
+        for gpu in [Gpu::Software, Gpu::SwiftShader] {
+            assert!(
+                sdk.matching_runtime(&own_image, Engine::Auto, gpu, None)
+                    .is_err()
+            );
+        }
+        assert!(
+            sdk.matching_runtime(&fake.join(KEMU_IMAGE), Engine::Auto, Gpu::Auto, None)
+                .is_err()
+        );
+        assert!(SystemImage::from_sdk(&sdk, "system-images;android-36;default;x86_64").is_err());
+    }
+
+    #[test]
+    fn sdk_still_handles_explicit_engine_and_software_modes_for_kemu_image() {
+        let dir = TestRoot::new();
+        let sdk_root = dir.0.join("sdk");
+        let kemu = dir.0.join("kemu");
+        sdk_layout(&sdk_root);
+        kemu_layout(&kemu);
+        let sdk = Sdk::from_root(sdk_root, RuntimeKind::Sdk, Locale::EnUs).unwrap();
+        let image = kemu.join(KEMU_IMAGE);
+        let choose = |engine, gpu| {
+            sdk.matching_runtime(&image, engine, gpu, Some(kemu.clone()))
+                .unwrap()
+        };
+        assert_eq!(choose(Engine::Auto, Gpu::Auto), Some(kemu.clone()));
+        assert!(choose(Engine::Sdk, Gpu::Auto).is_none());
+        assert!(choose(Engine::Auto, Gpu::Software).is_none());
+        assert!(!super::path_is_inside(&dir.0.join("outside"), &kemu));
+        assert!(super::path_is_inside(&kemu.join("new/state"), &kemu));
+    }
+
+    #[test]
+    fn prefers_known_google_images_then_highest_numeric_aosp_version() {
+        let dir = TestRoot::new();
+        sdk_layout(&dir.0);
+        let sdk = Sdk::from_root(dir.0.clone(), RuntimeKind::Portable, Locale::EnUs).unwrap();
+        for level in ["9", "100", "100.2", "100.10", "999.bad"] {
+            file(
+                &dir.0,
+                &format!("system-images/android-{level}/default/x86_64/system.img"),
+                "",
+            );
+        }
+        assert_eq!(SystemImage::preferred(&sdk).unwrap().api, "android-100.10");
+        file(
+            &dir.0,
+            "system-images/android-35/google_apis/x86_64/system.img",
+            "",
+        );
+        let image = SystemImage::preferred(&sdk).unwrap();
+        assert_eq!(
+            (image.api.as_str(), image.tag.as_str()),
+            ("android-35", "google_apis")
+        );
+    }
+
+    #[cfg(feature = "ui")]
     #[test]
     fn amd_uma_vulkan_flag_requires_explicit_opt_in_and_the_tested_sdk_profile() {
         use super::{Gpu, Locale, Sdk, apply_amd_uma_vulkan, fs};
@@ -1072,6 +1512,7 @@ mod tests {
             emulator: dir.path().join("emulator/emulator"),
             adb: dir.path().join("platform-tools/adb"),
             locale: Locale::default(),
+            kind: super::RuntimeKind::Sdk,
         };
         let features = sdk.root.join("emulator/lib/advancedFeatures.ini");
         let image = sdk

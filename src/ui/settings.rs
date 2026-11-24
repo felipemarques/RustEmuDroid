@@ -8,8 +8,8 @@ use std::{
 };
 
 use super::{
-    Action, BootStage, Gpu, Launcher, Locale, Profile, Sdk, default_image, gpu_label, path_input,
-    theme,
+    Action, BootStage, Gpu, Launcher, Locale, Profile, Sdk, default_kemu_image, gpu_label,
+    path_input, theme,
 };
 use crate::android::{Camera, Hardware, amd_uma_adapter, amd_uma_sdk_image};
 use eframe::egui::{self, RichText};
@@ -69,15 +69,8 @@ impl LaunchConfig {
             .ok()
             .and_then(|f| serde_json::from_reader(f).ok())
             .unwrap_or_else(|| Self {
-                sdk: Sdk::find(None)
-                    .ok()
-                    .map(|s| s.root.display().to_string())
-                    .unwrap_or_default(),
-                image: if state.join("avd/RustEmuDroid.ini").is_file() {
-                    String::new()
-                } else {
-                    default_image()
-                },
+                sdk: String::new(),
+                image: String::new(),
                 state: state.display().to_string(),
                 gpu: if cfg!(windows) { Gpu::Host } else { Gpu::Auto },
                 hardware: Hardware::default(),
@@ -88,17 +81,64 @@ impl LaunchConfig {
             });
         if let Some(sdk) = sdk {
             config.sdk = sdk.display().to_string();
+        } else {
+            config.migrate_default_sdk(crate::android::default_sdk_path().as_deref());
         }
         if let Some(gpu) = gpu {
             config.gpu = gpu;
         }
         config
     }
+
+    fn migrate_default_sdk(&mut self, default: Option<&Path>) {
+        // Older clients saved the detected system SDK in the same field as a manual override.
+        let saved = Path::new(&self.sdk);
+        if !self.sdk.is_empty()
+            && Some(saved) == default
+            && Sdk::find(Some(saved.to_owned())).is_err()
+        {
+            self.sdk.clear();
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_runtime_stays_portable_and_saved_overrides_are_preserved() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = temp.path().join("state");
+        let settings = state.join("launcher.json");
+        let mut config = LaunchConfig::load(None, state.clone(), None, &settings);
+        assert!(config.sdk.is_empty());
+        assert!(config.image.is_empty());
+        write_json(&settings, &config).unwrap();
+        assert!(
+            LaunchConfig::load(None, state.clone(), None, &settings)
+                .sdk
+                .is_empty()
+        );
+
+        config.sdk = temp.path().join("older-sdk").display().to_string();
+        config.image = temp.path().join("custom-image").display().to_string();
+        write_json(&settings, &config).unwrap();
+        let saved = LaunchConfig::load(None, state.clone(), None, &settings);
+        assert_eq!(saved.sdk, config.sdk);
+        assert_eq!(saved.image, config.image);
+        let explicit = temp.path().join("another-sdk");
+        let selected = LaunchConfig::load(Some(explicit.clone()), state, None, &settings);
+        assert_eq!(Path::new(&selected.sdk), explicit);
+        assert_eq!(selected.image, config.image);
+
+        let mut migrated = saved;
+        migrated.migrate_default_sdk(Some(&temp.path().join("system-sdk")));
+        assert_eq!(migrated.sdk, config.sdk);
+        migrated.migrate_default_sdk(Some(Path::new(&config.sdk)));
+        assert!(migrated.sdk.is_empty());
+        assert_eq!(migrated.image, config.image);
+    }
 
     #[test]
     fn amd_uma_vulkan_pref_defaults_off_and_is_scoped_to_the_selected_profile() {
@@ -310,10 +350,7 @@ impl ProfileImages {
         let original_dir = sdk
             .as_ref()
             .and_then(|sdk| Profile::new(base.into()).system_dir(sdk).ok())
-            .or_else(|| {
-                let path = default_image();
-                (!path.is_empty()).then(|| PathBuf::from(path))
-            });
+            .or_else(|| sdk.as_ref().and_then(default_kemu_image));
         self.has_berberis_image = original_dir
             .as_deref()
             .is_some_and(crate::android::is_kemu_image);
@@ -396,9 +433,9 @@ impl Launcher {
                     ui.columns(2, |col| {
                         if theme::profile_card(&mut col[0], "Original", self.images.original.as_deref().unwrap_or_else(|| locale.pick("Imagem padrão", "Default image", "Imagen predeterminada")), Path::new(&draft.state) == base_state).clicked() {
                             draft.state = base_state.display().to_string();
-                            draft.image = if base_state.join("avd/RustEmuDroid.ini").is_file() {String::new()} else {default_image()};
+                            draft.image.clear();
                         }
-                        let desc = if self.images.play_ready {"Google Play Store"} else {locale.pick("Imagem ausente no SDK", "Image missing from SDK", "Imagen ausente en el SDK")};
+                        let desc = if self.images.play_ready {"Google Play Store"} else {locale.pick("Imagem não instalada", "Image not installed", "Imagen sin instalar")};
                         let pick = col[1].add_enabled_ui(self.images.play_ready, |ui|
                             theme::profile_card(ui, "Android 17", desc, Path::new(&draft.state) == google)).inner;
                         if pick.clicked() {
@@ -482,8 +519,8 @@ impl Launcher {
                             theme::label(ui, locale.pick("No Android 16 do Kemu, vale para todos os apps ARM deste perfil e pode alterar o FPS.", "On Kemu's Android 16, this applies to all ARM apps in this profile and can affect FPS.", "En Android 16 de Kemu se aplica a todas las aplicaciones ARM de este perfil y puede afectar a los FPS."));
                         });
                     }
-                    egui::CollapsingHeader::new(locale.pick("SDK, imagem e perfil", "SDK, image, and profile", "SDK, imagen y perfil")).id_salt("advanced-paths").show(ui, |ui| {
-                        path_input(ui, "Android SDK", &mut draft.sdk);
+                    egui::CollapsingHeader::new(locale.pick("Runtime, imagem e perfil", "Runtime, image, and profile", "Entorno, imagen y perfil")).id_salt("advanced-paths").show(ui, |ui| {
+                        path_input(ui, locale.pick("Pasta do runtime (vazio = automático)", "Runtime folder (empty = automatic)", "Carpeta del entorno (vacía = automático)"), &mut draft.sdk);
                         path_input(ui, locale.pick("Imagem de sistema", "System image", "Imagen del sistema"), &mut draft.image);
                         path_input(ui, locale.pick("Diretório do perfil", "Profile folder", "Carpeta del perfil"), &mut draft.state);
                     });

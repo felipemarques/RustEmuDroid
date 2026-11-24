@@ -115,11 +115,13 @@ pub fn run(
     Ok(())
 }
 
-fn default_image() -> String {
+fn default_kemu_image(sdk: &Sdk) -> Option<PathBuf> {
+    if sdk.is_portable() || !cfg!(windows) {
+        return None;
+    }
     android::kemu_install_root()
         .map(|path| path.join("system-img"))
         .filter(|path| path.join("system.img").is_file())
-        .map_or_else(String::new, |path| path.display().to_string())
 }
 
 struct Launcher {
@@ -237,12 +239,15 @@ impl Launcher {
                 let needs_init = !state.join("avd/RustEmuDroid.ini").is_file();
                 let profile = Profile::localized(state, language);
                 if !image.is_empty() {
-                    profile.init(SystemImage::from_dir_localized(
-                        PathBuf::from(image),
-                        language,
-                    )?)?
+                    let path = PathBuf::from(image);
+                    sdk.require_matching_image(&path)?;
+                    profile.init(SystemImage::from_dir_localized(path, language)?)?
                 } else if needs_init {
-                    profile.init(SystemImage::preferred_sdk(&sdk)?)?
+                    let image = match default_kemu_image(&sdk) {
+                        Some(path) => SystemImage::from_dir_localized(path, language)?,
+                        None => SystemImage::preferred(&sdk)?,
+                    };
+                    profile.init(image)?
                 }
                 android::boot(
                     &sdk,
