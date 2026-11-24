@@ -121,6 +121,8 @@ To open SuperTuxKart directly, use the following command if the game is installe
 
 If the list is empty or an installation error appears, open the BlueStacks 5 Multi-instance Manager, confirm that an instance is installed and run `list` again. In the RustEmuDroid UI you can also choose **Open BlueStacks** from the session screen or Settings. To test booting copied disks with QEMU, follow the [separate Pie64 image diagnostic](docs/bluestacks-lab.md#boot-the-copied-disks-in-an-isolated-qemu-experiment).
 
+The optional `-SystemMount` test mounted the copied Android system. BlueStacks initialization then stopped at `android_id is empty`. For a playable session with that instance today, use **Open BlueStacks**.
+
 The crab moves during startup and shutdown, in About, and when Android Home has no matching items. The game view keeps the mascot off the rendering path.
 
 ![Preview of the desktop mascot animation](docs/mascot-preview.png)
@@ -150,7 +152,9 @@ Choose **Controls editor** from the menu or press **Ctrl+Shift+A**. Drag a contr
 
 For maps that pan when dragged, drop **Edge scroll** on a clear spot in the map and save. Move the pointer to an edge of the game display to pan toward it. Adjust the horizontal and vertical margins and speeds in **Control settings**. Move the pointer away from the edge to stop.
 
-Use the scheme options to create or duplicate a layout and import or export it as JSON. Other controls include relative aim, timed swipes with a separate end point, pinch and rotation with two simultaneous contacts, and MOBA abilities that support directional dragging from the skill button.
+For games that respond to motion sensors, add **Tilt**, bind a key or button, and choose the X, Y, or Z axis and an angle from −45° to +45° in **Control settings**. Hold the binding to tilt the virtual device relative to its current orientation. Release it to restore the original orientation. This control requires virtual sensor support.
+
+The editor supports 11 control types, including **D-pad**, **Edge scroll**, and **Tilt**. The others are held touch, tap, repeated taps, timed swipe, relative aim, pinch, two-finger rotation, and MOBA ability. Use the scheme options to create or duplicate a layout and import or export it as JSON.
 
 ![The controls editor showing a W, A, S, D D-pad over the SuperTuxKart main menu](docs/screenshots/en-us/editor.png)
 
@@ -196,7 +200,7 @@ Use the same `--state-dir` for initialization, boot and UI. The default is `.rus
 
 The [Radeon 780M benchmark](benchmarks/stk-1.5/radeon-780m/README.md) compares integrated graphics across RustEmuDroid, Kemu and BlueStacks. It includes per-run measurements and host GPU verification.
 
-The Windows smoke tests cover PUBG MOBILE menus, BombSquad and War Thunder Mobile. [Game test results and reproduction steps](docs/game-testing.md)
+The Windows tests cover PUBG MOBILE inventory stalls, BombSquad's eight-player stress test, the Box3D Vulkan scene and War Thunder Mobile startup. [Game test results and reproduction steps](docs/game-testing.md)
 
 - **FPS.** The title bar counts new frames sent for drawing by the desktop panel. A static Home can show a low value. Use the game’s own counter or frame report to compare game performance.
 - **Measured example.** In the SuperTuxKart 1.5 Black Forest replay, RustEmuDroid averaged 59.93 FPS at the original preset and 28.90 FPS at high quality on the tested Windows RTX 5070 Ti / Android 16 OpenGL ES setup. The report lists the driver, ABI, presets, frame times and the Kemu and BlueStacks results. [Benchmark and raw measurements](benchmarks/stk-1.5/README.md)

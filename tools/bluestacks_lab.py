@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import shutil
 import socket
 import struct
@@ -14,10 +15,10 @@ DISKS = {"boot": ("fastboot.vdi", "vdi"), "root": ("Root.vhd", "vpc"), "data": (
 
 
 class Qmp:
-    def __init__(self, address, process):
+    def __init__(self, address, process, startup_seconds=8):
         self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.socket.settimeout(5)
-        deadline = time.monotonic() + 8
+        deadline = time.monotonic() + startup_seconds
         while True:
             try:
                 self.socket.connect(str(address))
@@ -75,6 +76,10 @@ def extract_pie64_linux(qemu_img, boot, scratch):
 
     raw = scratch / "fastboot.raw"
     subprocess.run([qemu_img, "convert", "-f", "vdi", "-O", "raw", str(boot), str(raw)], check=True)
+    return unpack_pie64_linux(raw, scratch)
+
+
+def unpack_pie64_linux(raw, scratch):
     image = raw.read_bytes()
     payload = image[512:]
     if image[510:512] != b"\x55\xaa" or payload[0x202:0x206] != b"HdrS":
@@ -102,17 +107,34 @@ def extract_pie64_linux(qemu_img, boot, scratch):
 def run_probe(args):
     output = args.output.resolve()
     images = args.images.resolve(strict=True)
+    guest_disks = {} if args.system_mount else DISKS
+    required_disks = ("boot", "root") if args.system_mount else DISKS
     sources = {}
-    for label, (filename, fmt) in DISKS.items():
+    for label in required_disks:
+        filename, fmt = DISKS[label]
         source = (images / filename).resolve(strict=True)
         if source.parent != images or not source.is_file():
             raise ValueError(f"Expected a regular disk file under the lab directory: {filename}")
         sources[label] = (source, fmt)
 
-    output.mkdir(parents=True)
+    if args.system_mount:
+        if os.name != "posix":
+            raise ValueError("--system-mount needs Linux or WSL. On Windows, use Test-BlueStacksImage.ps1 -SystemMount")
+        from bluestacks_system_mount import (
+            BOOT_SHA256, CONFIG_BLOCKER, CONFIG_MARKER, ROOT_SHA256, SYSTEM_MARKER,
+            build_system_carrier, convert_system_inputs, drop_privileges, make_squashfs,
+            qemu_environment, system_mount_user, verify_copy,
+        )
+        user = system_mount_user(args.run_as)
+        verify_copy(sources["boot"][0], BOOT_SHA256)
+        verify_copy(sources["root"][0], ROOT_SHA256)
+    else:
+        output.mkdir(parents=True)
     with tempfile.TemporaryDirectory(prefix="rustemudroid-pie64-") as temporary:
         scratch = Path(temporary)
-        for label, (source, fmt) in sources.items():
+        launch_env = None
+        for label in guest_disks:
+            source, fmt = sources[label]
             subprocess.run(
                 [args.qemu_img, "create", "-q", "-f", "qcow2", "-F", fmt, "-b",
                  str(source), str(scratch / f"{label}.qcow2")],
@@ -129,7 +151,7 @@ def run_probe(args):
             "-qmp", f"unix:{scratch / 'qmp.sock'},server=on,wait=off",
             "-no-reboot", "-S",
         ]
-        if not args.virtio_blk:
+        if guest_disks and not args.virtio_blk:
             command += ["-device", "piix3-ide,id=legacy,addr=02.0", "-device", "ich9-ahci,id=sata"]
         if args.firmware:
             command += ["-L", str(args.firmware.resolve())]
@@ -137,14 +159,30 @@ def run_probe(args):
             command += ["-bios", str(args.bios.resolve())]
         if args.remap_ide_dma:
             command += ["-option-rom", str(build_dma_rom(scratch))]
-        if args.direct_linux:
-            kernel, initrd = extract_pie64_linux(args.qemu_img, sources["boot"][0], scratch)
+        if args.direct_linux or args.system_mount:
             console = "console=ttyS0,115200n8 earlyprintk=serial,ttyS0,115200 keep_bootcon ignore_loglevel"
+            kernel_args = args.kernel_args
+            if args.system_mount:
+                print("Preparing a verified read-only SquashFS copy of the Pie64 root.", flush=True)
+                boot, root = convert_system_inputs(args.qemu_img, sources["boot"][0], sources["root"][0], user, scratch)
+                kernel, initrd = unpack_pie64_linux(boot, scratch)
+                squashfs = make_squashfs(root, scratch)
+                initrd = build_system_carrier(initrd, squashfs, scratch)
+                build = {"root_squashfs_bytes": squashfs.stat().st_size, "carrier_bytes": initrd.stat().st_size,
+                         "boot_sha256": BOOT_SHA256, "root_sha256": ROOT_SHA256}
+                squashfs.unlink()
+                drop_privileges(user, scratch)
+                output.mkdir(parents=True)
+                (output / "system-mount.json").write_text(json.dumps(build, indent=2) + "\n")
+                kernel_args = "rdinit=/boot/init"
+                launch_env = qemu_environment()
+            else:
+                kernel, initrd = extract_pie64_linux(args.qemu_img, sources["boot"][0], scratch)
             command += [
                 "-kernel", str(kernel), "-initrd", str(initrd),
-                "-append", f"{console} {args.kernel_args}".strip(),
+                "-append", f"{console} {kernel_args}".strip(),
             ]
-        for label in DISKS:
+        for label in guest_disks:
             command += ["-drive", f"file={scratch / (label + '.qcow2')},if=none,format=qcow2,id={label}"]
         if args.virtio_blk:
             command += [
@@ -152,20 +190,22 @@ def run_probe(args):
                 "-device", "virtio-blk-pci,drive=root",
                 "-device", "virtio-blk-pci,drive=data",
             ]
-        else:
+        elif guest_disks:
             command += [
                 "-device", "ide-hd,drive=boot,bus=legacy.0,bootindex=1",
                 "-device", "ide-hd,drive=root,bus=sata.0",
                 "-device", "ide-hd,drive=data,bus=sata.1",
             ]
         with (output / "qemu.log").open("wb") as host_log:
-            process = subprocess.Popen(command, stdout=host_log, stderr=subprocess.STDOUT)
+            process = subprocess.Popen(command, stdout=host_log, stderr=subprocess.STDOUT, env=launch_env)
             monitor = None
             try:
-                monitor = Qmp(scratch / "qmp.sock", process)
+                monitor = Qmp(scratch / "qmp.sock", process, startup_seconds=30 if args.system_mount else 8)
                 block = monitor.execute("query-block")
                 (output / "disks.json").write_text(json.dumps(block, indent=2) + "\n")
-                for label, (_, fmt) in DISKS.items():
+                if args.system_mount and block:
+                    raise RuntimeError("The system-mount VM must have no attached disks")
+                for label, (_, fmt) in guest_disks.items():
                     image = next(item["inserted"]["image"] for item in block if item["device"] == label)
                     expected = {"format": "qcow2", "backing": fmt}
                     actual = {"format": image["format"], "backing": image["backing-image"]["format"]}
@@ -198,10 +238,17 @@ def run_probe(args):
                     recorded = scratch / filename
                     if recorded.is_file():
                         shutil.copyfile(recorded, output / filename)
-        (output / "result.json").write_text(json.dumps({
+        result = {
             "qemu_exit": process.returncode,
             "observation_window_completed": (output / "status.json").is_file(),
-        }, indent=2) + "\n")
+        }
+        if args.system_mount:
+            serial_path = output / "serial.log"
+            serial = serial_path.read_text(errors="replace") if serial_path.is_file() else ""
+            result.update(system_attached=SYSTEM_MARKER in serial,
+                          original_configuration_started=CONFIG_MARKER in serial,
+                          android_id_missing=CONFIG_BLOCKER in serial)
+        (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     print(f"Probe finished with QEMU exit {process.returncode}. Evidence: {output}")
     return int(process.returncode != 0)
 
@@ -217,6 +264,9 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--remap-ide-dma", action="store_true", help="Set the PIIX3 bus-master I/O base to 0xd040")
     mode.add_argument("--direct-linux", action="store_true", help="Start the original kernel and initramfs with a serial console")
+    mode.add_argument("--system-mount", action="store_true",
+                      help="Mount the verified copied system through temporary read-only SquashFS")
+    parser.add_argument("--run-as", help="Non-root QEMU user for --system-mount (defaults to SUDO_USER)")
     parser.add_argument("--kernel-args", default="", help="Extra Linux parameters for the direct boot diagnostic")
     parser.add_argument("--virtio-blk", action="store_true", help="Attach copies to VirtIO block devices for direct Linux boot")
     parser.add_argument("--accel", choices=("tcg", "kvm"), default="tcg")
@@ -228,7 +278,12 @@ def main():
         parser.error("--kernel-args requires --direct-linux")
     if args.virtio_blk and not args.direct_linux:
         parser.error("--virtio-blk requires --direct-linux")
-    return run_probe(args)
+    if args.run_as and not args.system_mount:
+        parser.error("--run-as requires --system-mount")
+    try:
+        return run_probe(args)
+    except ValueError as error:
+        parser.exit(1, f"{error}\n")
 
 
 if __name__ == "__main__":

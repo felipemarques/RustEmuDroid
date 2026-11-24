@@ -8,10 +8,15 @@ param(
 
     [switch] $VerifyHashes,
 
-    [switch] $LegacyStorage
+    [switch] $LegacyStorage,
+
+    [switch] $SystemMount
 )
 
 $ErrorActionPreference = 'Stop'
+if ($LegacyStorage -and $SystemMount) {
+    throw '-LegacyStorage and -SystemMount are mutually exclusive.'
+}
 $project = Split-Path -Parent $PSScriptRoot
 $lab = '.rustemudroid/bluestacks-lab'
 $images = "$lab/Pie64"
@@ -29,9 +34,13 @@ $manifest = if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
     throw "Hash verification requires the offline copies' SHA-256 manifest at $manifestPath."
 }
 if ($VerifyHashes) {
-    Write-Host 'Verifying SHA-256 hashes. Hashing the data disk can take a moment.'
+    Write-Host 'Verifying SHA-256 hashes of the selected copies.'
 }
-foreach ($name in 'fastboot.vdi', 'Root.vhd', 'Data.vhdx') {
+$diskNames = @('fastboot.vdi', 'Root.vhd')
+if (-not $SystemMount) {
+    $diskNames += 'Data.vhdx'
+}
+foreach ($name in $diskNames) {
     $entry = @($manifest | Where-Object file -CEQ $name)
     $disk = Get-Item -LiteralPath (Join-Path $project "$images/$name")
     if ($disk.PSIsContainer -or
@@ -46,13 +55,26 @@ foreach ($name in 'fastboot.vdi', 'Root.vhd', 'Data.vhdx') {
     }
 }
 
-$run = "$lab/direct-linux-$(Get-Date -Format yyyyMMdd-HHmmss)-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
-$wslArgs = @('--distribution', $Distribution, '--cd', $project, '--exec')
-$probeArgs = @('python3', 'tools/bluestacks_lab.py', '--images', $images,
-    '--output', $run, '--direct-linux', '--seconds', "$Seconds")
-if (-not $LegacyStorage) {
-    $probeArgs += '--virtio-blk'
+$runPrefix = if ($SystemMount) { 'system-mount' } else { 'direct-linux' }
+$run = "$lab/$runPrefix-$(Get-Date -Format yyyyMMdd-HHmmss)-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+$wslArgs = @('--distribution', $Distribution)
+$probeArgs = @('python3', '-B', 'tools/bluestacks_lab.py', '--images', $images,
+    '--output', $run, '--seconds', "$Seconds")
+if ($SystemMount) {
+    $guestUser = & wsl.exe --distribution $Distribution --exec id -un
+    if ($LASTEXITCODE -ne 0 -or -not $guestUser -or $guestUser -eq 'root') {
+        throw "-SystemMount requires a non-root default user in the $Distribution WSL distribution."
+    }
+    $wslArgs += @('--user', 'root')
+    $probeArgs[0] = '/usr/bin/python3'
+    $probeArgs += @('--system-mount', '--run-as', $guestUser.Trim())
+} else {
+    $probeArgs += '--direct-linux'
+    if (-not $LegacyStorage) {
+        $probeArgs += '--virtio-blk'
+    }
 }
+$wslArgs += @('--cd', $project, '--exec')
 $qemu = "$tools/usr/bin/qemu-system-x86_64"
 $qemuImg = "$tools/usr/bin/qemu-img"
 $bios = "$tools/usr/share/seabios/bios-256k.bin"
@@ -60,18 +82,27 @@ if ((Test-Path -LiteralPath (Join-Path $project $qemu) -PathType Leaf) -and
     (Test-Path -LiteralPath (Join-Path $project $qemuImg) -PathType Leaf) -and
     (Test-Path -LiteralPath (Join-Path $project $bios) -PathType Leaf)) {
     $libPath = "$tools/usr/lib/x86_64-linux-gnu:${tools}/lib/x86_64-linux-gnu"
-    $wslArgs += @('env', "LD_LIBRARY_PATH=$libPath", "QEMU_MODULE_DIR=$tools/usr/lib/x86_64-linux-gnu/qemu")
+    if ($SystemMount) {
+        $wslArgs += @('/usr/bin/env', "RUSTEMUDROID_QEMU_LD_LIBRARY_PATH=$libPath",
+            "RUSTEMUDROID_QEMU_QEMU_MODULE_DIR=$tools/usr/lib/x86_64-linux-gnu/qemu")
+    } else {
+        $wslArgs += @('env', "LD_LIBRARY_PATH=$libPath", "QEMU_MODULE_DIR=$tools/usr/lib/x86_64-linux-gnu/qemu")
+    }
     $probeArgs += @('--qemu', $qemu, '--qemu-img', $qemuImg,
         '--firmware', "$tools/usr/share/seabios", '--bios', $bios)
 }
 
-Write-Host "Running the headless Linux kernel diagnostic in WSL ($Distribution)."
+if ($SystemMount) {
+    Write-Host "Preparing the read-only root in WSL ($Distribution) as root, then running QEMU as $guestUser."
+} else {
+    Write-Host "Running the headless Linux kernel diagnostic in WSL ($Distribution)."
+}
 & wsl.exe @wslArgs @probeArgs
 $probeExit = $LASTEXITCODE
 $output = Join-Path $project $run
 if (Test-Path -LiteralPath $output -PathType Container) {
     Write-Host "Evidence folder $output"
-    foreach ($name in 'serial.log', 'qemu.log', 'result.json') {
+    foreach ($name in 'serial.log', 'qemu.log', 'result.json', 'system-mount.json') {
         $log = Join-Path $output $name
         if (Test-Path -LiteralPath $log -PathType Leaf) {
             Write-Host $log
@@ -83,7 +114,16 @@ if ($probeExit -ne 0) {
 }
 
 $serial = Join-Path $output 'serial.log'
-if ((Test-Path -LiteralPath $serial -PathType Leaf) -and
+if ($SystemMount) {
+    $result = Get-Content -LiteralPath (Join-Path $output 'result.json') -Raw | ConvertFrom-Json
+    if ($result.system_attached -and $result.android_id_missing) {
+        Write-Host 'The guest attached the Android system. BlueStacks configuration reported an empty android_id, and Android startup was not verified.'
+    } elseif ($result.system_attached) {
+        Write-Host 'The guest attached the Android system. Inspect the serial log for the last boot stage.'
+    } else {
+        Write-Host 'The system attachment milestone was not observed. Inspect the serial log for the last boot stage.'
+    }
+} elseif ((Test-Path -LiteralPath $serial -PathType Leaf) -and
     (Select-String -LiteralPath $serial -Pattern 'Cannot load module /boot/bstmods/bstinput\.ko' -Quiet)) {
     Write-Host 'The kernel reached initramfs userspace. The BlueStacks input module failed to load. Android startup was not verified.'
 } elseif ((Test-Path -LiteralPath $serial -PathType Leaf) -and

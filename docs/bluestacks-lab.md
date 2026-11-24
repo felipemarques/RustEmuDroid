@@ -46,4 +46,25 @@ Each invocation needs a new output directory. QMP records the device tree and bl
 | Q35 built-in AHCI | Attaching all three copies to the built-in AHCI controller also produced a SCSI error-handler soft lockup at about 29 seconds. |
 | Direct kernel with VirtIO block | With SATA and PIIX3 absent, the original initramfs reached userspace and attempted to load the BlueStacks input module. The guest logged a null pointer fault in `bstvmsg` during `bstinput` initialization, then panicked when PID 1 exited. QEMU stopped when the guest requested a reboot. |
 
-The experiments demonstrate storage attachment, loader execution, independent kernel startup and entry into the original initramfs. QMP confirms that QEMU attached the VirtIO devices. Guest disk discovery, Android partition mounts, Android boot completion, graphics, input and games remain unverified. The external Windows integration is the working way to open the Pie64 games and saves. [Linux x86 boot protocol](https://docs.kernel.org/arch/x86/boot.html) · [QEMU invocation](https://www.qemu.org/docs/master/system/invocation.html)
+These modes demonstrate storage attachment, loader execution, independent kernel startup and entry into the original initramfs. QMP confirms that QEMU attached the VirtIO devices. Guest disk discovery, disk-backed Android partition mounts, Android boot completion, graphics, input and games remain unverified. The external Windows integration is the working way to open the Pie64 games and saves. [Linux x86 boot protocol](https://docs.kernel.org/arch/x86/boot.html) · [QEMU invocation](https://www.qemu.org/docs/master/system/invocation.html)
+
+## Opt-in system mount
+
+This diagnostic uses the verified Pie64 `fastboot.vdi` and `Root.vhd` copies. The tool matches both SHA-256 hashes against the pair used in the lab. The data disk is optional for this mode and remains outside the VM.
+
+The Linux host or WSL distribution needs Python 3.11 or newer, QEMU for x86-64, `qemu-img`, `squashfs-tools`, `rsync`, loop-mounted ext4 and SquashFS support, and 8 GiB of free temporary filesystem space. The filesystem preparation needs root. The disk converter runs as the non-root user, and the tool hash-checks its output in a separate private directory before mounting it. The ext4 mount is read-only with journal replay disabled. The tool compares the SquashFS to the copied ext4 tree by checksum and metadata, unmounts both, deletes the intermediate raw copy, and drops privileges before starting QEMU.
+
+On Windows, the PowerShell helper performs preparation as WSL root and runs QEMU as the distribution's non-root default user.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\Test-BlueStacksImage.ps1 -SystemMount
+```
+
+On Linux, run the following from the repository root. QEMU runs as the caller of `sudo`. If invoking from a root shell, supply the intended non-root user with `--run-as`.
+
+```sh
+lab=.rustemudroid/bluestacks-lab
+sudo python3 -B tools/bluestacks_lab.py --images "$lab/Pie64" --output "$lab/system-mount" --system-mount
+```
+
+The guest has no network or attached disks. The temporary boot script omits the proprietary `bstinput` load, leaves the standard Linux input devices active, and loop-mounts the complete copied root as read-only SquashFS. The original Android ramdisk and later BlueStacks initialization and configuration checks run as shipped. QEMU mounted the copied root, extracted the original Android ramdisk, and attached the original Android system directory. The original configuration then reported `ERROR: android_id is empty` and the guest stopped before Android completed startup. `system-mount.json` describes the staged image and `result.json` records the observed milestones. The temporary carrier is removed when the diagnostic exits.

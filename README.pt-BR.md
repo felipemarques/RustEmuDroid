@@ -121,6 +121,8 @@ Para abrir diretamente o SuperTuxKart, use o comando abaixo se o jogo estiver in
 
 Se a lista estiver vazia ou aparecer um erro de instalação, abra o Gerenciador de Multi-instâncias do BlueStacks 5, confirme que há uma instância instalada e repita `list`. Pela interface do RustEmuDroid, você também pode escolher **Abrir BlueStacks** na tela de sessão ou nas configurações. Para testar o boot dos discos copiados com QEMU, siga o [diagnóstico separado da imagem Pie64](docs/bluestacks-lab.md#boot-the-copied-disks-in-an-isolated-qemu-experiment).
 
+O teste opcional com `-SystemMount` montou a cópia do sistema Android. A inicialização do BlueStacks parou em `android_id is empty`. Para jogar nessa instância, use **Abrir BlueStacks**.
+
 O caranguejo se movimenta durante a inicialização e o desligamento, na tela Sobre e quando a busca da Home do Android não encontra itens. Durante a partida, a animação fica desativada.
 
 ![Prévia da animação do caranguejo na interface](docs/mascot-preview.png)
@@ -150,7 +152,9 @@ Selecione **Editor de controles** no menu ou pressione **Ctrl+Shift+A**. Arraste
 
 Para mapas que se movem ao arrastar, solte **Rolagem de borda** em uma área livre do mapa e salve. Mova o ponteiro até uma borda da tela do jogo para mover a câmera naquela direção. Em **Configuração do controle**, ajuste as margens e velocidades de cada eixo. Afaste o ponteiro da borda para parar.
 
-Use as opções do esquema para criar ou duplicar um perfil e importá-lo ou exportá-lo em JSON. Outros controles incluem mira relativa, deslizes com destino e duração, pinça e rotação com dois contatos simultâneos e habilidades MOBA que permitem arrastar a partir do botão da habilidade.
+Em jogos que respondem a sensores de movimento, adicione **Inclinar**, associe uma tecla ou botão e escolha o eixo X, Y ou Z e um ângulo de −45° a +45° em **Configuração do controle**. Mantenha a tecla ou o botão pressionado para inclinar o dispositivo virtual a partir da orientação atual. Solte para voltar à orientação original. O controle requer suporte a sensores virtuais.
+
+O editor oferece 11 tipos de controle, incluindo **Direcional**, **Rolagem de borda** e **Inclinar**. Os demais são toque mantido, toque rápido, toques repetidos, deslize com duração, mira relativa, pinça, giro com dois dedos e habilidade MOBA. Use as opções do esquema para criar ou duplicar um perfil e importá-lo ou exportá-lo em JSON.
 
 ![Editor de controles com um direcional W, A, S, D sobre o menu principal do SuperTuxKart](docs/screenshots/pt-br/editor.png)
 
@@ -196,7 +200,7 @@ Use o mesmo `--state-dir` em `init`, `boot` e `ui`. O padrão é `.rustemudroid/
 
 O [benchmark da Radeon 780M, em inglês](benchmarks/stk-1.5/radeon-780m/README.md), compara a GPU integrada no RustEmuDroid, Kemu e BlueStacks. O relatório inclui os dados de cada corrida e a confirmação da GPU física.
 
-Os testes no Windows cobrem os menus do PUBG MOBILE, BombSquad e War Thunder Mobile. [Resultados e como repetir os testes, em inglês](docs/game-testing.md)
+Os testes no Windows cobrem travamentos no inventário do PUBG MOBILE, o teste de estresse com oito jogadores no BombSquad, a cena Vulkan do Box3D e a inicialização do War Thunder Mobile. [Resultados e como repetir os testes, em inglês](docs/game-testing.md)
 
 - **FPS do painel.** A barra conta os quadros novos enviados para desenho no painel. Uma Home parada pode exibir um número baixo. Para comparar jogos, use o contador do próprio jogo ou o relatório de quadros do replay.
 - **Exemplo medido.** No replay Black Forest do SuperTuxKart 1.5, o RustEmuDroid atingiu média de 59,93 FPS na qualidade original e 28,90 FPS na alta com Windows, RTX 5070 Ti, Android 16 e OpenGL ES. O relatório traz os parâmetros, os tempos por quadro e os resultados do Kemu e BlueStacks. [Método e medições](benchmarks/stk-1.5/README.md)
