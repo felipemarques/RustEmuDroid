@@ -12,6 +12,12 @@ To run this from Windows PowerShell, first select the executable for your releas
 
 The test on BlueStacks 5.22.166.1003 discovered `Pie64` and confirmed that SuperTuxKart connected to the graphics engine after the last command. The launch command reports dispatch. BlueStacks handles game availability and launch errors in its own window.
 
+### Windows preview and window lifetime
+
+A disposable Windows test embedded a Win32 window owned by a second test process using `SetParent`. With matching DPI awareness, the child filled the reserved client area, received keyboard focus, and followed resizing. Normal close and a controlled exception restored its owner, parent, styles, placement and visibility. A DPI mismatch was rejected before any window changes. In a separate test, abruptly terminating the disposable parent destroyed the child HWND while its process stayed alive and responsive. The child received no `WM_CLOSE`. This failure is enough to rule out direct reparenting for an installed player session. [Microsoft SetParent](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-setparent) · [Microsoft DestroyWindow](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-destroywindow)
+
+A separate DWM thumbnail displayed the live SuperTuxKart menu from the installed Pie64 player. The preview cropped the 1659 × 933 game surface from the top-level player window. The menu ticker changed between visual observations. Closing the preview unregistered the thumbnail. The same player process remained responsive, both source HWNDs retained their placement, and the game still rendered in the original window. The window capture used for saved crops did not include the composited thumbnail. This was a visual preview only, with input owned by the original player window. [Microsoft DWM thumbnails](https://learn.microsoft.com/windows/win32/dwm/thumbnail-ovw) · [DwmUpdateThumbnailProperties](https://learn.microsoft.com/windows/win32/api/dwmapi/nf-dwmapi-dwmupdatethumbnailproperties)
+
 ## Boot the copied disks in an isolated QEMU experiment
 
 The Pie64 instance uses BIOS boot, an ICH9 chipset, a PIIX3 IDE controller and an AHCI controller. Its instance definition assigns the disks as follows.
