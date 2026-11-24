@@ -222,6 +222,7 @@ fn run(cli: Cli) -> Result<()> {
             android::BootOptions {
                 gpu,
                 hardware,
+                amd_uma_vulkan: false,
                 engine,
                 headless,
                 check,

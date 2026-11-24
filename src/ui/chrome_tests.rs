@@ -215,6 +215,7 @@ fn title_bar_layout_and_window_actions() {
             image: String::new(),
             gpu: Gpu::Auto,
             hardware: Default::default(),
+            amd_uma_vulkan_by_profile: Default::default(),
             show_fps: true,
             animate_mascot: true,
             locale: Locale::default(),

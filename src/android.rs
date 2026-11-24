@@ -412,6 +412,7 @@ impl Hardware {
 pub struct BootOptions {
     pub gpu: Gpu,
     pub hardware: Hardware,
+    pub amd_uma_vulkan: bool,
     pub engine: Engine,
     pub headless: bool,
     pub check: bool,
@@ -455,6 +456,40 @@ pub(crate) fn is_kemu_image(system_dir: &Path) -> bool {
     })
 }
 
+pub(crate) fn amd_uma_adapter(gpu: Gpu, adapter: &str) -> bool {
+    matches!(gpu, Gpu::Host | Gpu::Auto) && adapter == "AMD Radeon 780M Graphics"
+}
+
+pub(crate) fn amd_uma_sdk_image(sdk: &Sdk, image: &Path) -> bool {
+    let expected = sdk
+        .root
+        .join("system-images/android-37.0/google_apis_playstore/x86_64");
+    image.join("system.img").is_file()
+        && fs::canonicalize(expected)
+            .is_ok_and(|path| fs::canonicalize(image).ok().as_ref() == Some(&path))
+        && fs::read_to_string(image.join("source.properties")).is_ok_and(|meta| {
+            property(&meta, "SystemImage.TagId") == Some("google_apis_playstore")
+                && property(&meta, "SystemImage.Abi") == Some("x86_64")
+        })
+        && !is_kemu_image(image)
+        && fs::read_to_string(sdk.root.join("emulator/lib/advancedFeatures.ini"))
+            .is_ok_and(|meta| property(&meta, "VulkanAllocateDeviceMemoryOnly").is_some())
+}
+
+fn apply_amd_uma_vulkan(
+    command: &mut Command,
+    enabled: bool,
+    windows_sdk: bool,
+    gpu: Gpu,
+    adapter: &str,
+    sdk: &Sdk,
+    image: &Path,
+) {
+    if enabled && windows_sdk && amd_uma_adapter(gpu, adapter) && amd_uma_sdk_image(sdk, image) {
+        command.args(["-feature", "-VulkanAllocateDeviceMemoryOnly"]);
+    }
+}
+
 fn kemu_runtime(system: &Path, engine: Engine, gpu: Gpu) -> Option<PathBuf> {
     kemu_install_root().filter(|root| {
         cfg!(windows)
@@ -479,6 +514,7 @@ pub fn boot(
     let BootOptions {
         gpu,
         hardware,
+        amd_uma_vulkan,
         engine,
         headless,
         check,
@@ -606,6 +642,15 @@ pub fn boot(
         // The stock SDK renderer boots this image through its bundled GLES driver.
         command.args(["-feature", "-GuestAngle,-Vulkan,-MultiDisplay"]);
     }
+    apply_amd_uma_vulkan(
+        &mut command,
+        amd_uma_vulkan,
+        cfg!(windows) && runtime.is_none() && !compat_egl,
+        gpu,
+        &hardware.adapter,
+        sdk,
+        &system_dir,
+    );
     if headless {
         command.args(["-no-window", "-no-audio"]);
     }
@@ -1015,6 +1060,73 @@ impl Drop for RunningProcess {
 #[cfg(test)]
 mod tests {
     use super::{parse_image, property};
+
+    #[test]
+    fn amd_uma_vulkan_flag_requires_explicit_opt_in_and_the_tested_sdk_profile() {
+        use super::{Gpu, Locale, Sdk, apply_amd_uma_vulkan, fs};
+        use std::process::Command;
+
+        let dir = tempfile::tempdir().unwrap();
+        let sdk = Sdk {
+            root: dir.path().to_path_buf(),
+            emulator: dir.path().join("emulator/emulator"),
+            adb: dir.path().join("platform-tools/adb"),
+            locale: Locale::default(),
+        };
+        let features = sdk.root.join("emulator/lib/advancedFeatures.ini");
+        let image = sdk
+            .root
+            .join("system-images/android-37.0/google_apis_playstore/x86_64");
+        fs::create_dir_all(features.parent().unwrap()).unwrap();
+        fs::create_dir_all(&image).unwrap();
+        fs::write(&features, "VulkanAllocateDeviceMemoryOnly = off\n").unwrap();
+        fs::write(image.join("system.img"), "").unwrap();
+        fs::write(
+            image.join("source.properties"),
+            "SystemImage.TagId=google_apis_playstore\nSystemImage.Abi=x86_64\n",
+        )
+        .unwrap();
+
+        let adapter = "AMD Radeon 780M Graphics";
+        let args = |enabled, windows_sdk, gpu, adapter, image: &std::path::Path| {
+            let mut command = Command::new(&sdk.emulator);
+            apply_amd_uma_vulkan(
+                &mut command,
+                enabled,
+                windows_sdk,
+                gpu,
+                adapter,
+                &sdk,
+                image,
+            );
+            command
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+        for gpu in [Gpu::Host, Gpu::Auto] {
+            assert_eq!(
+                args(true, true, gpu, adapter, &image),
+                ["-feature", "-VulkanAllocateDeviceMemoryOnly"]
+            );
+        }
+        assert!(args(false, true, Gpu::Host, adapter, &image).is_empty());
+        assert!(args(true, false, Gpu::Host, adapter, &image).is_empty());
+        assert!(args(true, true, Gpu::Software, adapter, &image).is_empty());
+        assert!(args(true, true, Gpu::SwiftShader, adapter, &image).is_empty());
+        assert!(args(true, true, Gpu::Auto, "", &image).is_empty());
+        assert!(args(true, true, Gpu::Host, "AMD Radeon 890M Graphics", &image).is_empty());
+        assert!(args(true, true, Gpu::Host, adapter, &sdk.root).is_empty());
+        fs::write(
+            image.join("build.prop"),
+            "ro.system.build.fingerprint=Kemu/test\n",
+        )
+        .unwrap();
+        assert!(args(true, true, Gpu::Host, adapter, &image).is_empty());
+        fs::remove_file(image.join("build.prop")).unwrap();
+        fs::write(&features, "# VulkanAllocateDeviceMemoryOnly = off\n").unwrap();
+        assert!(args(true, true, Gpu::Host, adapter, &image).is_empty());
+    }
 
     #[cfg(windows)]
     #[test]

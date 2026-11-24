@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs, io,
     io::Write,
     path::{Path, PathBuf},
@@ -10,7 +11,7 @@ use super::{
     Action, BootStage, Gpu, Launcher, Locale, Profile, Sdk, default_image, gpu_label, path_input,
     theme,
 };
-use crate::android::{Camera, Hardware};
+use crate::android::{Camera, Hardware, amd_uma_adapter, amd_uma_sdk_image};
 use eframe::egui::{self, RichText};
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +22,8 @@ pub(super) struct LaunchConfig {
     pub image: String,
     pub gpu: Gpu,
     pub hardware: Hardware,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub amd_uma_vulkan_by_profile: BTreeMap<PathBuf, bool>,
     pub show_fps: bool,
     #[serde(default = "super::mascot::enabled_by_default")]
     pub animate_mascot: bool,
@@ -35,7 +38,32 @@ impl LaunchConfig {
             || self.state != other.state
             || self.gpu != other.gpu
             || self.hardware != other.hardware
+            || self.amd_uma_vulkan() != other.amd_uma_vulkan()
     }
+
+    fn profile_key(&self) -> Option<PathBuf> {
+        if self.state.trim().is_empty() {
+            return None;
+        }
+        std::path::absolute(self.state.trim()).ok()
+    }
+
+    pub(super) fn amd_uma_vulkan(&self) -> bool {
+        self.profile_key()
+            .and_then(|key| self.amd_uma_vulkan_by_profile.get(&key).copied())
+            .unwrap_or(false)
+    }
+
+    fn set_amd_uma_vulkan(&mut self, enabled: bool) {
+        if let Some(key) = self.profile_key() {
+            if enabled {
+                self.amd_uma_vulkan_by_profile.insert(key, true);
+            } else {
+                self.amd_uma_vulkan_by_profile.remove(&key);
+            }
+        }
+    }
+
     pub fn load(sdk: Option<PathBuf>, state: PathBuf, gpu: Option<Gpu>, file: &Path) -> Self {
         let mut config = fs::File::open(file)
             .ok()
@@ -53,6 +81,7 @@ impl LaunchConfig {
                 state: state.display().to_string(),
                 gpu: if cfg!(windows) { Gpu::Host } else { Gpu::Auto },
                 hardware: Hardware::default(),
+                amd_uma_vulkan_by_profile: BTreeMap::new(),
                 show_fps: true,
                 animate_mascot: true,
                 locale: Locale::default(),
@@ -64,6 +93,45 @@ impl LaunchConfig {
             config.gpu = gpu;
         }
         config
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn amd_uma_vulkan_pref_defaults_off_and_is_scoped_to_the_selected_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut original: LaunchConfig = serde_json::from_value(serde_json::json!({
+            "sdk": "",
+            "state": dir.path(),
+            "image": "",
+            "gpu": "Auto",
+            "hardware": {
+                "adapter": "",
+                "camera": "Profile",
+                "webcam_index": 0
+            },
+            "show_fps": true
+        }))
+        .unwrap();
+        let old = original.clone();
+        assert!(!original.amd_uma_vulkan());
+        original.set_amd_uma_vulkan(true);
+        assert!(original.boot_changed(&old));
+
+        let mut saved: LaunchConfig =
+            serde_json::from_value(serde_json::to_value(&original).unwrap()).unwrap();
+        assert!(saved.amd_uma_vulkan());
+        let first = saved.state.clone();
+        saved.state = dir.path().join("other").display().to_string();
+        assert!(!saved.amd_uma_vulkan());
+        saved.state = first;
+        assert!(saved.amd_uma_vulkan());
+        saved.set_amd_uma_vulkan(false);
+        assert!(!saved.amd_uma_vulkan());
+        assert!(!saved.boot_changed(&old));
     }
 }
 
@@ -213,11 +281,32 @@ pub(super) struct ProfileImages {
     google: PathBuf,
     play_ready: bool,
     has_berberis_image: bool,
+    amd_uma_google_image: bool,
+    amd_uma_google_profile: bool,
+    amd_uma_original_profile: bool,
 }
 
 impl ProfileImages {
+    fn supports_amd_uma(&self, draft: &LaunchConfig, base: &Path, google: &Path) -> bool {
+        if !cfg!(windows) || !amd_uma_adapter(draft.gpu, &draft.hardware.adapter) {
+            return false;
+        }
+        let state = Path::new(draft.state.trim());
+        if state.as_os_str().is_empty() {
+            return false;
+        }
+        let image = draft.image.trim();
+        if !image.is_empty() {
+            return self.amd_uma_google_image
+                && std::path::absolute(image).is_ok_and(|path| path == self.google);
+        }
+        (state == google && self.amd_uma_google_profile)
+            || (state == base && self.amd_uma_original_profile)
+    }
+
     fn refresh(&mut self, sdk_path: &str, base: &Path) {
-        let sdk = Sdk::find(Some(PathBuf::from(sdk_path))).ok();
+        let explicit_sdk = sdk_path.trim();
+        let sdk = Sdk::find((!explicit_sdk.is_empty()).then(|| explicit_sdk.into())).ok();
         let original_dir = sdk
             .as_ref()
             .and_then(|sdk| Profile::new(base.into()).system_dir(sdk).ok())
@@ -238,9 +327,31 @@ impl ProfileImages {
                 "36" => "Android 16 · API 36".into(),
                 _ => format!("API {api}"),
             });
-        self.google =
-            Path::new(sdk_path).join("system-images/android-37.0/google_apis_playstore/x86_64");
+        self.google = sdk
+            .as_ref()
+            .map_or(Path::new(sdk_path), |sdk| sdk.root.as_path())
+            .join("system-images/android-37.0/google_apis_playstore/x86_64");
         self.play_ready = self.google.join("system.img").is_file();
+        self.amd_uma_google_image = false;
+        self.amd_uma_google_profile = false;
+        self.amd_uma_original_profile = false;
+        if cfg!(windows)
+            && let Some(sdk) = &sdk
+        {
+            self.amd_uma_google_image = amd_uma_sdk_image(sdk, &self.google);
+            let profile_supports_amd_uma = |state: &Path| {
+                if state.join("avd/RustEmuDroid.ini").is_file() {
+                    Profile::new(state.into())
+                        .system_dir(sdk)
+                        .ok()
+                        .is_some_and(|dir| amd_uma_sdk_image(sdk, &dir))
+                } else {
+                    self.amd_uma_google_image
+                }
+            };
+            self.amd_uma_google_profile = profile_supports_amd_uma(&base.join("google-play-37"));
+            self.amd_uma_original_profile = profile_supports_amd_uma(base);
+        }
         self.sdk = Some(sdk_path.to_owned());
     }
 }
@@ -325,6 +436,20 @@ impl Launcher {
                     });
                     if self.adapters.pending.is_some() { ui.weak(locale.pick("Consultando placas de vídeo…", "Searching for graphics cards…", "Buscando tarjetas gráficas…")); }
                     else if self.adapters.error { ui.weak(locale.pick("Consulta às placas indisponível. A seleção automática continua disponível.", "Graphics card detection failed. Automatic selection is still available.", "No se han detectado las tarjetas gráficas. La selección automática sigue disponible.")); }
+                    if self.images.supports_amd_uma(draft, base_state, &google) {
+                        let mut enabled = draft.amd_uma_vulkan();
+                        if ui.checkbox(&mut enabled, locale.pick(
+                            "Memória Vulkan compartilhada (Radeon 780M)",
+                            "Shared Vulkan memory (Radeon 780M)",
+                            "Memoria Vulkan compartida (Radeon 780M)",
+                        )).on_hover_text(locale.pick(
+                            "Opção experimental que pode corrigir falhas na alocação de memória Vulkan em jogos. Salve e reinicie o Android para aplicar.",
+                            "Experimental option that may fix Vulkan memory allocation crashes in games. Save and restart Android to apply.",
+                            "Opción experimental que puede corregir fallos de asignación de memoria Vulkan en juegos. Guarda y reinicia Android para aplicar el cambio.",
+                        )).changed() {
+                            draft.set_amd_uma_vulkan(enabled);
+                        }
+                    }
                     ui.checkbox(&mut draft.show_fps, locale.pick("Mostrar FPS no painel", "Show FPS in the title bar", "Mostrar FPS en la barra de título"));
                     ui.checkbox(&mut draft.animate_mascot, locale.pick(
                         "Animar o mascote",

@@ -215,6 +215,7 @@ impl Launcher {
         let image = self.config.image.trim().to_owned();
         let gpu = self.config.gpu;
         let hardware = self.config.hardware.clone();
+        let amd_uma_vulkan = self.config.amd_uma_vulkan();
         let language = self.config.locale;
         let (events, receiver) = mpsc::channel();
         self.failed = false;
@@ -249,6 +250,7 @@ impl Launcher {
                     BootOptions {
                         gpu,
                         hardware,
+                        amd_uma_vulkan,
                         engine: Engine::Auto,
                         headless: check,
                         check,

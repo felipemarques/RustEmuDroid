@@ -1,0 +1,10 @@
+observation,heap_index,size,unit
+windows-native,0,34059452416,bytes
+windows-native,1,17029726208,bytes
+windows-native,2,268435456,bytes
+guest-default,0,34059452416,bytes
+guest-default,1,17029726208,bytes
+guest-default,2,268435456,bytes
+guest-override,0,32481,MiB_truncated
+guest-override,1,16240,MiB_truncated
+guest-override,2,256,MiB_truncated

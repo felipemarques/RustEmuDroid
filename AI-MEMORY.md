@@ -11,6 +11,8 @@
 
 ## Verification history
 
+- On the Windows Radeon 780M with SDK 37.3.10, use the guest's Vulkan memory types to check which heaps are CPU-visible. The original configuration exposed only 256 MiB to CPU-visible allocations. Disabling the SDK's device-memory-only policy for the selected session also exposed a 16,240 MiB heap. FPS WW2 URP then entered Level 1 on native Vulkan with Max quality and Very High antialiasing. The opt-in preference belongs to the Android profile. [Measurements and memory-type evidence](docs/game-testing.md#radeon-780m-vulkan-compatibility)
+
 - On Windows, the SDK could block before ADB on a crash-report dialog after a previous VM failure. In 0.4.1 the SDK logged its reporter disabled and Android 17 booted in 23.5 s embedded and 24.6 s headless. The retained session log and Android boot property cover these two paths. The embedded SuperTuxKart replay averaged 60.02 game FPS at the 60 FPS cap across two runs. [Replay settings](docs/game-testing.md#supertuxkart-release-comparison)
 - The stock Pie64 kernel mounted the verified factory data seed read-only at `/data` via VirtIO SCSI. In separate diskless display probes the kernel bound the VirtIO PCI transport without a GPU driver; standard VGA provided a VESA framebuffer, and neither device exposed the DRM card used by the supplied composer. Check these storage and display milestones separately from the vendor's early configuration failure. [Pie64 device checks](docs/bluestacks-lab.md#display-hardware-available-to-the-copied-kernel)
 

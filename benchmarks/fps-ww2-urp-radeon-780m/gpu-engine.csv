@@ -1,0 +1,6 @@
+run,elapsed_100ns,running_100ns,active_pct
+rtx-before,200550880,27555264,13.74
+amd-angle-low,200562670,38674911,19.28
+amd-vulkan-max-1,200623158,69118126,34.45
+amd-vulkan-max-2,200639760,69631216,34.7
+amd-production,200654823,70231030,35
