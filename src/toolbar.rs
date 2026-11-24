@@ -189,15 +189,17 @@ impl Tool {
                 ]);
                 painter.circle_stroke(center + egui::vec2(0., 1.), 3., stroke);
             }
-            Self::RecordVideo => {
-                painter.circle_stroke(center, 6.5, stroke);
-            }
-            Self::StopRecording => {
-                painter.rect_filled(
-                    egui::Rect::from_center_size(center, Vec2::splat(11.)),
-                    2.,
-                    egui::Color32::from_rgb(255, 130, 127),
-                );
+            Self::RecordVideo | Self::StopRecording => {
+                let body = egui::Rect::from_min_max(point((-9., -5.5)), point((3., 5.5)));
+                painter.rect_stroke(body, 2., stroke, egui::StrokeKind::Middle);
+                path(&[(3., -1.5), (9., -5.), (9., 5.), (3., 1.5)]);
+                if self == Self::StopRecording {
+                    painter.rect_filled(
+                        egui::Rect::from_center_size(body.center(), Vec2::splat(6.)),
+                        1.,
+                        Color32::from_rgb(255, 130, 127),
+                    );
+                }
             }
             Self::AnimatedClip => {
                 painter.rect_stroke(

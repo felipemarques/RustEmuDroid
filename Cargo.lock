@@ -2783,7 +2783,7 @@ dependencies = [
 
 [[package]]
 name = "rustemudroid"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "ash",
  "bytemuck",
