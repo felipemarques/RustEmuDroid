@@ -1,3 +1,5 @@
+mod refresh;
+
 use std::{
     env,
     ffi::OsStr,
@@ -684,6 +686,13 @@ pub struct Hardware {
     /// Nome do dispositivo Vulkan para os modos host e auto.
     #[arg(long = "gpu-device", default_value = "")]
     pub adapter: String,
+    /// Taxa de atualização da tela do Android em Hz. Use um valor que o monitor suporte.
+    #[arg(long, value_name = "HZ")]
+    #[cfg_attr(
+        feature = "ui",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub refresh_rate: Option<std::num::NonZeroU16>,
     /// Origem da câmera do Android.
     #[arg(long, value_enum, default_value_t = Camera::Profile)]
     pub camera: Camera,
@@ -698,6 +707,9 @@ pub struct Hardware {
 
 impl Hardware {
     fn apply(&self, command: &mut Command, gpu: Gpu) {
+        if let Some(hz) = self.refresh_rate {
+            command.arg("-vsync-rate").arg(hz.to_string());
+        }
         if matches!(gpu, Gpu::Auto | Gpu::Host) && !self.adapter.is_empty() {
             command.env("ANDROID_EMU_VK_SELECT_GPU", &self.adapter);
         }
@@ -1218,6 +1230,13 @@ pub fn boot(
                     ));
                 }
             }
+            let refresh = refresh::boot(
+                sdk,
+                &serial,
+                &expected_avd,
+                hardware.refresh_rate,
+                &mut notify,
+            );
             notify(BootEvent::Ready(format!(
                 "{} {:.1}s ({serial}, Android {}, sys.boot_completed=1).",
                 sdk.locale.pick(
@@ -1259,6 +1278,7 @@ pub fn boot(
                     sleep(POLL_INTERVAL);
                 }
             }
+            refresh::shutdown(refresh, sdk, &serial, &expected_avd, &mut notify);
             if !stop_owned_vm(sdk, &serial, &expected_avd) {
                 return Err(sdk
                     .locale
@@ -1405,6 +1425,22 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     struct TestRoot(PathBuf);
+
+    #[test]
+    fn display_refresh_override_only_changes_the_selected_boot() {
+        let mut hardware = super::Hardware::default();
+        let mut profile_default = super::Command::new("emulator");
+        hardware.apply(&mut profile_default, Gpu::Host);
+        assert!(!profile_default.get_args().any(|arg| arg == "-vsync-rate"));
+
+        hardware.refresh_rate = std::num::NonZeroU16::new(90);
+        let mut requested = super::Command::new("emulator");
+        hardware.apply(&mut requested, Gpu::Host);
+        assert_eq!(
+            requested.get_args().collect::<Vec<_>>(),
+            ["-vsync-rate", "90"]
+        );
+    }
 
     #[test]
     fn sdk_acceleration_check_uses_the_windows_helper_when_present() {

@@ -30,7 +30,7 @@ def run(args, serial, *cmd, check=True):
                           timeout=30).stdout
 
 
-def replay(args, name, serial, preset, dest):
+def replay(args, name, serial, preset, dest, *, fps_limit=None):
     if name == "BlueStacks":
         if not run(args, serial, "shell", "getprop", "init.svc.bstsvcmgrtest").strip():
             raise RuntimeError(f"Expected BlueStacks on {serial}")
@@ -50,6 +50,8 @@ def replay(args, name, serial, preset, dest):
     tree = ET.parse(original)
     video, gfx = tree.find("Video"), tree.find("GFX")
     video.attrib.update(VIDEO)
+    if fps_limit is not None:
+        video.set("max_fps", str(fps_limit))
     gfx.attrib.update(GFX)
     if preset in ("high", "high-vulkan"):
         video.attrib.update(enable_bloom="true", enable_glow="true", enable_light_shaft="true")
@@ -101,7 +103,8 @@ def replay(args, name, serial, preset, dest):
                 (dest / "report.csv").write_bytes(data)
                 return dict(engine=name, abi=abi, preset=preset, start=start, end=time.time(),
                             frames=frames, duration_ms=duration, fps=frames*1000/duration,
-                            mostly_stable=int(rows[4][1]), settings=settings)
+                            mostly_stable=int(rows[4][1]), settings=settings,
+                            configured_max_fps=int(video.get("max_fps")))
         raise TimeoutError(f"No new complete performance report on {name}: {last_read}")
     finally:
         run(args, serial, "shell", "am", "force-stop", PACKAGE)
@@ -119,6 +122,8 @@ def main():
     p.add_argument("--rust", help="ADB serial of the integrated RustEmuDroid")
     p.add_argument("--bluestacks", help="Local ADB serial of the BlueStacks App Player")
     p.add_argument("--rounds", type=int, default=3)
+    p.add_argument("--fps-limit", type=int, default=60,
+                   help="Write max_fps to the game's XML (default: 60). Benchmark mode skips the game-loop limiter.")
     p.add_argument("--presets", nargs="+", choices=["original", "high", "vulkan", "high-vulkan"], default=["original", "high"])
     p.add_argument("--output", type=Path, required=True)
     args = p.parse_args()
@@ -127,6 +132,8 @@ def main():
                if serial]
     if not engines:
         p.error("Select at least one emulator with --rust, --kemu or --bluestacks")
+    if args.fps_limit < 1:
+        p.error("--fps-limit must be positive")
     if args.rounds < 1 or len({serial for _, serial in engines}) != len(engines):
         p.error("Use distinct emulators and at least one round")
     args.output.mkdir(parents=True, exist_ok=False)
@@ -136,7 +143,8 @@ def main():
         for index in range(args.rounds):
             first = index % len(engines)
             for engine, serial in engines[first:] + engines[:first]:
-                result = replay(args, engine, serial, preset, args.output / preset / str(index+1) / engine)
+                result = replay(args, engine, serial, preset, args.output / preset / str(index+1) / engine,
+                                fps_limit=args.fps_limit)
                 if settings and settings != result["settings"]:
                     raise ValueError(f"Game reported different graphics parameters for {preset}")
                 settings = result["settings"]

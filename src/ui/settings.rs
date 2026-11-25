@@ -141,6 +141,26 @@ mod tests {
     }
 
     #[test]
+    fn display_refresh_migrates_and_round_trips() {
+        let temp = tempfile::tempdir().unwrap();
+        let prefs = temp.path().join("launcher.json");
+        let mut config = LaunchConfig::load(None, temp.path().into(), None, &prefs);
+        let old_json = serde_json::to_value(&config).unwrap();
+        assert!(old_json["hardware"].get("refresh_rate").is_none());
+        let legacy: LaunchConfig = serde_json::from_value(old_json).unwrap();
+        assert_eq!(legacy.hardware.refresh_rate, None);
+
+        config.hardware.refresh_rate = std::num::NonZeroU16::new(90);
+        assert!(legacy.boot_changed(&config));
+        let restored: LaunchConfig =
+            serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
+        assert_eq!(
+            restored.hardware.refresh_rate.map(|rate| rate.get()),
+            Some(90)
+        );
+    }
+
+    #[test]
     fn amd_uma_vulkan_pref_defaults_off_and_is_scoped_to_the_selected_profile() {
         let dir = tempfile::tempdir().unwrap();
         let mut original: LaunchConfig = serde_json::from_value(serde_json::json!({
@@ -314,6 +334,44 @@ fn camera_label(camera: Camera, locale: Locale) -> &'static str {
     }
 }
 
+fn current_monitor_rate(frame: Option<&eframe::Frame>) -> Option<u16> {
+    #[cfg(windows)]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows_sys::Win32::Graphics::Gdi::{
+            DEVMODEW, DM_DISPLAYFREQUENCY, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW,
+            GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MonitorFromWindow,
+        };
+        let RawWindowHandle::Win32(window) = frame?.window_handle().ok()?.as_raw() else {
+            return None;
+        };
+        let mut info = MONITORINFOEXW::default();
+        info.monitorInfo.cbSize = size_of::<MONITORINFOEXW>() as u32;
+        let mut mode = DEVMODEW {
+            dmSize: size_of::<DEVMODEW>() as u16,
+            ..Default::default()
+        };
+        unsafe {
+            let monitor = MonitorFromWindow(window.hwnd.get() as _, MONITOR_DEFAULTTONEAREST);
+            if monitor.is_null()
+                || GetMonitorInfoW(monitor, &mut info.monitorInfo) == 0
+                || EnumDisplaySettingsW(info.szDevice.as_ptr(), ENUM_CURRENT_SETTINGS, &mut mode)
+                    == 0
+            {
+                return None;
+            }
+        }
+        u16::try_from(mode.dmDisplayFrequency)
+            .ok()
+            .filter(|&hz| hz > 1 && mode.dmFields & DM_DISPLAYFREQUENCY != 0)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = frame;
+        None
+    }
+}
+
 #[derive(Default)]
 pub(super) struct ProfileImages {
     sdk: Option<String>,
@@ -438,7 +496,7 @@ impl Launcher {
         self.settings = Some(self.config.clone());
     }
 
-    pub(super) fn show_settings(&mut self, ctx: &egui::Context) {
+    pub(super) fn show_settings(&mut self, ctx: &egui::Context, frame: Option<&eframe::Frame>) {
         let Some(draft) = &mut self.settings else {
             return;
         };
@@ -454,8 +512,8 @@ impl Launcher {
         if self.images.sdk.as_deref() != Some(&draft.sdk) {
             self.images.refresh(&draft.sdk, base_state);
         }
-        let frame = egui::Frame::window(&ctx.style()).inner_margin(20);
-        let dialog = egui::Modal::new("launcher-settings".into()).frame(frame).show(ctx, |ui| {
+        let modal_frame = egui::Frame::window(&ctx.style()).inner_margin(20);
+        let dialog = egui::Modal::new("launcher-settings".into()).frame(modal_frame).show(ctx, |ui| {
             let width = (ctx.content_rect().width() - 72.).clamp(240., 580.);
             ui.set_width(width);
             theme::form(ui);
@@ -532,6 +590,30 @@ impl Launcher {
                         )).changed() {
                             draft.set_amd_uma_vulkan(enabled);
                         }
+                    }
+                    let label = theme::label(ui, locale.pick("Taxa de atualização do Android", "Android refresh rate", "Frecuencia de actualización de Android"));
+                    let default_rate = locale.pick("Usar a taxa do perfil", "Use profile refresh rate", "Usar la frecuencia del perfil");
+                    let selected_rate = draft.hardware.refresh_rate.map(|hz| format!("{hz} Hz")).unwrap_or_else(|| default_rate.to_owned());
+                    theme::select(ui, "android-refresh-rate", &selected_rate, |ui| {
+                        let monitor = current_monitor_rate(frame);
+                        if let Some(hz) = monitor {
+                            ui.weak(format!("{} · {hz} Hz", locale.pick("Monitor atual", "Current monitor", "Monitor actual")));
+                        }
+                        ui.selectable_value(&mut draft.hardware.refresh_rate, None, default_rate);
+                        let mut rates = vec![30, 60, 75, 90, 100, 120, 144, 165, 240];
+                        rates.extend(monitor);
+                        rates.sort_unstable();
+                        rates.dedup();
+                        for hz in rates.into_iter().take_while(|&hz| monitor.is_none_or(|limit| hz <= limit)) {
+                            ui.selectable_value(&mut draft.hardware.refresh_rate, std::num::NonZeroU16::new(hz), format!("{hz} Hz"));
+                        }
+                    }).labelled_by(label.id);
+                    if draft.hardware.refresh_rate.is_some_and(|hz| hz.get() > 60) {
+                        theme::label(ui, locale.pick(
+                            "Use até a taxa atual do monitor. Durante a sessão, o emulador solicita essa taxa ao Android e tenta liberar jogos acima de 60 Hz. Cada jogo define seu próprio limite.",
+                            "Choose a rate your monitor currently supports. For this session the emulator asks Android to use it and allow games above 60 Hz. Each game sets its own limit.",
+                            "Elige una frecuencia que el monitor admita actualmente. Durante la sesión, el emulador solicita esa frecuencia a Android e intenta habilitar más de 60 Hz para los juegos. Cada juego fija su propio límite.",
+                        ));
                     }
                     ui.checkbox(&mut draft.show_fps, locale.pick("Mostrar FPS no painel", "Show FPS in the title bar", "Mostrar FPS en la barra de título"));
                     ui.checkbox(&mut draft.animate_mascot, locale.pick(

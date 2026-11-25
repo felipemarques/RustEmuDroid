@@ -318,7 +318,7 @@ fn settings_combo_and_footer_at_minimum_window_size() {
                 events,
                 ..Default::default()
             },
-            |ctx| app.show_settings(ctx),
+            |ctx| app.show_settings(ctx, None),
         )
     };
     for _ in 0..3 {

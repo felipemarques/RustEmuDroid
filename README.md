@@ -71,6 +71,8 @@ Open the gear in the title bar. Each profile has its own writable disk, installe
 
 Gaming profiles request four vCPUs, 8 GiB of guest RAM and 1600 × 900 at 60 Hz. A generic SDK profile requests four vCPUs, 3 GiB and 1080 × 1920. The Windows Kemu engine keeps a separate writable disk under `gaming/`.
 
+To try a high-refresh display, open **Settings → Graphics → Android refresh rate**, choose a rate at or below the monitor's current refresh rate and save. Android restarts. The CLI equivalent is `boot --refresh-rate 90`. **Use profile refresh rate** returns to the profile's own display timing. On supported Android releases, a selection above 60 Hz also requests the higher rate for games during the session. Games can impose a lower limit. [SuperTuxKart measurements](docs/game-testing.md#managed-windows-runtime-and-android-refresh-rate)
+
 ![Settings with profile selection, rendering mode, Vulkan adapter and webcam](docs/screenshots/en-us/settings.png)
 
 ## Use the desktop controls

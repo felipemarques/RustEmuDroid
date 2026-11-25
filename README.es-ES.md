@@ -73,6 +73,8 @@ En la barra de título, abre el engranaje. Cada perfil tiene su propio disco de 
 
 Los perfiles de juego solicitan cuatro vCPU, 8 GiB de RAM y 1600 × 900 a 60 Hz. El perfil genérico del SDK solicita cuatro vCPU, 3 GiB y 1080 × 1920. En Windows, el disco de datos del motor de Kemu está en `gaming/`.
 
+Para probar una pantalla de alta frecuencia, abre **Ajustes → Gráficos → Frecuencia de actualización de Android**, elige un valor igual o inferior a la frecuencia actual de tu monitor y guarda los cambios. Android se reinicia. En la línea de comandos, usa `boot --refresh-rate 90`. **Usar la frecuencia del perfil** recupera la frecuencia original del perfil. En versiones compatibles de Android, elegir más de 60 Hz también solicita esa frecuencia para los juegos durante la sesión. Cada juego puede imponer un límite inferior. [Mediciones de SuperTuxKart](docs/game-testing.md#managed-windows-runtime-and-android-refresh-rate)
+
 ![Ajustes de idioma, perfil, renderizado, GPU y cámara](docs/screenshots/es-es/settings.png)
 
 ## Utilizar los controles de escritorio

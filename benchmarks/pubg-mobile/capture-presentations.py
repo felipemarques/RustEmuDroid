@@ -1,6 +1,7 @@
 """Measure new Android presentations while an operator plays on one selected device."""
 
 import argparse
+from contextlib import nullcontext
 import json
 import re
 import shlex
@@ -94,8 +95,13 @@ def select_layer(device, package, requested):
                      f"{choices}\nKeep the game visible or pass its exact --layer name.")
 
 
-def collect(device, name, seconds):
-    first_poll, previous, first_rtt = probe(device, name)
+def collect(device, name, seconds, process_cpu=None):
+    def read_poll():
+        if process_cpu is None:
+            return probe(device, name)
+        return process_cpu.poll(probe, device, name)
+
+    first_poll, previous, first_rtt = read_poll()
     if not previous:
         raise ValueError("This surface has no usable presentation timestamps.")
     baseline = max(previous)
@@ -105,7 +111,7 @@ def collect(device, name, seconds):
     while last_poll < end:
         wake = min(end, last_poll + 400_000_000)
         time.sleep(max(0, (wake - time.monotonic_ns()) / 1e9))
-        last_poll, current, last_rtt = probe(device, name)
+        last_poll, current, last_rtt = read_poll()
         if previous.isdisjoint(current):
             raise ValueError("Frame history lost continuity. The layer changed or polling missed "
                              "a full history buffer. Repeat with the same game surface.")
@@ -126,6 +132,13 @@ def summarize(elapsed_ns, stamps):
     }
 
 
+def windows_process(value):
+    match = re.fullmatch(r"([A-Za-z][A-Za-z0-9_.-]{0,31})=([1-9][0-9]{0,9})", value)
+    if not match or int(match[2]) > 0xffffffff:
+        raise argparse.ArgumentTypeError("Use ROLE=PID with a positive Windows process ID.")
+    return match[1], int(match[2])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adb", default="adb", help="path to the adb executable")
@@ -134,22 +147,36 @@ def main():
     parser.add_argument("--package", default="com.tencent.ig")
     parser.add_argument("--layer", help="exact game SurfaceView name if automatic selection is ambiguous")
     parser.add_argument("--seconds", type=int, default=48)
+    parser.add_argument("--windows-process", action="append", default=[], type=windows_process,
+                        metavar="ROLE=PID", help="also measure CPU time for this Windows PID; repeat for other roles")
     parser.add_argument("--output", type=Path, required=True, help="new JSON file for this run")
     args = parser.parse_args()
     if args.seconds < 1 or not 1 <= args.port <= 65535:
         parser.error("Use a positive duration and a valid ADB server port.")
     if args.output.exists() or not args.output.parent.is_dir():
         parser.error("--output must be a new file in an existing directory.")
+    cpu_context = nullcontext()
+    if args.windows_process:
+        if sys.platform != "win32":
+            parser.error("--windows-process requires a Windows host.")
+        roles, pids = zip(*args.windows_process)
+        if len(set(roles)) != len(roles) or len(set(pids)) != len(pids):
+            parser.error("Each Windows process role and PID must be unique.")
+        from windows_process_cpu import monitor_processes
+        cpu_context = monitor_processes(args.windows_process)
     device = select_device(args.adb, args.port, args.serial)
     require_foreground(device, args.package)
     name = select_layer(device, args.package, args.layer)
     android = shell(device, "getprop", "ro.build.version.release").strip()
-    print(f"Measuring {name} for {args.seconds} seconds. Play the chosen scene now.", flush=True)
-    elapsed, stamps, boundary_rtts = collect(device, name, args.seconds)
-    require_foreground(device, args.package)
-    if name not in layers(device, args.package):
-        raise ValueError("Game surface disappeared during the sample.")
-    metrics = summarize(elapsed, stamps)
+    with cpu_context as cpu:
+        print(f"Measuring {name} for {args.seconds} seconds. Play the chosen scene now.", flush=True)
+        elapsed, stamps, boundary_rtts = collect(device, name, args.seconds, cpu)
+        require_foreground(device, args.package)
+        if name not in layers(device, args.package):
+            raise ValueError("Game surface disappeared during the sample.")
+        metrics = summarize(elapsed, stamps)
+        if cpu is not None:
+            metrics["host_process_cpu"] = cpu.summarize(elapsed, len(stamps))
     report = {
         "android": android, "package": args.package, "layer": name, **metrics,
         "boundary_poll_round_trip_ms": [duration / 1e6 for duration in boundary_rtts],

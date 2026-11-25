@@ -504,7 +504,7 @@ impl eframe::App for Launcher {
         self.show_capture_notice(ctx);
         self.adapters.poll(ctx);
         if !self.external_dialog_open() {
-            self.show_settings(ctx);
+            self.show_settings(ctx, Some(frame));
         }
         #[cfg(windows)]
         if let Some((instance, package)) = self.blue.show(ctx, self.config.locale) {

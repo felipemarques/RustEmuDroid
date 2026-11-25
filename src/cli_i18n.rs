@@ -223,6 +223,11 @@ fn boot_help(command: Command, l: Locale) -> Command {
                 "Vulkan adapter name for the host and auto modes.",
                 "Nombre de la tarjeta Vulkan para los modos host y auto.",
             )),
+            ("refresh_rate", l.pick(
+                "Taxa de atualização da tela do Android em Hz. Use um valor até a taxa atual do monitor.",
+                "Android display refresh rate in Hz. Use a value at or below the monitor's current refresh rate.",
+                "Frecuencia de actualización de Android en Hz. Usa un valor igual o inferior a la frecuencia actual del monitor.",
+            )),
             ("camera", l.pick(
                 "Origem da câmera do Android.",
                 "Android camera source.",
