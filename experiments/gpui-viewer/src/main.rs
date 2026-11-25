@@ -1,8 +1,10 @@
+mod paint_samples;
 use gpui::{
     App, AppContext, Application, Bounds, Context, Corners, FocusHandle, GpuSpecs, IntoElement,
     Pixels, Render, RenderImage, Size, Styled, TitlebarOptions, Window, WindowBounds,
     WindowOptions, canvas, div, point, prelude::*, px, rgb, size,
 };
+use paint_samples::PaintSamples;
 use rustemudroid_gpui_viewer::producer::{self, Feed, Frame, Spec, Status};
 use serde_json::{Value, json};
 use std::{
@@ -146,25 +148,7 @@ impl Image {
     }
 }
 
-#[derive(Default)]
-struct Measurements {
-    first: Option<u64>,
-    last: Option<u64>,
-    lags: Vec<f64>,
-}
-
-impl Measurements {
-    fn painted(&mut self, image: &Image) {
-        let now = Instant::now();
-        if !image.measured || self.last.is_some_and(|last| image.sequence <= last) {
-            return;
-        }
-        self.first.get_or_insert(image.sequence);
-        self.last = Some(image.sequence);
-        self.lags
-            .push((now - image.produced_at).as_secs_f64() * 1000.0);
-    }
-
+impl PaintSamples {
     fn report(
         &mut self,
         status: Status,
@@ -179,13 +163,9 @@ impl Measurements {
         let (Some(start), Some(end)) = (status.started, status.ended) else {
             return Err("measurement did not finish".into());
         };
-        let elapsed = end.saturating_duration_since(start).as_secs_f64();
-        if self.lags.is_empty() || elapsed <= 0.0 {
-            return Err("no new frame was painted during the measurement window".into());
-        }
-        self.lags.sort_unstable_by(f64::total_cmp);
-        let count = self.lags.len();
-        let percentile = |percent: usize| self.lags[(count * percent).div_ceil(100) - 1];
+        let interval = end.saturating_duration_since(start);
+        let count = self.count(status.produced, interval, opts.input.seconds)?;
+        let elapsed = interval.as_secs_f64();
         Ok(json!({
             "backend": "gpui",
             "source": if opts.input.raw.is_some() { "raw" } else { "synthetic" },
@@ -201,8 +181,7 @@ impl Measurements {
             "duplicates": status.duplicates, "processed": count, "processed_fps": count as f64 / elapsed,
             "first_processed_sequence": self.first, "last_processed_sequence": self.last,
             "measurement_point": "first successful GPUI paint_image for the source sequence",
-            "latency_ms": {"mean": self.lags.iter().sum::<f64>() / count as f64,
-                "p50": percentile(50), "p95": percentile(95), "max": *self.lags.last().unwrap()},
+            "latency_ms": self.latency(),
             "adapter": gpu,
         }))
     }
@@ -216,7 +195,7 @@ struct Viewer {
     gpu: GpuSpecs,
     current: Option<Rc<Image>>,
     retired: Option<Arc<RenderImage>>,
-    stats: Rc<RefCell<Measurements>>,
+    stats: Rc<RefCell<PaintSamples>>,
     outcome: Outcome,
     finishing: bool,
     window_deadline: Instant,
@@ -382,7 +361,7 @@ impl Render for Viewer {
                         return;
                     }
                     if measuring {
-                        stats.borrow_mut().painted(&image);
+                        stats.borrow_mut().observe(image.sequence, image.produced_at, image.measured);
                     }
                 }
                 if ends {

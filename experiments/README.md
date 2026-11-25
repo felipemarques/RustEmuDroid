@@ -2,7 +2,9 @@
 
 This lab compares two ways of drawing Android frames in a Rust desktop window. The Glow viewer uses the same OpenGL texture uploader as RustEmuDroid. The GPUI viewer uses Direct3D 11 on Windows. Both accept the same RGBA frames, keep at most one pending frame and fit the image to the window. You can run the comparison without starting an emulator. [GPUI](https://www.gpui.rs/) · [Glow uploader](../src/display/native_texture.rs)
 
-To try a prebuilt package, extract the archive, open a terminal in the extracted folder and run `.\gpui-viewer.exe --demo` on Windows or `./gpui-viewer --demo` on Linux. Both release archives contain the two viewers and the optional Python tools. Windows received an interactive desktop test. Linux received build, test and CLI checks on Ubuntu 24.04. [Download lab v0.1.1 for Windows or Linux](https://github.com/felipemarques/RustEmuDroid/releases/tag/gpui-lab-v0.1.1)
+To try a prebuilt package, extract the archive, open a terminal in the extracted folder and run `.\gpui-viewer.exe --demo` on Windows or `./gpui-viewer --demo` on Linux. Both release archives contain the two viewers and the optional Python tools. Windows received an interactive desktop test. Linux received build, test and CLI checks on Ubuntu 24.04. [Download lab v0.1.2 for Windows or Linux](https://github.com/felipemarques/RustEmuDroid/releases/tag/gpui-lab-v0.1.2)
+
+Lab v0.1.2 counts zero new paints when the last warm-up image stays on screen throughout the measurement. Its latency fields are null for that interval. The published v0.1.1 live-game and replay results below retain their original build identifiers. [Result fields and usage](PACKAGE.md)
 
 ## Try the viewers on Windows
 

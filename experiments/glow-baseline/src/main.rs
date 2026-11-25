@@ -13,6 +13,8 @@ mod capture {
 
 #[path = "../../../src/display/native_texture.rs"]
 mod native_texture;
+#[path = "../../gpui-viewer/src/paint_samples.rs"]
+mod paint_samples;
 #[path = "../../gpui-viewer/src/producer.rs"]
 mod producer;
 #[path = "../../gpui-viewer/src/source.rs"]
@@ -22,6 +24,7 @@ use capture::Shot;
 use clap::Parser;
 use eframe::{egui, egui_glow::CallbackFn, glow::HasContext};
 use native_texture::NativeTexture;
+use paint_samples::PaintSamples;
 use producer::{Feed, Frame, Spec};
 use serde_json::{Value, json};
 use std::{
@@ -74,32 +77,16 @@ impl Options {
 struct DrawStats {
     client: Option<[u32; 2]>,
     resized: bool,
-    last: Option<u64>,
-    first: Option<u64>,
-    latency: Vec<f64>,
+    samples: PaintSamples,
 }
 
 impl DrawStats {
-    fn observe(&mut self, window: [u32; 2], started: bool, frame: Option<(u64, Instant)>) {
+    fn observe(&mut self, window: [u32; 2], started: bool, frame: Option<(u64, Instant, bool)>) {
         self.resized |= started && self.client.is_some_and(|previous| previous != window);
         self.client = Some(window);
-        if let Some((sequence, produced_at)) = frame
-            && self.last.is_none_or(|last| sequence > last)
-        {
-            self.first.get_or_insert(sequence);
-            self.last = Some(sequence);
-            self.latency
-                .push(produced_at.elapsed().as_secs_f64() * 1000.);
+        if let Some((sequence, produced_at, measured)) = frame {
+            self.samples.observe(sequence, produced_at, measured);
         }
-    }
-
-    fn latency(&mut self) -> Value {
-        self.latency.sort_by(f64::total_cmp);
-        let count = self.latency.len();
-        let percentile =
-            |quantile: f64| self.latency[(quantile * count as f64).ceil() as usize - 1];
-        json!({"mean": self.latency.iter().sum::<f64>() / count as f64,
-               "p50": percentile(0.50), "p95": percentile(0.95), "max": percentile(1.)})
     }
 }
 
@@ -115,7 +102,7 @@ struct Viewer {
     texture: egui::TextureHandle,
     upload: NativeTexture,
     shot: Option<Shot>,
-    measured_frame: Option<(u64, Instant)>,
+    source_frame: Option<(u64, Instant, bool)>,
     draw: Arc<Mutex<DrawStats>>,
     ending: bool,
 }
@@ -123,9 +110,7 @@ struct Viewer {
 impl Viewer {
     fn accept(&mut self, frame: Frame) {
         self.upload.advance();
-        self.measured_frame = frame
-            .measured
-            .then_some((frame.sequence, frame.produced_at));
+        self.source_frame = Some((frame.sequence, frame.produced_at, frame.measured));
         self.shot = Some(Shot {
             width: self.options.width,
             height: self.options.height,
@@ -142,15 +127,17 @@ impl Viewer {
         let (Some(start), Some(end)) = (status.started, status.ended) else {
             return Err("The shared source did not finish its measurement window".into());
         };
-        let elapsed = end.duration_since(start).as_secs_f64();
+        let interval = end.saturating_duration_since(start);
+        let elapsed = interval.as_secs_f64();
         let mut draw = self.draw.lock().unwrap();
         let Some(window) = draw.client else {
             return Err("Glow did not paint a framebuffer".into());
         };
-        let count = draw.latency.len();
-        if elapsed == 0. || count == 0 || draw.resized || window != self.options.window() {
-            return Err("No measured Glow frames or the physical client geometry changed".into());
+        if draw.resized || window != self.options.window() {
+            return Err("The physical Glow client geometry changed".into());
         }
+        let samples = &mut draw.samples;
+        let count = samples.count(status.produced, interval, self.options.seconds)?;
         let source = if self.options.raw.is_some() {
             "raw"
         } else {
@@ -164,8 +151,8 @@ impl Viewer {
             "elapsed_seconds": elapsed, "produced": status.produced, "replaced": status.replaced,
             "late_slots": status.late_slots, "duplicates": status.duplicates,
             "processed": count, "processed_fps": count as f64 / elapsed,
-            "first_processed_sequence": draw.first, "last_processed_sequence": draw.last,
-            "latency_ms": draw.latency(),
+            "first_processed_sequence": samples.first, "last_processed_sequence": samples.last,
+            "latency_ms": samples.latency(),
             "pixel_transport": "CPU-visible RGBA8 to the production Glow texture upload",
             "bytes_per_frame": u64::from(self.options.width) * u64::from(self.options.height) * 4,
         }))
@@ -196,7 +183,7 @@ impl Viewer {
                 // This callback runs in the Glow paint pass after the production
                 // upload and image commands, rather than during layout/repaint requests.
                 let draw = self.draw.clone();
-                let frame = self.measured_frame;
+                let frame = self.source_frame;
                 ui.painter().add(egui::PaintCallback {
                     rect,
                     callback: Arc::new(CallbackFn::new(move |info, _| {
@@ -304,7 +291,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 size_command: None,
                 upload: Default::default(),
                 shot: None,
-                measured_frame: None,
+                source_frame: None,
                 draw: Default::default(),
                 ending: false,
             }))
@@ -329,14 +316,15 @@ mod tests {
         let now = Instant::now();
         draw.observe([1280, 720], false, None);
         draw.observe(window, false, None);
-        draw.observe(window, true, Some((52, now)));
-        draw.observe(window, true, Some((52, now)));
-        draw.observe(window, true, Some((50, now)));
-        draw.observe(window, true, Some((55, now)));
+        draw.observe(window, true, Some((52, now, true)));
+        draw.observe(window, true, Some((52, now, true)));
+        draw.observe(window, true, Some((50, now, true)));
+        draw.observe(window, true, Some((55, now, true)));
         assert_eq!(
-            (draw.first, draw.last, draw.latency.len()),
-            (Some(52), Some(55), 2)
+            (draw.samples.first, draw.samples.last),
+            (Some(52), Some(55))
         );
+        assert_eq!(draw.samples.count(2, Duration::from_secs(1), 1), Ok(2));
         assert!(!draw.resized);
         draw.observe([1039, 585], true, None);
         assert!(draw.resized);

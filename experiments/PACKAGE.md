@@ -20,6 +20,8 @@ On Linux, run the corresponding binaries in a graphical session.
 
 The GPUI demo has pause and fullscreen controls. It starts in Brazilian Portuguese. Use `--lang en-US` or `--lang es-ES` to change the interface. The timed commands use a moving synthetic image and print a JSON result when they exit. Both executables support `--help`. Windows uses Direct3D 11 for GPUI and OpenGL for Glow. On Linux, GPUI needs a working Vulkan driver and X11 or Wayland. Glow needs OpenGL 3 or later.
 
+When the source stays on a frame painted during warm-up for the entire observation, both viewers report zero new paints. The first and last measured sequences and all four latency values are null. A window that received no image, an incomplete idle observation, or a frame read error fails the test. A quiet live stream can also leave the last image on screen. The raw duplicate count reports how many identical frames arrived.
+
 ## Compare both viewers on the same input
 
 Use Python 3.11 or newer. Run the viewers sequentially on the same monitor and adapter. Use a new output filename per comparison.

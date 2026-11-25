@@ -68,7 +68,9 @@ def measure(executable, args):
             or result.get("client_height_px", result["window_height"]) != args.window_height
             or (result["width"], result["height"]) != (args.width, args.height)
             or result["layers"] != 1 or result["target_fps"] != args.fps
-            or not 0 < result["processed"] <= result["produced"]):
+            or not 0 <= result["processed"] <= result["produced"]
+            or (result["processed"] == 0 and (result["produced"] != 0 or not args.raw
+                or result["duplicates"] == 0 or result["elapsed_seconds"] < args.seconds))):
         raise RuntimeError(f"Viewer returned unexpected geometry, source or counters\n{log[-3500:]}")
     # Stay inside the measured interval; exclude startup, warm-up and shutdown.
     start = started[0] + args.warmup
