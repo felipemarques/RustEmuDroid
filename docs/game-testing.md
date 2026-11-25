@@ -125,6 +125,16 @@ BlueStacks offered higher Combat frame-rate choices. In the same loaded scene an
 | Extreme, camera pans 1 | 1,199 | 20.024 s | 59.88 | 16.67 ms | 33.33 ms |
 | Extreme, camera pans 2 | 1,199 | 20.015 s | 59.90 | 16.67 ms | 50.00 ms |
 
+The two matched camera sweeps also show why similar average rates can feel different. We calculated a 1% low from the slowest presentation intervals. Each row pools the two passes for that player and setting.
+
+| Player and Combat setting | Complete intervals in both sweeps | Average presentations/s | 1% low, presentations/s |
+|---|---:|---:|---:|
+| RustEmuDroid Android 17, High | 1,171 | 29.29 | 14.63 |
+| BlueStacks Pie64, High | 1,198 | 29.98 | 20.00 |
+| BlueStacks Pie64, Extreme | 2,396 | 59.89 | 51.43 |
+
+For the average, divide all new presentations by the combined sampling duration. For the 1% low, take consecutive timestamps within each pass, pool their intervals, and divide one second by the mean duration of the slowest 1%, rounding the interval count up. This excludes the gap between passes. Every complete interval during these sweeps was under 100 ms. [Original timestamps for all six sweeps](../benchmarks/pubg-mobile/training-grounds-rtx.json)
+
 BlueStacks documents Extreme as a PUBG Combat option targeting up to 60 FPS. The guide recommends four CPU cores and 4 GB of guest RAM. Both players in our test already had four cores and 8 GiB. Which additional device capabilities PUBG 4.7 checked before offering Extreme remains unknown. In a separate Radeon run, Android on Pie64 reported an Adreno 650 with OpenGL ES 3.2 while the Windows player identified the physical Radeon 780M. Those diagnostics identify different parts of the graphics stack. [BlueStacks PUBG guide](https://support.bluestacks.com/hc/en-us/articles/4405793595277-Recommended-settings-for-PUBG-Mobile-on-BlueStacks-5) · [Graphics-path comparison](#why-did-bluestacks-present-pubgs-inventory-more-consistently)
 
 In a later display check, both the Android 17 guest and a separately restored BlueStacks Pie64 guest reported an active 1600 × 900 display at 60 Hz. SurfaceFlinger reported a 16,666,666 ns refresh period in both. These device-level readings were taken outside the matched PUBG runs. The Android 17 virtual display supports 60 Hz even though PUBG offered High as its highest Combat setting in the tested presets.
@@ -325,6 +335,12 @@ We tested the existing Original profile in RustEmuDroid 0.13.3 on Windows with K
 | Default, after the game update | The same studio logos were still visible at 183 seconds. |
 
 The two default runs showed identical splash captures at multiple points, including their final samples. We stopped at the welcome screen to preserve the player's choice of Battle or Train. This profile did not reach the Inventory benchmark route, so it has no comparable FPS result. The observed timings are measured from the game launch request to the screen capture.
+
+#### Character preview on Android 16
+
+In RustEmuDroid 0.17.0 the same Original Android 16 profile completed boot in 17.7 seconds with lightweight Berberis, WHPX and the RTX 5070 Ti. PUBG 4.7.0 (21718, ARM64) offered **Battle** and **Train**. Selecting **Train** led through a loading screen and an age prompt to the character creation screen. We stopped before creating a character. The game's ANGLE log reported Vulkan and a virtual Adreno 830. The host emulator log identified the physical RTX 5070 Ti.
+
+During one hands-off sample of the 3D character preview, Android presented **589 new frames in 20.018 s (29.42/s)**. Across the 588 complete intervals, P99 was **51.47 ms** and the longest was **55.72 ms**. The Combat and Lobby settings were inaccessible at this stage. A comparison with Training Grounds or Inventory needs an Android 16 profile that can enter those scenes. [Relative presentation timestamps](../benchmarks/pubg-mobile/android16-character-preview.json)
 
 ### Does disabling Adaptive Graphics help Inventory?
 
