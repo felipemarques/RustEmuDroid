@@ -8,6 +8,8 @@ To try a prebuilt package, extract the archive, open a terminal in the extracted
 
 There is also a Windows experiment that displays the existing emulator window through Desktop Window Manager. It takes a running Qt window as its source and crops the Android picture into a Rust window. The instructions cover source selection, pixel checks and the CPU costs included in the measurement. [Windows DWM viewer](dwm-native-viewer/README.md) · [SuperTuxKart replay and CPU measurements](results/windows-kemu-dwm-inline-stk.md)
 
+For a comparison with the desktop client you can download, we ran the same Android 17 Google Play guest and SuperTuxKart replay with two 800 × 450 previews. The report includes the official client's fitted gRPC frames, the DWM experiment, Android frame intervals and Windows process measurements. [Android 17 comparison](results/windows-android17-fit-dwm-stk.md)
+
 From the repository root, build the two independent executables with stable Rust, the Visual Studio C++ tools and the Windows SDK. The first GPUI build also compiles its graphics dependencies. Run these commands in PowerShell.
 
 ```powershell

@@ -17,6 +17,8 @@ In the same PUBG training scene, BlueStacks reached **59.89 FPS** when the game'
 
 ## SuperTuxKart release comparison
 
+On the RTX 5070 Ti, the official v0.21.0 Windows client with fitted video averaged **85.38 game FPS** in two Black Forest replays at 90 Hz. The same Android 17 AVD averaged **86.13 FPS** with the experimental Qt + DWM viewer. Both previews occupied 800 × 450 pixels while Android rendered at 1600 × 900. The historical three-player figures above were collected in a separate full-resolution video test. [Matched Windows preview results](../experiments/results/windows-android17-fit-dwm-stk.md)
+
 SuperTuxKart 1.5 ran the Black Forest replay in the embedded Windows display. All five builds used the same Android 17 Google Play profile, native x86-64 game, direct Vulkan renderer and RTX 5070 Ti. The High preset ran at 1600 × 900, 100% render scale and a 60 FPS cap. All 21 game-reported graphics fields matched.
 
 | Windows build | FPS, first replay | FPS, second replay | Mean game FPS | Main-loop P95, pooled |

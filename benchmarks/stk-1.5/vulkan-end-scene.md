@@ -205,4 +205,6 @@ Both launchers used user-mode WHPX APIC and passed `noxsaves` to the guest kerne
 
 The game ran at about 90 FPS in both frontends, and Android's SurfaceView presented about 90 frames/s. The Rust panel processed 84.07 frames/s in its complete reporting intervals within the SurfaceView windows. Game FPS covers the whole replay, and the SurfaceView samples cover approximately 20 seconds per run. The Rust counter measures frames processed for display. Windows scanout and equivalent Kemu Qt panel throughput were outside this test. The comparison uses separate batches and AVDs and describes this Vulkan replay. The later DWM experiment kept the Qt render window active during all four passes and compared two ways of delivering its picture to a second window. [Windows DWM and inline RGBA on a live game](../../experiments/results/windows-kemu-dwm-inline-stk.md)
 
+A subsequent Windows test used one Android 17 Google Play AVD, one RTX and the same 800 × 450 preview size for the released Rust client and the DWM viewer. The game continued to render at 1600 × 900. [Four replays, Android frame intervals and host CPU](../../experiments/results/windows-android17-fit-dwm-stk.md)
+
 [RustEmuDroid with Kemu engine data](windows-vulkan-90hz-scoped-rust-kemu.json) · [Original Kemu data](windows-vulkan-90hz-scoped-kemu.json)
