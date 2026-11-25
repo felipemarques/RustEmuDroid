@@ -6,8 +6,16 @@ use crate::bluestacks::{
 };
 use eframe::egui::{self, Event, Key, PointerButton};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use std::time::{Duration, Instant};
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
+mod controls;
+use controls::MappedControls;
+
+#[cfg(test)]
+mod live_mapping_test;
 #[cfg(test)]
 mod live_test;
 #[cfg(test)]
@@ -32,6 +40,7 @@ pub(super) struct MirrorPanel {
     retry_at: Option<Instant>,
     input_error: Option<String>,
     view_error: Option<String>,
+    mapped: MappedControls,
 }
 
 impl MirrorPanel {
@@ -69,7 +78,13 @@ impl MirrorPanel {
         self.pending.is_some() || self.session.is_some()
     }
 
-    pub(super) fn update(&mut self, frame: &eframe::Frame, native_stopped: bool, sdk: &str) {
+    pub(super) fn update(
+        &mut self,
+        frame: &eframe::Frame,
+        native_stopped: bool,
+        sdk: &str,
+        state_root: &Path,
+    ) {
         if !self.active() {
             return;
         }
@@ -79,6 +94,8 @@ impl MirrorPanel {
         {
             let hint = (!sdk.trim().is_empty())
                 .then(|| std::path::Path::new(sdk.trim()).join("platform-tools/adb.exe"));
+            self.mapped
+                .load(crate::bluestacks::mapping_file(state_root, &instance));
             self.session = Some(MirrorSession::start(instance.clone(), package, hint));
             self.instance = instance;
         }
@@ -99,6 +116,13 @@ impl MirrorPanel {
     fn apply_event(&mut self, event: MirrorEvent) {
         match event {
             MirrorEvent::Player(pid, created) => self.player = Some((pid, created)),
+            MirrorEvent::Foreground(epoch, package) => {
+                if self.mapped.epoch != Some(epoch) {
+                    self.release();
+                    self.mapped.set_foreground(epoch, package.as_deref());
+                }
+            }
+            MirrorEvent::EditorFrame(token, image) => self.mapped.receive_frame(token, image),
             MirrorEvent::Ready(size) => self.set_display_size(size),
             MirrorEvent::RotationChecked(size) => {
                 self.rotation_pending = false;
@@ -129,28 +153,30 @@ impl MirrorPanel {
     fn set_display_size(&mut self, size: [u32; 2]) {
         if self.size.is_some_and(|previous| previous != size) {
             self.release();
+            self.mapped.invalidate_frame();
         }
         self.size = Some(size);
         self.input_error = None;
     }
 
-    fn send(&self, input: MirrorInput) {
-        if let Some(session) = &self.session {
-            let _ = session.input.send(input);
-        }
+    fn send(&self, input: MirrorInput) -> bool {
+        self.session
+            .as_ref()
+            .is_some_and(|session| session.input.send(input).is_ok())
     }
 
     fn release(&mut self) {
-        if self.input_focused || self.last_touch.is_some() {
+        if self.input_focused || self.last_touch.is_some() || self.mapped.has_contacts() {
             self.send(MirrorInput::Release);
             self.last_touch = None;
             self.input_focused = false;
         }
+        self.mapped.release_contacts();
         self.input_geometry = None;
     }
 
     fn navigate(&mut self, input: MirrorInput) {
-        if self.last_touch.is_some() {
+        if self.last_touch.is_some() || self.mapped.has_contacts() {
             self.release();
         }
         self.send(input);
@@ -194,7 +220,7 @@ impl MirrorPanel {
         egui::TopBottomPanel::top("blue-session").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.strong(format!("BlueStacks · {}", self.instance));
-                ui.add_enabled_ui(self.size.is_some() && !host_gesture, |ui| {
+                ui.add_enabled_ui(self.size.is_some() && !host_gesture && !self.controls_open(), |ui| {
                     for (tool, input) in [
                         (Tool::Back, MirrorInput::Back),
                         (Tool::Home, MirrorInput::Home),
@@ -212,6 +238,8 @@ impl MirrorPanel {
                     }
                     self.rotate_button(ui, l);
                 });
+                self.controls_button(ui, l, host_gesture);
+                self.controls_notice(ui);
                 if let Some(reason) = &self.input_error {
                     let tip = if reason.contains("ADB access is disabled") {
                         l.pick(
@@ -222,7 +250,7 @@ impl MirrorPanel {
                     } else { reason };
                     ui.label(l.pick("Somente visualização", "View only", "Solo visualización")).on_hover_text(tip);
                 }
-                disconnect = ui.add(theme::button(l.pick("Desconectar", "Disconnect", "Desconectar"))).clicked();
+                disconnect = ui.add_enabled(!self.controls_open(), theme::button(l.pick("Desconectar", "Disconnect", "Desconectar"))).clicked();
             });
         });
         disconnect
@@ -241,6 +269,8 @@ impl MirrorPanel {
             self.hide();
             return;
         }
+        self.mapped.set_chrome(chrome);
+        self.controls_shortcuts(ctx, l, host_gesture);
         if chrome && self.toolbar(ctx, l, host_gesture) {
             self.disconnect();
             if ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
@@ -278,6 +308,10 @@ impl MirrorPanel {
                     self.hide();
                     return;
                 };
+                if self.controls_open() {
+                    self.show_controls(ui, area, slot, ppp, l, host_gesture);
+                    return;
+                }
                 if let Some(preview) = &mut self.preview {
                     // DWM updates live content independently. Recheck source geometry at 5 Hz
                     // and immediately when the destination size changes.
@@ -302,7 +336,7 @@ impl MirrorPanel {
                                 let aspect = (shown[0] as f64 * size[1] as f64)
                                     / (shown[1] as f64 * size[0] as f64);
                                 if (0.97..=1.03).contains(&aspect) {
-                                    self.handle_input(ctx, rect, ppp, size, host_gesture);
+                                    self.handle_game_input(ui, rect, ppp, size, host_gesture, l);
                                 } else {
                                     self.release();
                                     if !self.rotation_pending
@@ -360,19 +394,11 @@ impl MirrorPanel {
         size: [u32; 2],
         host_gesture: bool,
     ) {
-        if host_gesture || self.rotation_pending || !ctx.input(|i| i.focused) {
-            self.release();
+        let geometry = (rect, ppp, size);
+        let point = |pos: egui::Pos2| rect.guest_point([pos.x, pos.y], ppp, size);
+        if !self.input_allowed(ctx, rect, ppp, size, host_gesture) {
             return;
         }
-        let geometry = (rect, ppp, size);
-        if self
-            .input_geometry
-            .is_some_and(|previous| previous != geometry)
-        {
-            self.release();
-        }
-        self.input_geometry = Some(geometry);
-        let point = |pos: egui::Pos2| rect.guest_point([pos.x, pos.y], ppp, size);
         ctx.input(|i| {
             for event in &i.events {
                 match event {
@@ -384,11 +410,13 @@ impl MirrorPanel {
                     } => {
                         if *pressed {
                             if let Some(p) = point(*pos) {
-                                if self.last_touch.is_none() {
+                                self.input_focused = true;
+                                self.input_geometry = Some(geometry);
+                                if self.last_touch.is_none()
+                                    && !self.mapped.map.captures_pointer(PointerButton::Primary)
+                                {
                                     self.send(MirrorInput::Touch(TouchAction::Down, p, size));
                                     self.last_touch = Some(p);
-                                    self.input_focused = true;
-                                    self.input_geometry = Some(geometry);
                                 }
                             } else {
                                 self.release();
@@ -410,15 +438,21 @@ impl MirrorPanel {
                             self.release();
                         }
                     }
-                    Event::PointerGone => self.release(),
+                    Event::PointerGone if !self.mapped.map.aims_pointer() => self.release(),
                     Event::PointerButton {
                         pos,
                         button: PointerButton::Secondary,
                         pressed: true,
                         ..
-                    } if point(*pos).is_some() => self.navigate(MirrorInput::Back),
+                    } if point(*pos).is_some()
+                        && !self.mapped.map.captures_pointer(PointerButton::Secondary) =>
+                    {
+                        self.navigate(MirrorInput::Back)
+                    }
                     Event::MouseWheel { unit, delta, .. } => {
-                        if let Some(p) = i.pointer.hover_pos().and_then(point) {
+                        if !self.mapped.map.owns_wheel(*delta)
+                            && let Some(p) = i.pointer.hover_pos().and_then(point)
+                        {
                             let scale = match unit {
                                 egui::MouseWheelUnit::Point => 1. / 40.,
                                 egui::MouseWheelUnit::Line => 1.,
@@ -438,8 +472,14 @@ impl MirrorPanel {
                         repeat,
                         modifiers,
                         ..
-                    } if self.input_focused => {
-                        if *key == Key::Escape && *pressed && self.last_touch.is_some() {
+                    } if self.input_focused
+                        && !self.mapped.map.captures(*key)
+                        && !(*key == Key::Escape && self.mapped.map.aims_pointer()) =>
+                    {
+                        if *key == Key::Escape
+                            && *pressed
+                            && (self.last_touch.is_some() || self.mapped.has_contacts())
+                        {
                             self.navigate(MirrorInput::Back);
                             continue;
                         }
@@ -463,6 +503,36 @@ impl MirrorPanel {
                 }
             }
         });
+    }
+
+    fn input_allowed(
+        &mut self,
+        ctx: &egui::Context,
+        rect: PreviewRect,
+        ppp: f32,
+        size: [u32; 2],
+        host_gesture: bool,
+    ) -> bool {
+        let focused = ctx.input(|i| {
+            i.focused
+                && !i
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, Event::WindowFocused(false)))
+        });
+        if host_gesture || self.rotation_pending || !focused {
+            self.release();
+            return false;
+        }
+        let geometry = (rect, ppp, size);
+        if self
+            .input_geometry
+            .is_some_and(|previous| previous != geometry)
+        {
+            self.release();
+        }
+        self.input_geometry = Some(geometry);
+        true
     }
 }
 

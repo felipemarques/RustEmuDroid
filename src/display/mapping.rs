@@ -29,6 +29,15 @@ struct Layout {
     #[serde(default, skip_serializing_if = "MouseSensitivity::is_default")]
     mouse_sensitivity: MouseSensitivity,
 }
+
+impl Layout {
+    fn uses_gamepad(&self) -> bool {
+        // The classic joystick has always accepted both WASD and the left analog stick.
+        self.stick.is_some()
+            || self.buttons.keys().any(|key| key.starts_with("Pad:"))
+            || self.controls.iter().any(Binding::uses_gamepad)
+    }
+}
 fn default_radius() -> f32 {
     0.10
 }
@@ -86,7 +95,7 @@ enum StoredMapping {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct Contact {
+pub(crate) struct Contact {
     pub id: i32,
     pub pos: Point,
     pub down: bool,
@@ -130,9 +139,32 @@ pub(crate) struct Mapping {
     pub(crate) blocked_rect: Option<Rect>,
     pub(crate) quick: quick::QuickControls,
     editor: editor::Editor,
+    touch_only_preview: bool,
 }
 
 impl Mapping {
+    #[cfg(windows)]
+    pub(crate) fn use_touch_only_preview(&mut self) {
+        self.touch_only_preview = true;
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn editor_is_pinned(&self) -> bool {
+        self.deferred_package.is_some()
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn has_preview_mapping(&self) -> bool {
+        self.layout().is_some_and(|layout| {
+            layout.stick.is_some()
+                || !layout.buttons.is_empty()
+                || layout
+                    .controls
+                    .iter()
+                    .any(|binding| !matches!(binding.gesture, Gesture::Tilt { .. }))
+        })
+    }
+
     pub fn load(&mut self, path: PathBuf) {
         if let Ok(file) = std::fs::File::open(&path) {
             match serde_json::from_reader::<_, BTreeMap<String, StoredMapping>>(file) {
@@ -169,14 +201,14 @@ impl Mapping {
     pub fn wants_package(&self) -> bool {
         self.editing || self.quick.is_open() || !self.profiles.is_empty()
     }
-    pub(super) fn package_changed(&self, package: Option<&str>) -> bool {
+    pub(crate) fn package_changed(&self, package: Option<&str>) -> bool {
         self.deferred_package
             .as_ref()
             .unwrap_or(&self.package)
             .as_deref()
             != package
     }
-    pub(super) fn select(&mut self, package: Option<&str>) {
+    pub(crate) fn select(&mut self, package: Option<&str>) {
         if self.editing && self.package.is_some() && self.has_draft_changes() {
             self.deferred_package =
                 (self.package.as_deref() != package).then(|| package.map(str::to_owned));
@@ -248,7 +280,7 @@ impl Mapping {
         Ok(())
     }
 
-    pub(super) fn cycle_profile(&mut self, locale: Locale) -> (bool, String) {
+    pub(crate) fn cycle_profile(&mut self, locale: Locale) -> (bool, String) {
         if self.load_failed {
             return (
                 false,
@@ -435,7 +467,7 @@ impl Mapping {
         )
         .map_err(|error| SchemeError::File(error.to_string()))
     }
-    pub(super) fn toggle(&mut self) {
+    pub(crate) fn toggle(&mut self) {
         if !self.editing {
             self.editing = true;
             self.editor = editor::Editor::default();
@@ -506,18 +538,18 @@ impl Mapping {
         self.layout().is_some_and(|layout| {
             layout.buttons.contains_key(input)
                 || (layout.stick.is_some() && direction(input).is_some())
-                || layout
-                    .controls
-                    .iter()
-                    .any(|binding| binding.captures(input))
+                || layout.controls.iter().any(|binding| {
+                    (!self.touch_only_preview || !matches!(binding.gesture, Gesture::Tilt { .. }))
+                        && binding.captures(input)
+                })
         })
     }
 
-    pub(super) fn captures_pointer(&self, button: PointerButton) -> bool {
+    pub(crate) fn captures_pointer(&self, button: PointerButton) -> bool {
         self.grabbed_at.is_some() || self.captures_input(pointer_id(button))
     }
 
-    pub(super) fn owns_wheel(&self, delta: Vec2) -> bool {
+    pub(crate) fn owns_wheel(&self, delta: Vec2) -> bool {
         self.aims_pointer()
             || wheel_id(delta).is_some_and(|input| self.captures_input(input))
             || self.layout().is_some_and(|layout| {
@@ -528,7 +560,7 @@ impl Mapping {
             })
     }
 
-    pub(super) fn aims_pointer(&self) -> bool {
+    pub(crate) fn aims_pointer(&self) -> bool {
         self.grabbed_at.is_some()
     }
 
@@ -550,7 +582,7 @@ impl Mapping {
         }
     }
 
-    pub(super) fn release(&mut self) -> Vec<Contact> {
+    pub(crate) fn release(&mut self) -> Vec<Contact> {
         self.tilt_held.clear();
         self.release_contacts()
     }
@@ -703,10 +735,15 @@ impl Mapping {
                 .is_some_and(|layout| layout.buttons.contains_key(input))
         {
             let advanced = Self::advanced_layout(&self.profiles, self.package.as_deref());
-            if advanced.iter().any(|binding| binding.captures(input)) {
-                if advanced.iter().any(|binding| {
-                    matches!(binding.gesture, Gesture::Tilt { .. }) && binding.captures(input)
-                }) {
+            if advanced.iter().any(|binding| {
+                (!self.touch_only_preview || !matches!(binding.gesture, Gesture::Tilt { .. }))
+                    && binding.captures(input)
+            }) {
+                if !self.touch_only_preview
+                    && advanced.iter().any(|binding| {
+                        matches!(binding.gesture, Gesture::Tilt { .. }) && binding.captures(input)
+                    })
+                {
                     if pressed {
                         self.tilt_held.insert(input.into());
                     } else {
@@ -824,7 +861,7 @@ impl Mapping {
         }
     }
 
-    pub(super) fn frame(
+    pub(crate) fn frame(
         &mut self,
         ui: &mut egui::Ui,
         rect: Rect,
@@ -848,10 +885,13 @@ impl Mapping {
         }
         if self.editing {
             self.canvas(ui, rect);
-        } else if self.quick.show_hints {
+        } else if self.quick.show_hints && !self.touch_only_preview {
             self.paint_hints(ui, rect, locale);
         }
-        if !self.pad_initialized {
+        let poll_pad = !self.touch_only_preview
+            || self.editing
+            || self.layout().is_some_and(Layout::uses_gamepad);
+        if poll_pad && !self.pad_initialized {
             self.gamepad = Gilrs::new().ok();
             self.pad_initialized = true;
         }
@@ -1002,7 +1042,7 @@ impl Mapping {
                 _ => {}
             }
         }
-        while let Some(event) = self.gamepad.as_mut().and_then(Gilrs::next_event) {
+        while poll_pad && let Some(event) = self.gamepad.as_mut().and_then(Gilrs::next_event) {
             let id = usize::from(event.id);
             match event.event {
                 EventType::ButtonPressed(button, _) => {
@@ -1043,7 +1083,16 @@ impl Mapping {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::None);
             }
         }
-        if self.gamepad.is_some() || self.gestures.waiting() || !self.wheel_releases.is_empty() {
+        let tick_gestures = if self.touch_only_preview {
+            self.gestures.preview_needs_tick(Self::advanced_layout(
+                &self.profiles,
+                self.package.as_deref(),
+            ))
+        } else {
+            self.gestures.waiting()
+        };
+        if (poll_pad && self.gamepad.is_some()) || tick_gestures || !self.wheel_releases.is_empty()
+        {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(16));
         }
@@ -1228,6 +1277,41 @@ fn label(input: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_polls_controllers_only_for_usable_bindings_and_legacy_sticks() {
+        let mut layout = Layout::default();
+        layout.buttons.insert("J".to_owned(), [0.5, 0.5]);
+        assert!(!layout.uses_gamepad());
+        layout.stick = Some([0.25, 0.75]);
+        assert!(layout.uses_gamepad());
+        layout.stick = None;
+        layout.buttons.insert("Pad:South".to_owned(), [0.75, 0.25]);
+        assert!(layout.uses_gamepad());
+        layout.buttons.clear();
+        layout.controls.push(Binding {
+            input: "Y".to_owned(),
+            at: [0.5, 0.5],
+            gesture: Gesture::Aim {
+                sensitivity: 1.,
+                mouse: false,
+                right_stick: true,
+                toggle: false,
+            },
+        });
+        assert!(layout.uses_gamepad());
+        layout.controls[0].gesture = Gesture::Dpad {
+            directions: ["W".into(), "S".into(), "A".into(), "D".into()],
+            radius: 0.12,
+            left_stick: false,
+            right_stick: false,
+        };
+        assert!(!layout.uses_gamepad());
+        if let Gesture::Dpad { directions, .. } = &mut layout.controls[0].gesture {
+            directions[0] = "Pad:DPadUp".into();
+        }
+        assert!(layout.uses_gamepad());
+    }
 
     #[test]
     fn scroll_override_respects_the_game_canvas_and_existing_wheel_mapping() {

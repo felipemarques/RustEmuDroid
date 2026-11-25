@@ -172,6 +172,29 @@ impl Gesture {
 }
 
 impl Binding {
+    pub(super) fn uses_gamepad(&self) -> bool {
+        let pad_input = |key: &str| key.starts_with("Pad:");
+        match &self.gesture {
+            Gesture::Dpad {
+                directions,
+                left_stick,
+                right_stick,
+                ..
+            } => *left_stick || *right_stick || directions.iter().any(|key| pad_input(key)),
+            Gesture::FreeLook {
+                mouse: false,
+                directions,
+                ..
+            } => directions.iter().any(|key| pad_input(key)),
+            Gesture::Aim { right_stick, .. } => *right_stick || pad_input(&self.input),
+            Gesture::Rotate {
+                wheel: Some(wheel), ..
+            } => pad_input(&self.input) || pad_input(&wheel.reverse_input),
+            Gesture::Tilt { .. } | Gesture::EdgeScroll { .. } | Gesture::Scroll { .. } => false,
+            _ => pad_input(&self.input),
+        }
+    }
+
     pub(super) fn primary_input(&self) -> &str {
         if matches!(self.gesture, Gesture::MobaMove { .. }) {
             "Mouse:Secondary"
@@ -234,6 +257,17 @@ impl Gestures {
             || !self.deadlines.is_empty()
             || !self.toggled.is_empty()
             || !self.scrolls.is_empty()
+    }
+
+    pub(super) fn preview_needs_tick(&self, controls: &[Binding]) -> bool {
+        self.edge_scrolling
+            || !self.deadlines.is_empty()
+            || !self.scrolls.is_empty()
+            || self.active.keys().any(|&index| {
+                controls.get(index).is_some_and(|binding| {
+                    !matches!(binding.gesture, Gesture::Hold | Gesture::Dpad { .. })
+                })
+            })
     }
 
     pub(super) fn queue_scroll(&mut self, direction: Vec2) {
@@ -1001,6 +1035,71 @@ mod tests {
             taken: &[1, 9],
             cursor: Some([0.2, 0.8]),
             edge_cursor: None,
+        }
+    }
+
+    #[test]
+    fn preview_keeps_time_driven_gestures_ticking_without_polling_static_contacts() {
+        let gestures = [
+            (Gesture::Hold, false),
+            (
+                Gesture::Dpad {
+                    directions: ["J".into(), "K".into(), "L".into(), "M".into()],
+                    radius: 0.12,
+                    left_stick: false,
+                    right_stick: false,
+                },
+                false,
+            ),
+            (
+                Gesture::Repeat {
+                    interval_ms: 120,
+                    hold_ms: 40,
+                },
+                true,
+            ),
+            (
+                Gesture::Rotate {
+                    radius: 0.13,
+                    degrees: 85.,
+                    duration_ms: 180,
+                    wheel: None,
+                },
+                true,
+            ),
+            (
+                Gesture::Aim {
+                    sensitivity: 1.,
+                    mouse: true,
+                    right_stick: false,
+                    toggle: true,
+                },
+                true,
+            ),
+        ];
+        for (gesture, expected) in gestures {
+            let controls = [Binding {
+                input: "J".into(),
+                at: [0.5, 0.5],
+                gesture,
+            }];
+            let mut state = Gestures::default();
+            let mut changes = Vec::new();
+            assert!(!state.preview_needs_tick(&controls));
+            state.input(&controls, "J", true, &frame(1.), &mut changes);
+            if matches!(controls[0].gesture, Gesture::Aim { .. }) {
+                // A toggled but motionless mouse aim waits for actual input, not a UI timer.
+                assert!(!state.preview_needs_tick(&controls));
+                state.mouse = vec2(30., 0.);
+            }
+            state.frame(&controls, &frame(1.02), &mut changes);
+            assert!(changes.iter().any(|contact| contact.down));
+            assert_eq!(
+                state.preview_needs_tick(&controls),
+                expected,
+                "{:?}",
+                controls[0].gesture
+            );
         }
     }
 

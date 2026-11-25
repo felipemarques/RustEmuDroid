@@ -1,0 +1,6 @@
+series,lap,rustemudroid_version,executable_sha256,control_profile_file,preview_foreground_verified,input_during_replay,frames,duration_ms,game_fps,main_loop_p95_ms,positive_main_loop_samples,preview_cpu_seconds,preview_cpu_sample_wall_seconds
+initial_candidate,A1,0.17.0,5501fd6f063cc77822f4949f42870187b02c1d64172248c2ac656495ec3c1443,absent,yes,none,2287,38187,59.889491,17.592,2287,,
+initial_candidate,B,0.17.0,5501fd6f063cc77822f4949f42870187b02c1d64172248c2ac656495ec3c1443,present,yes,none,2287,38121,59.993180,17.780,2287,,
+initial_candidate,A2,0.17.0,5501fd6f063cc77822f4949f42870187b02c1d64172248c2ac656495ec3c1443,absent,yes,none,2289,38138,60.018879,17.666,2289,,
+optimized_candidate,A1,0.17.0,d8dbe86e073b4c268cad7241a0fbdcfdd2d34e9db04d909dce598e590bc464db,absent,yes,one_preview_click,2287,38122,59.991606,17.710,2287,0.609375,51.652974
+optimized_candidate,B,0.17.0,d8dbe86e073b4c268cad7241a0fbdcfdd2d34e9db04d909dce598e590bc464db,present,yes,one_preview_click,2287,38121,59.993180,17.888,2287,0.750000,51.673386

@@ -103,7 +103,13 @@ On Windows, choose **Open BlueStacks → Use this window** to display an install
 
 ![Select the instance and choose Use this window to open its preview](docs/screenshots/en-us/bluestacks.png)
 
-For touch, drag, scroll, keyboard input and the Android navigation buttons, enable **Android Debug Bridge (ADB)** in BlueStacks advanced settings and reconnect. Click **Rotate screen** on the preview toolbar to switch between portrait and landscape in apps that allow rotation. RustEmuDroid uses a modern local ADB client from the managed runtime or Android Platform Tools. With ADB disabled the picture is view-only. The game profiles, recording and desktop FPS counter currently belong to the native RustEmuDroid session.
+For touch, drag, scroll, keyboard input and the Android navigation buttons, enable **Android Debug Bridge (ADB)** in BlueStacks advanced settings and reconnect. Click **Rotate screen** on the preview toolbar to switch between portrait and landscape in apps that allow rotation. RustEmuDroid uses a modern local ADB client from the managed runtime or Android Platform Tools. With ADB disabled the picture is view-only. Recording and the desktop FPS counter are available in the native Android session.
+
+In the BlueStacks preview, open a game and click the keyboard icon and choose **Controls editor**, or press **Ctrl+Shift+A**. Place the controls on the captured game image. Android keeps running while the editor is open. Save to return to the live view. **Ctrl+Shift+P** switches between the schemes saved for that game and BlueStacks instance. Hold a D-pad direction and an action button together to send two touches. The editor displays the binding markers. Live game hints and sensor tilt are available in the native Android session.
+
+![Control bindings over SuperTuxKart in the BlueStacks preview](docs/screenshots/en-us/bluestacks-editor.png)
+
+[Quick controls menu](docs/screenshots/en-us/bluestacks-quick.png)
 
 **Can I use my backed-up BlueStacks games?** On the test PC we restored a copy of the data disk to a separate Pie64 instance on the same BlueStacks build. It booted Android 9 and listed all four tested games. Select the restored instance under **Open BlueStacks → Use this window**. [Restore test](docs/bluestacks-lab.md#booting-an-archived-data-disk-with-the-installed-bluestacks-engine)
 

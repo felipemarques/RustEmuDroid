@@ -225,6 +225,25 @@ impl Mapping {
                 ),
             )
             .changed();
+        let hints_changed = if self.touch_only_preview {
+            ui.weak(l.pick(
+                "As marcações aparecem no editor. A prévia ao vivo mostra o jogo sem marcações.",
+                "Markers appear in the editor. The live preview shows the game without markers.",
+                "Los marcadores aparecen en el editor. La vista en directo muestra el juego sin marcadores.",
+            ));
+            false
+        } else {
+            self.hint_settings(ui, l)
+        };
+        if (changed || hints_changed)
+            && let Err(err) = crate::ui::write_json(&self.quick.path, &self.quick)
+        {
+            self.error = Some(err.to_string());
+        }
+        self.quick_profiles(ui, l);
+    }
+
+    fn hint_settings(&mut self, ui: &mut egui::Ui, l: Locale) -> bool {
         let hints_changed = ui
             .checkbox(
                 &mut self.quick.show_hints,
@@ -268,15 +287,13 @@ impl Mapping {
                 .inner
             })
             .inner;
-        if (changed
-            || hints_changed
+        hints_changed
             || device_changed
             || opacity.drag_stopped()
-            || (opacity.changed() && !opacity.dragged()))
-            && let Err(err) = crate::ui::write_json(&self.quick.path, &self.quick)
-        {
-            self.error = Some(err.to_string());
-        }
+            || (opacity.changed() && !opacity.dragged())
+    }
+
+    fn quick_profiles(&mut self, ui: &mut egui::Ui, l: Locale) {
         ui.separator();
         ui.horizontal_wrapped(|ui| {
             ui.small(l.pick("Perfil do jogo", "Game profile", "Perfil del juego"));

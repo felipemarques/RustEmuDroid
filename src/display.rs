@@ -1,7 +1,7 @@
 //! Android Emulator's EmulatorController protocol (the subset used by this view).
 #[cfg(test)]
 mod live_input_test;
-mod mapping;
+pub(crate) mod mapping;
 mod native_texture;
 #[cfg(all(test, windows))]
 mod native_texture_test;

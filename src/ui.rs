@@ -498,8 +498,14 @@ impl eframe::App for Launcher {
             return;
         }
         #[cfg(windows)]
-        self.blue_mirror
-            .update(frame, self.task.is_none(), &self.config.sdk);
+        self.blue_mirror.update(
+            frame,
+            self.task.is_none(),
+            &self.config.sdk,
+            self.prefs_file
+                .parent()
+                .unwrap_or(std::path::Path::new(".")),
+        );
         self.show_main(ctx);
         self.show_capture_notice(ctx);
         self.adapters.poll(ctx);
@@ -585,6 +591,16 @@ impl Launcher {
             || self.external_dialog_open()
             || replay_menu_was_open
             || self.display.as_ref().is_some_and(|d| d.controls_open());
+        #[cfg(windows)]
+        let show_chrome = if self.blue_mirror.active()
+            && self.settings.is_none()
+            && !self.help_open
+            && !self.external_dialog_open()
+        {
+            self.blue_mirror.controls_chrome().unwrap_or(show_chrome)
+        } else {
+            show_chrome
+        };
         let resizing = chrome::handle_resize(ctx);
         if show_chrome {
             self.title_bar(ctx, fullscreen, resizing);

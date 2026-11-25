@@ -31,6 +31,24 @@ On November 24, 2026, one BlueStacks 5.22.166.1003 Pie64 guest ran the SuperTuxK
 
 Pooling frames and durations gave 59.954 game FPS with the preview closed and 59.992 with it open. The difference was smaller than the spread between the two closed-preview runs. The observed game FPS stayed near the 60 FPS cap. FPS is 1,000 times frames divided by the game-reported replay duration in milliseconds. Main-loop P95 uses the nearest-rank percentile of positive game profiler durations. The original game configuration was restored byte-for-byte and the preview left the BlueStacks source windows in place. [Per-run measurements](../benchmarks/stk-1.5/bluestacks-preview-abba.csv) · [Replay harness](../benchmarks/stk-1.5/compare.py)
 
+### SuperTuxKart replay with the BlueStacks controls preview
+
+Two local v0.17.0 candidates ran Black Forest replays on the same restored BlueStacks 5.22.166.1003 Pie64 Android 9 instance on Windows. SuperTuxKart 1.5 used its `armeabi-v7a` build, High graphics over OpenGL ES 3.2 on the RTX 5070 Ti, 1600 × 900 at 100% render scale, four vCPUs and 8 GiB. All 21 game-reported graphics fields matched. The player was set to 60 FPS with High FPS off. The replay harness wrote `max_fps=60` and left VSync on, then restored the original game configuration byte-for-byte after each lap. [Replay harness](../benchmarks/stk-1.5/compare.py)
+
+The Rust preview had a live control server in the guest, and the editor stayed closed. The operator checked Windows foreground focus before and after every replay. The initial candidate received no input. In the optimized candidate, each lap received one preview click at the same location, with no game keys held. Foreground checks continued during polling. An earlier optimized B attempt lost focus and was discarded. For both completed B laps, the launcher's test state directory contained a SuperTuxKart profile with a D-pad and a Space binding. Whether the candidate binaries loaded the profile during the replays remains unverified. A separate instrumented build verified saved controls and simultaneous Android contacts during an interactive test. [Per-run measurements and executable SHA-256](../benchmarks/stk-1.5/bluestacks-controls-0170.csv)
+
+| Candidate | Lap | Control profile file | Game frames | Replay duration | Game FPS | Main-loop P95 |
+|---|---|---|---:|---:|---:|---:|
+| Initial | A1 | Absent | 2,287 | 38.187 s | 59.889 | 17.592 ms |
+| Initial | B | Present | 2,287 | 38.121 s | 59.993 | 17.780 ms |
+| Initial | A2 | Absent | 2,289 | 38.138 s | 60.019 | 17.666 ms |
+| Optimized | A1 | Absent | 2,287 | 38.122 s | 59.992 | 17.710 ms |
+| Optimized | B | Present | 2,287 | 38.121 s | 59.993 | 17.888 ms |
+
+FPS is 1,000 times the game frame count divided by its profiling duration in milliseconds. P95 is the nearest-rank percentile of positive main-loop profiler samples, converted from microseconds. In the initial series, the two laps without the file pooled to 59.954 FPS. B was 0.039 FPS higher, within the 0.129 FPS spread between A1 and A2. The optimized laps each recorded 2,287 frames and finished 1 ms apart. All five passes stayed near the configured 60 FPS player limit. Uncapped throughput and the cost of continuously using mapped controls remain unmeasured.
+
+For the optimized A1 and B laps, the Rust preview process used 0.609 and 0.750 CPU seconds over 51.653 and 51.673 elapsed seconds, respectively. These are user and kernel CPU times for the Rust process, sampled from after the click through collection and game configuration restoration. The two windows include profiler polling and cleanup. BlueStacks, DWM and guest CPU time are outside that measurement.
+
 ### Managed Windows runtime and Android refresh rate
 
 The published v0.15.0 Windows ZIP booted a fresh, isolated Google Play Android 17 profile using the already installed managed Android runtime. Its launch environment had no separate Android SDK or Java on `PATH`. SuperTuxKart 1.5 ran the full Black Forest replay using native x86-64 and direct Vulkan on the RTX 5070 Ti. All ten reports matched the same 21 High-preset graphics fields at 1600 × 900 and 100% render scale. After the first replay, every run reused the same profile. The 90 Hz experiments used a local refresh prototype, followed by one replay with a locally built v0.16.0 product candidate. [Windows release](https://github.com/felipemarques/RustEmuDroid/releases/tag/v0.15.0) · [Recalculated results, executable identity and relative timestamps](../benchmarks/stk-1.5/managed-windows-refresh.json)

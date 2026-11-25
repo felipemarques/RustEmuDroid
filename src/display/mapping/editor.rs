@@ -296,6 +296,9 @@ impl Mapping {
         for row in (0..labels.len()).step_by(3) {
             ui.horizontal(|ui| {
                 for (index, &name) in labels.iter().enumerate().skip(row).take(3) {
+                    if self.touch_only_preview && index == 11 {
+                        continue;
+                    }
                     let selected = self.placing_control && self.editor.active_tile == index;
                     let response = tiles::tile(ui, width, index, name, selected);
                     if response.drag_started() || response.clicked() {

@@ -103,7 +103,13 @@ No Windows, escolha **Abrir BlueStacks → Usar nesta janela** para ver a instâ
 
 ![Escolha a instância e Usar nesta janela para abrir a prévia do jogo](docs/screenshots/pt-br/bluestacks.png)
 
-Para usar toque, arraste, rolagem, teclado e os botões de navegação Android, ative **Android Debug Bridge (ADB)** nas configurações avançadas do BlueStacks e reconecte. Clique em **Girar tela** na barra da prévia para alternar entre retrato e paisagem nos aplicativos que aceitam rotação. O RustEmuDroid usa um cliente ADB moderno do runtime gerenciado ou das Android Platform Tools. Com o ADB desativado, o modo permite apenas visualizar. Os perfis de controles, a gravação e o contador de FPS do painel estão disponíveis na sessão Android nativa do RustEmuDroid.
+Para usar toque, arraste, rolagem, teclado e os botões de navegação Android, ative **Android Debug Bridge (ADB)** nas configurações avançadas do BlueStacks e reconecte. Clique em **Girar tela** na barra da prévia para alternar entre retrato e paisagem nos aplicativos que aceitam rotação. O RustEmuDroid usa um cliente ADB moderno do runtime gerenciado ou das Android Platform Tools. Com o ADB desativado, o modo permite apenas visualizar. A gravação e o contador de FPS do painel estão disponíveis na sessão Android nativa.
+
+Na prévia do BlueStacks, abra um jogo e clique no ícone de teclado e escolha **Editor de controles**, ou pressione **Ctrl+Shift+A**. Posicione os controles sobre a captura do jogo. O Android continua rodando enquanto você edita. Salve para voltar à imagem ao vivo. **Ctrl+Shift+P** alterna entre os perfis salvos para aquele jogo e aquela instância do BlueStacks. Segure o direcional e um botão de ação ao mesmo tempo para enviar dois toques. O editor mostra as marcações das teclas. Na sessão Android nativa, também é possível ver as marcações durante o jogo e mapear o sensor de inclinação.
+
+![Mapeamento do SuperTuxKart na prévia do BlueStacks](docs/screenshots/pt-br/bluestacks-editor.png)
+
+[Menu rápido de controles](docs/screenshots/pt-br/bluestacks-quick.png)
 
 **Posso usar os jogos do meu backup do BlueStacks?** No PC de testes, restauramos uma cópia do disco de dados em outra instância Pie64 da mesma versão do BlueStacks. Ela iniciou o Android 9 e listou os quatro jogos verificados. Selecione a instância restaurada em **Abrir BlueStacks → Usar nesta janela**. [Teste de restauração, em inglês](docs/bluestacks-lab.md#booting-an-archived-data-disk-with-the-installed-bluestacks-engine)
 

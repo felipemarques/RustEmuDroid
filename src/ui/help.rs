@@ -120,6 +120,16 @@ fn mirror_shortcuts(ui: &mut egui::Ui, l: Locale) {
         "Enable ADB in BlueStacks advanced settings and click the game image to use the keyboard.",
         "Activa ADB en los ajustes avanzados de BlueStacks y haz clic en la imagen del juego para usar el teclado.",
     ));
+    entry(ui, &chord(egui::Key::A, l), l.pick(
+        "Abra o editor sobre uma imagem do jogo para posicionar os controles. Salve para voltar ao jogo.",
+        "Open the editor over a still of the game to position controls. Save to return to the game.",
+        "Abre el editor sobre una captura del juego para colocar los controles. Guarda para volver al juego.",
+    ));
+    entry(ui, &chord(crate::toolbar::PROFILE_KEY, l), l.pick(
+        "Selecione o próximo perfil de controle salvo para o jogo aberto nesta instância.",
+        "Switch to the next control scheme saved for the current game in this instance.",
+        "Cambia al siguiente perfil de controles guardado para el juego abierto en esta instancia.",
+    ));
     entry(
         ui,
         l.pick("Clique e arraste", "Click and drag", "Clic y arrastre"),

@@ -1,6 +1,8 @@
 #[cfg(feature = "ui")]
 pub(crate) mod mirror_control;
 #[cfg(feature = "ui")]
+mod mirror_foreground;
+#[cfg(feature = "ui")]
 pub(crate) mod mirror_session;
 #[cfg(feature = "ui")]
 pub(crate) mod mirror_target;
@@ -241,6 +243,12 @@ pub(crate) fn valid_package(package: &str) -> bool {
                 .is_some_and(|first| first.is_ascii_alphabetic())
                 && chars.all(|character| character.is_ascii_alphanumeric() || character == b'_')
         })
+}
+
+#[cfg(feature = "ui")]
+pub(crate) fn mapping_file(state_root: &std::path::Path, instance: &str) -> Option<PathBuf> {
+    mirror_target::valid_instance(instance)
+        .then(|| state_root.join(format!("bluestacks-{instance}-touch-maps.json")))
 }
 
 pub(crate) fn instances() -> Result<Vec<Instance>, BlueStacksError> {

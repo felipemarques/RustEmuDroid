@@ -31,6 +31,180 @@ fn input_frame(panel: &mut MirrorPanel, ctx: &egui::Context, focused: bool, even
     );
 }
 
+fn mapped_frame(panel: &mut MirrorPanel, ctx: &egui::Context, focused: bool, events: Vec<Event>) {
+    let _ = ctx.run(
+        RawInput {
+            focused,
+            screen_rect: Some(egui::Rect::from_min_size(
+                Pos2::ZERO,
+                egui::vec2(640., 360.),
+            )),
+            events,
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                panel.handle_game_input(ui, SLOT, 1.0, GUEST, false, Locale::EnUs);
+            });
+        },
+    );
+}
+
+fn key_event(key: Key, pressed: bool) -> Event {
+    Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed,
+        repeat: false,
+        modifiers: Modifiers::NONE,
+    }
+}
+
+#[test]
+fn maps_two_keys_to_separate_contacts_and_releases_on_foreground_loss() {
+    let (session, input) = MirrorSession::input_recorder();
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("map.json");
+    std::fs::write(
+        &path,
+        r#"{"org.example.game":{"buttons":{"J":[0.25,0.75],"K":[1,0.5]},"stick":null}}"#,
+    )
+    .unwrap();
+    let mut panel = MirrorPanel {
+        session: Some(session),
+        size: Some(GUEST),
+        ..Default::default()
+    };
+    panel.mapped.load(Some(path));
+    panel.apply_event(MirrorEvent::Foreground(4, Some("org.example.game".into())));
+
+    let ctx = egui::Context::default();
+    mapped_frame(&mut panel, &ctx, true, vec![key_event(Key::J, true)]);
+    assert!(
+        input.try_recv().is_err(),
+        "the preview has not acquired input focus"
+    );
+
+    mapped_frame(&mut panel, &ctx, true, vec![primary(CENTER, true)]);
+    assert!(matches!(
+        input.try_recv().unwrap(),
+        MirrorInput::Touch(TouchAction::Down, [100, 50], GUEST)
+    ));
+    mapped_frame(
+        &mut panel,
+        &ctx,
+        true,
+        vec![
+            key_event(Key::J, false),
+            key_event(Key::J, true),
+            key_event(Key::K, true),
+        ],
+    );
+    let first = input.try_recv().unwrap();
+    let second = input.try_recv().unwrap();
+    assert!(matches!((first, second), (
+        MirrorInput::Contact { epoch: 4, id: first, action: TouchAction::Down, point: [50, 75], size: GUEST },
+        MirrorInput::Contact { epoch: 4, id: second, action: TouchAction::Down, point: [199, 50], size: GUEST }
+    ) if first > 0 && second > 0 && first != second));
+    assert!(
+        input.try_recv().is_err(),
+        "mapped keys must not also reach Android as keyboard input"
+    );
+
+    panel.apply_event(MirrorEvent::Foreground(5, None));
+    assert!(matches!(input.try_recv().unwrap(), MirrorInput::Release));
+    assert_eq!(panel.controls_test_state(), (false, false, 0, None));
+    mapped_frame(
+        &mut panel,
+        &ctx,
+        true,
+        vec![
+            key_event(Key::J, false),
+            key_event(Key::K, false),
+            primary(CENTER, false),
+        ],
+    );
+    assert!(
+        input.try_recv().is_err(),
+        "late ups belong to the previous input epoch"
+    );
+    mapped_frame(
+        &mut panel,
+        &ctx,
+        true,
+        vec![primary(CENTER, true), primary(CENTER, false)],
+    );
+    assert!(matches!(
+        input.try_iter().collect::<Vec<_>>().as_slice(),
+        [
+            MirrorInput::Touch(TouchAction::Down, [100, 50], GUEST),
+            MirrorInput::Touch(TouchAction::Up, [100, 50], GUEST)
+        ]
+    ));
+}
+
+#[test]
+fn control_profile_shortcut_changes_only_the_selected_games_saved_profile() {
+    let (session, input) = MirrorSession::input_recorder();
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("maps.json");
+    let first = serde_json::json!({"buttons":{"J":[0.25,0.75]},"stick":null});
+    let second = serde_json::json!({"buttons":{"K":[0.75,0.25]},"stick":null});
+    let original = serde_json::json!({
+        "org.example.game":{"active":"First","layouts":{"First":first,"Second":second}},
+        "org.example.other":{"active":"Default","layouts":{"Default":first}},
+    });
+    std::fs::write(&path, serde_json::to_vec(&original).unwrap()).unwrap();
+    let mut panel = MirrorPanel {
+        session: Some(session),
+        size: Some(GUEST),
+        ..Default::default()
+    };
+    panel.mapped.load(Some(path.clone()));
+    panel.apply_event(MirrorEvent::Foreground(
+        1,
+        Some("org.example.game".to_owned()),
+    ));
+    assert!(panel.mapped.map.captures(Key::J));
+    let ctx = egui::Context::default();
+    mapped_frame(&mut panel, &ctx, true, vec![primary(CENTER, true)]);
+    let _ = input.try_recv().unwrap();
+
+    let modifiers = crate::toolbar::PLAYER_MODIFIERS;
+    let _ = ctx.run(
+        RawInput {
+            focused: true,
+            modifiers,
+            events: vec![Event::Key {
+                key: Key::P,
+                physical_key: Some(Key::P),
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            ..Default::default()
+        },
+        |ctx| {
+            panel.controls_shortcuts(ctx, Locale::EnUs, false);
+            assert!(ctx.input(|i| {
+                i.events
+                    .iter()
+                    .all(|event| !matches!(event, Event::Key { key: Key::P, .. }))
+            }));
+        },
+    );
+    assert!(matches!(input.try_recv().unwrap(), MirrorInput::Release));
+    assert!(!panel.mapped.map.captures(Key::J));
+    assert!(panel.mapped.map.captures(Key::K));
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(saved["org.example.game"]["active"], "Second");
+    assert_eq!(saved["org.example.other"]["active"], "Default");
+    assert_eq!(
+        saved["org.example.other"]["layouts"]["Default"]["buttons"],
+        first["buttons"]
+    );
+}
+
 #[test]
 fn selection_discards_old_geometry_and_queues_only_the_latest_instance() {
     let mut panel = MirrorPanel {

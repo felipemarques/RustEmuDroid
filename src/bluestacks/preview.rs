@@ -151,7 +151,7 @@ impl PreviewRect {
         .nonempty()
     }
 
-    fn fit(self, source: Self) -> Self {
+    pub(crate) fn fit(self, source: Self) -> Self {
         let (width, height) = self.dimensions();
         let (source_width, source_height) = source.dimensions();
         let scale = (width as f64 / source_width as f64).min(height as f64 / source_height as f64);

@@ -22,6 +22,9 @@ const SHORT_IO: Duration = Duration::from_secs(1);
 const SHORT_COMMAND: Duration = Duration::from_secs(3);
 const STARTUP: Duration = Duration::from_secs(12);
 const ROTATE_DEVICE: [u8; 1] = [11];
+const MAX_TOUCHES: usize = 10;
+const EDITOR_FRAME_LIMIT: usize = 16 * 1024 * 1024;
+const EDITOR_FRAME_POLL: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TouchAction {
@@ -66,16 +69,56 @@ impl Position {
     }
 }
 
-fn touch_packet(action: TouchAction, position: Position) -> [u8; 32] {
+fn touch_packet(id: u64, action: TouchAction, position: Position) -> [u8; 32] {
     let mut bytes = [0; 32];
     bytes[0] = 2;
     bytes[1] = action as u8;
-    // Finger ID 0, with no mouse button bits.
+    bytes[2..10].copy_from_slice(&id.to_be_bytes());
     position.encode(&mut bytes[10..22]);
     if matches!(action, TouchAction::Down | TouchAction::Move) {
         bytes[22..24].copy_from_slice(&u16::MAX.to_be_bytes());
     }
     bytes
+}
+
+#[derive(Default)]
+struct Touches(BTreeMap<u64, Position>);
+
+impl Touches {
+    fn update(&mut self, id: u64, action: TouchAction, position: Position) -> Option<[u8; 32]> {
+        let previous = self.0.get(&id);
+        match action {
+            TouchAction::Down if previous.is_none() && self.0.len() < MAX_TOUCHES => {
+                self.0.insert(id, position);
+            }
+            TouchAction::Move | TouchAction::Up
+                if previous.is_some_and(|previous| previous.display == position.display) =>
+            {
+                if action == TouchAction::Up {
+                    self.0.remove(&id);
+                } else {
+                    self.0.insert(id, position);
+                }
+            }
+            // A layout refresh or Release may already have cleared a queued contact.
+            _ => return None,
+        }
+        Some(touch_packet(id, action, position))
+    }
+
+    fn release(self) -> impl Iterator<Item = [u8; 32]> {
+        // Android cancels the entire gesture, but scrcpy v5.0.1 only frees a finger on UP.
+        // Cancel first so the following UP packets just free scrcpy's slots.
+        let cancel = self
+            .0
+            .first_key_value()
+            .map(|(&id, &position)| touch_packet(id, TouchAction::Cancel, position));
+        cancel.into_iter().chain(
+            self.0
+                .into_iter()
+                .map(|(id, position)| touch_packet(id, TouchAction::Up, position)),
+        )
+    }
 }
 
 fn key_packet(action: KeyAction, code: u32, repeat: u32, metastate: u32) -> [u8; 14] {
@@ -103,7 +146,7 @@ fn scroll_packet(position: Position, horizontal: f32, vertical: f32) -> io::Resu
     Ok(bytes)
 }
 
-fn service(stream: &mut (impl Read + Write), request: &str) -> io::Result<()> {
+pub(super) fn service(stream: &mut (impl Read + Write), request: &str) -> io::Result<()> {
     write!(stream, "{:04x}{request}", request.len())?;
     let mut status = [0; 4];
     stream.read_exact(&mut status)?;
@@ -144,6 +187,16 @@ fn select_control(stream: &mut (impl Read + Write), scid: &str) -> io::Result<()
     Ok(())
 }
 
+pub(super) fn transport_socket(transport_id: u64) -> io::Result<TcpStream> {
+    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, ADB_PORT));
+    let mut stream = TcpStream::connect_timeout(&address, SHORT_IO)?;
+    stream.set_nodelay(true)?;
+    stream.set_read_timeout(Some(SHORT_IO))?;
+    stream.set_write_timeout(Some(SHORT_IO))?;
+    service(&mut stream, &format!("host:transport-id:{transport_id}"))?;
+    Ok(stream)
+}
+
 #[derive(Clone)]
 struct Adb {
     program: PathBuf,
@@ -165,16 +218,7 @@ impl Adb {
     }
 
     fn socket(&self) -> io::Result<TcpStream> {
-        let address = SocketAddr::from((Ipv4Addr::LOCALHOST, ADB_PORT));
-        let mut stream = TcpStream::connect_timeout(&address, SHORT_IO)?;
-        stream.set_nodelay(true)?;
-        stream.set_read_timeout(Some(SHORT_IO))?;
-        stream.set_write_timeout(Some(SHORT_IO))?;
-        service(
-            &mut stream,
-            &format!("host:transport-id:{}", self.transport_id),
-        )?;
-        Ok(stream)
+        transport_socket(self.transport_id)
     }
 
     fn command(&self) -> io::Result<Command> {
@@ -280,6 +324,63 @@ fn log_text(log: &mut File, tail: bool) -> io::Result<String> {
     let mut bytes = Vec::new();
     log.take(limit).read_to_end(&mut bytes)?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn read_editor_frame(
+    mut reader: impl Read,
+    limit: usize,
+    deadline: Instant,
+    cancelled: impl Fn() -> bool,
+) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let mut buffer = [0; 8192];
+    loop {
+        check_editor_capture(deadline, &cancelled)?;
+        match reader.read(&mut buffer) {
+            Ok(0) => return Ok(bytes),
+            Ok(count) if bytes.len() + count <= limit => bytes.extend_from_slice(&buffer[..count]),
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Editor frame is too large",
+                ));
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::TimedOut
+                        | io::ErrorKind::WouldBlock
+                        | io::ErrorKind::Interrupted
+                ) => {}
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn check_editor_capture(deadline: Instant, cancelled: &impl Fn() -> bool) -> io::Result<()> {
+    if cancelled() {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "Editor capture cancelled",
+        ));
+    }
+    if Instant::now() >= deadline {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Editor capture timed out",
+        ));
+    }
+    Ok(())
+}
+
+fn editor_frame_size(bytes: &[u8]) -> Option<[u32; 2]> {
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR") {
+        return None;
+    }
+    Some([
+        u32::from_be_bytes(bytes.get(16..20)?.try_into().ok()?),
+        u32::from_be_bytes(bytes.get(20..24)?.try_into().ok()?),
+    ])
 }
 
 struct Server {
@@ -392,7 +493,7 @@ pub(crate) struct MirrorControl {
     server: Server,
     stream: TcpStream,
     connected: bool,
-    touch: Option<Position>,
+    touches: Touches,
     keys: BTreeMap<u32, u32>,
 }
 
@@ -436,7 +537,7 @@ impl MirrorControl {
             server,
             stream,
             connected: true,
-            touch: None,
+            touches: Touches::default(),
             keys: BTreeMap::new(),
         })
     }
@@ -452,7 +553,7 @@ impl MirrorControl {
             // A short write may already have emitted part of a packet.
             self.connected = false;
             let _ = self.stream.shutdown(Shutdown::Both);
-            self.touch = None;
+            self.touches.0.clear();
             self.keys.clear();
             return Err(error);
         }
@@ -461,24 +562,18 @@ impl MirrorControl {
 
     pub(crate) fn touch(
         &mut self,
+        id: u64,
         action: TouchAction,
         point: [u32; 2],
         display: [u32; 2],
     ) -> io::Result<()> {
-        let position = Position::new(point, display)?;
-        match (action, self.touch) {
-            (TouchAction::Down, None) => {}
-            (TouchAction::Move | TouchAction::Up | TouchAction::Cancel, Some(previous))
-                if previous.display == position.display => {}
-            _ => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Touch action does not match the active contact",
-                ));
-            }
+        if action == TouchAction::Cancel {
+            return self.release_touches();
         }
-        self.send(&touch_packet(action, position))?;
-        self.touch = matches!(action, TouchAction::Down | TouchAction::Move).then_some(position);
+        let position = Position::new(point, display)?;
+        if let Some(packet) = self.touches.update(id, action, position) {
+            self.send(&packet)?;
+        }
         Ok(())
     }
 
@@ -494,6 +589,28 @@ impl MirrorControl {
             horizontal,
             vertical,
         )?)
+    }
+
+    pub(crate) fn capture_editor(
+        &self,
+        display: [u32; 2],
+        cancelled: impl Fn() -> bool,
+    ) -> io::Result<Vec<u8>> {
+        let deadline = Instant::now() + SHORT_COMMAND;
+        check_editor_capture(deadline, &cancelled)?;
+        let mut stream = self.server.adb.socket()?;
+        check_editor_capture(deadline, &cancelled)?;
+        service(&mut stream, "exec:screencap -p")?;
+        stream.set_read_timeout(Some(EDITOR_FRAME_POLL))?;
+        let png = read_editor_frame(stream, EDITOR_FRAME_LIMIT, deadline, &cancelled)?;
+        check_editor_capture(deadline, &cancelled)?;
+        if editor_frame_size(&png) != Some(display) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Editor frame does not match the Android display",
+            ));
+        }
+        Ok(png)
     }
 
     pub(crate) fn key(
@@ -542,12 +659,28 @@ impl MirrorControl {
     }
 
     pub(crate) fn release_all(&mut self) -> io::Result<()> {
-        if let Some(position) = self.touch.take() {
-            // Losing host capture must not complete an Android click on the last point.
-            self.send(&touch_packet(TouchAction::Cancel, position))?;
-        }
+        self.release_touches()?;
         for (code, metastate) in std::mem::take(&mut self.keys) {
             self.send(&key_packet(KeyAction::Up, code, 0, metastate))?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn release_mapped(&mut self) -> io::Result<()> {
+        if self
+            .touches
+            .0
+            .last_key_value()
+            .is_some_and(|(&id, _)| id != 0)
+        {
+            self.release_touches()?;
+        }
+        Ok(())
+    }
+
+    fn release_touches(&mut self) -> io::Result<()> {
+        for packet in std::mem::take(&mut self.touches).release() {
+            self.send(&packet)?;
         }
         Ok(())
     }
@@ -694,20 +827,49 @@ pub(crate) fn query_display_size(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::TcpListener;
+
+    fn local_control() -> (MirrorControl, TcpStream) {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let stream = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (reader, _) = listener.accept().unwrap();
+        reader.set_read_timeout(Some(SHORT_IO)).unwrap();
+        (
+            MirrorControl {
+                server: Server {
+                    adb: Adb {
+                        program: PathBuf::new(),
+                        transport_id: 1,
+                    },
+                    serial: String::new(),
+                    remote: String::new(),
+                    scid: String::new(),
+                    child: None,
+                    log: tempfile::tempfile().unwrap(),
+                    cleanup: false,
+                },
+                stream,
+                connected: true,
+                touches: Touches::default(),
+                keys: BTreeMap::new(),
+            },
+            reader,
+        )
+    }
 
     #[test]
     fn scrcpy_v501_packets_are_big_endian_and_use_guest_coordinates() {
         let position = Position::new([0x0123, 0x0456], [0x0640, 0x0500]).unwrap();
         assert_eq!(
-            touch_packet(TouchAction::Down, position),
+            touch_packet(0x0102030405060708, TouchAction::Down, position),
             [
-                2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0x23, 0, 0, 4, 0x56, 6, 0x40, 5, 0, 0xff,
+                2, 0, 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 1, 0x23, 0, 0, 4, 0x56, 6, 0x40, 5, 0, 0xff,
                 0xff, 0, 0, 0, 0, 0, 0, 0, 0,
             ]
         );
-        assert_eq!(touch_packet(TouchAction::Move, position)[1], 2);
-        assert_eq!(touch_packet(TouchAction::Up, position)[22..24], [0, 0]);
-        let cancel = touch_packet(TouchAction::Cancel, position);
+        assert_eq!(touch_packet(0, TouchAction::Move, position)[1], 2);
+        assert_eq!(touch_packet(0, TouchAction::Up, position)[22..24], [0, 0]);
+        let cancel = touch_packet(0, TouchAction::Cancel, position);
         assert_eq!(cancel[..2], [2, 3]);
         assert_eq!(cancel[22..24], [0, 0]);
         assert_eq!(
@@ -719,6 +881,150 @@ mod tests {
         assert_eq!(ROTATE_DEVICE, [11]);
         assert!(scroll_packet(position, f32::NAN, 0.0).is_err());
         assert!(Position::new([1600, 8], [1600, 900]).is_err());
+    }
+
+    #[test]
+    fn mapped_dpad_button_and_mouse_keep_distinct_contacts() {
+        let display = [1600, 900];
+        let dpad = Position::new([200, 760], display).unwrap();
+        let button = Position::new([1300, 750], display).unwrap();
+        let moved = Position::new([230, 710], display).unwrap();
+        let mut touches = Touches::default();
+        for (id, action, point) in [
+            (5, TouchAction::Down, dpad),
+            (6, TouchAction::Down, button),
+            (0, TouchAction::Down, button),
+            (5, TouchAction::Move, moved),
+            (6, TouchAction::Up, button),
+        ] {
+            assert_eq!(
+                touches.update(id, action, point),
+                Some(touch_packet(id, action, point))
+            );
+        }
+        assert!(touches.update(6, TouchAction::Move, button).is_none());
+        assert_eq!(touches.0[&5].point, moved.point);
+        assert!(touches.0.contains_key(&0));
+    }
+
+    #[test]
+    fn release_cancels_the_gesture_before_freeing_every_server_slot() {
+        let mut touches = Touches::default();
+        let point = Position::new([90, 80], [1600, 900]).unwrap();
+        for id in [3, 0, 9] {
+            assert!(touches.update(id, TouchAction::Down, point).is_some());
+        }
+        let released: Vec<_> = std::mem::take(&mut touches).release().collect();
+        assert_eq!(
+            released,
+            [
+                touch_packet(0, TouchAction::Cancel, point),
+                touch_packet(0, TouchAction::Up, point),
+                touch_packet(3, TouchAction::Up, point),
+                touch_packet(9, TouchAction::Up, point),
+            ]
+        );
+        assert!(touches.update(3, TouchAction::Up, point).is_none());
+        assert!(touches.update(3, TouchAction::Down, point).is_some());
+    }
+
+    #[test]
+    fn changing_the_foreground_cancels_mapped_touches_without_releasing_android_keys() {
+        let (mut control, mut wire) = local_control();
+        let display = [1600, 900];
+        let point = Position::new([100, 150], display).unwrap();
+        control
+            .touch(0, TouchAction::Down, point.point, display)
+            .unwrap();
+        control.release_mapped().unwrap();
+        assert!(control.touches.0.contains_key(&0));
+        control
+            .touch(19, TouchAction::Down, point.point, display)
+            .unwrap();
+        control.key(KeyAction::Down, 29, 0, 0).unwrap();
+        control.release_mapped().unwrap();
+        assert!(control.touches.0.is_empty());
+        assert!(control.keys.contains_key(&29));
+        control.rotate().unwrap();
+
+        let expected: Vec<u8> = [
+            touch_packet(0, TouchAction::Down, point).as_slice(),
+            &touch_packet(19, TouchAction::Down, point),
+            &key_packet(KeyAction::Down, 29, 0, 0),
+            &touch_packet(0, TouchAction::Cancel, point),
+            &touch_packet(0, TouchAction::Up, point),
+            &touch_packet(19, TouchAction::Up, point),
+            &key_packet(KeyAction::Up, 29, 0, 0),
+            &ROTATE_DEVICE,
+        ]
+        .concat();
+        let mut observed = vec![0; expected.len()];
+        wire.read_exact(&mut observed).unwrap();
+        assert_eq!(observed, expected);
+    }
+
+    #[test]
+    fn a_failed_cancel_discards_every_local_contact_and_closes_the_control_stream() {
+        let (mut control, _wire) = local_control();
+        for id in [0, 2, 6] {
+            control
+                .touch(id, TouchAction::Down, [100, 150], [1600, 900])
+                .unwrap();
+        }
+        control.key(KeyAction::Down, 29, 0, 0).unwrap();
+        control.stream.shutdown(Shutdown::Write).unwrap();
+        assert!(control.release_all().is_err());
+        assert!(!control.connected);
+        assert!(control.touches.0.is_empty());
+        assert!(control.keys.is_empty());
+        assert!(control.release_all().is_ok());
+        assert_eq!(
+            control.send(&ROTATE_DEVICE).unwrap_err().kind(),
+            io::ErrorKind::NotConnected
+        );
+    }
+
+    #[test]
+    fn too_many_duplicate_and_old_size_contacts_cannot_corrupt_active_contacts() {
+        let mut touches = Touches::default();
+        let point = Position::new([50, 20], [1600, 900]).unwrap();
+        let rotated = Position::new([50, 20], [900, 1600]).unwrap();
+        for id in 0..MAX_TOUCHES as u64 {
+            assert!(touches.update(id, TouchAction::Down, point).is_some());
+        }
+        assert!(touches.update(0, TouchAction::Down, point).is_none());
+        assert!(touches.update(1, TouchAction::Up, rotated).is_none());
+        assert!(touches.update(10, TouchAction::Down, point).is_none());
+        assert!(touches.update(1, TouchAction::Up, point).is_some());
+        assert!(touches.update(10, TouchAction::Move, point).is_none());
+        assert!(touches.update(10, TouchAction::Down, point).is_some());
+    }
+
+    #[test]
+    fn editor_capture_rejects_oversize_late_cancelled_or_invalid_frames() {
+        let header = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\x06\x40\0\0\x03\x84";
+        let deadline = Instant::now() + SHORT_IO;
+        let captured = read_editor_frame(&header[..], header.len(), deadline, || false).unwrap();
+        assert_eq!(editor_frame_size(&captured), Some([1600, 900]));
+        assert_eq!(editor_frame_size(&captured[..16]), None);
+        assert_eq!(editor_frame_size(b"failed to capture"), None);
+        for (limit, deadline, cancelled, error) in [
+            (
+                header.len() - 1,
+                deadline,
+                false,
+                io::ErrorKind::InvalidData,
+            ),
+            (header.len(), Instant::now(), false, io::ErrorKind::TimedOut),
+            (header.len(), deadline, true, io::ErrorKind::Interrupted),
+        ] {
+            assert_eq!(
+                read_editor_frame(&header[..], limit, deadline, || cancelled)
+                    .unwrap_err()
+                    .kind(),
+                error
+            );
+        }
     }
 
     #[test]

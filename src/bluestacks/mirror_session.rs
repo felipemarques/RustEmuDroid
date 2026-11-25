@@ -21,6 +21,7 @@ use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 use super::{
     Installation, configured_instances, launch,
     mirror_control::{MirrorControl, query_display_size},
+    mirror_foreground::ForegroundWatch,
     mirror_target::{ConfiguredTarget, MirrorTarget, TargetError, configured_target},
     player_process::{PlayerError, PlayerSource, find_preview_player, verify_adb_player},
     valid_package,
@@ -41,7 +42,9 @@ const ROTATION_REFRESH_WINDOW: Duration = Duration::from_secs(3);
 pub(crate) enum MirrorEvent {
     Player(u32, u64),
     Ready([u32; 2]),
+    Foreground(u64, Option<String>),
     RotationChecked([u32; 2]),
+    EditorFrame(u64, Result<Vec<u8>, String>),
     ViewOnly(String),
     Failed(String),
 }
@@ -49,6 +52,13 @@ pub(crate) enum MirrorEvent {
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum MirrorInput {
     Touch(TouchAction, [u32; 2], [u32; 2]),
+    Contact {
+        id: u64,
+        epoch: u64,
+        action: TouchAction,
+        point: [u32; 2],
+        size: [u32; 2],
+    },
     Scroll([u32; 2], [u32; 2], f32, f32),
     Key(KeyAction, u32, u32, u32),
     Back,
@@ -57,6 +67,14 @@ pub(crate) enum MirrorInput {
     Rotate,
     Release,
     Refresh([u32; 2]),
+    CaptureEditor {
+        token: u64,
+        epoch: u64,
+    },
+}
+
+fn current_epoch(captured: u64, observed: u64) -> bool {
+    captured != 0 && captured == observed
 }
 
 pub(crate) struct MirrorSession {
@@ -277,6 +295,7 @@ impl Worker {
             &mirrored.endpoint.to_string(),
         )?;
         self.check_cancelled()?;
+        let foreground = ForegroundWatch::start(target, mirrored, self.events.clone());
         let result = self.forward(
             &mut control,
             &adb,
@@ -284,6 +303,7 @@ impl Worker {
             mirrored,
             display,
             latest_preview,
+            &foreground,
         );
         // close() releases held controls and removes only the resources created by this session.
         result.and(control.close())
@@ -506,12 +526,14 @@ impl Worker {
         mirrored: MirrorTarget,
         mut display: [u32; 2],
         mut preview: Option<[u32; 2]>,
+        foreground: &ForegroundWatch,
     ) -> io::Result<()> {
         if !self.emit(MirrorEvent::Ready(display)) {
             return Ok(());
         }
         let mut rotation_check = None;
         let mut rotation_refresh_until = None;
+        let mut epoch = foreground.epoch();
         while !self.cancelled.load(Ordering::Acquire) {
             if rotation_check.is_some_and(|due| due <= Instant::now()) {
                 display = self.display(adb, mirrored, target, preview)?;
@@ -522,16 +544,35 @@ impl Worker {
                 }
             }
             let command = match self.input.recv_timeout(Duration::from_millis(100)) {
-                Ok(command) => command,
-                Err(RecvTimeoutError::Timeout) => continue,
+                Ok(command) => Some(command),
+                Err(RecvTimeoutError::Timeout) => None,
                 Err(RecvTimeoutError::Disconnected) => break,
             };
             self.check_cancelled()?;
+            let observed_epoch = foreground.epoch();
+            if observed_epoch != epoch {
+                control.release_mapped()?;
+                epoch = observed_epoch;
+            }
+            let Some(command) = command else { continue };
             match command {
                 MirrorInput::Touch(action, point, size)
                     if rotation_check.is_none() && size == display =>
                 {
-                    control.touch(action, point, size)?
+                    control.touch(0, action, point, size)?
+                }
+                MirrorInput::Contact {
+                    id,
+                    epoch: captured_epoch,
+                    action,
+                    point,
+                    size,
+                } if rotation_check.is_none()
+                    && size == display
+                    && current_epoch(captured_epoch, epoch)
+                    && (1..=i64::MAX as u64).contains(&id) =>
+                {
+                    control.touch(id, action, point, size)?
                 }
                 MirrorInput::Scroll(point, size, horizontal, vertical)
                     if rotation_check.is_none() && size == display =>
@@ -549,6 +590,30 @@ impl Worker {
                     rotation_check = Some(Instant::now() + ROTATION_SETTLE);
                 }
                 MirrorInput::Release => control.release_all()?,
+                MirrorInput::CaptureEditor {
+                    token,
+                    epoch: captured_epoch,
+                } => {
+                    let result = if !current_epoch(captured_epoch, foreground.epoch()) {
+                        Err(io::Error::other("The Android foreground changed."))
+                    } else if rotation_check.is_some() {
+                        Err(io::Error::other("The Android display is rotating."))
+                    } else {
+                        self.confirm_transport(target, mirrored, adb)
+                            .and_then(|()| {
+                                control.capture_editor(display, || {
+                                    self.cancelled.load(Ordering::Acquire)
+                                        || !current_epoch(captured_epoch, foreground.epoch())
+                                })
+                            })
+                    };
+                    if !self.emit(MirrorEvent::EditorFrame(
+                        token,
+                        result.map_err(|e| e.to_string()),
+                    )) {
+                        break;
+                    }
+                }
                 MirrorInput::Refresh(size)
                     if rotation_check.is_none()
                         && valid_dimensions(size)
@@ -600,7 +665,9 @@ fn read_target(installation: &Installation, instance: &str) -> io::Result<Config
     configured_target(&config, instance).map_err(io::Error::other)
 }
 
-fn adb_target(configured: ConfiguredTarget) -> io::Result<Result<MirrorTarget, TargetError>> {
+pub(super) fn adb_target(
+    configured: ConfiguredTarget,
+) -> io::Result<Result<MirrorTarget, TargetError>> {
     let raw = host_request("host:devices-l")?;
     Ok(configured.validate_adb_devices(&format!("List of devices attached\n{raw}")))
 }
@@ -793,6 +860,14 @@ fn parse_version(output: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mapped_commands_require_the_observed_foreground_epoch() {
+        assert!(current_epoch(7, 7));
+        assert!(!current_epoch(0, 0));
+        assert!(!current_epoch(7, 8));
+        assert!(!current_epoch(8, 7));
+    }
 
     #[test]
     #[ignore = "requires an operator-owned BlueStacks session; reads Windows, configuration and ADB host state only"]
