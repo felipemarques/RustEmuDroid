@@ -304,7 +304,7 @@ Para comparar las tarjetas gráficas en Windows, abre **FPS WW2 URP → Start Ga
 | Componente | Función |
 |---|---|
 | [Cliente de escritorio](src/ui.rs) | Rust con eframe/egui y Glow. Gestiona la ventana, ajustes, controles y apagado. |
-| [Prototipo con GPUI](experiments/README.md) | Una ventana independiente de Rust muestra Android en directo. Al reproducir la misma grabación del kart con ambos visores publicados en la Radeon 780M, Windows registró 71,18 presentaciones/s con GPUI y 82,50 con Glow, el renderizador actual. [Mediciones](experiments/results/windows-viewers-stk-presentmon-release.md) · [Ver la interfaz](experiments/screenshots/gpui-es-ES.png) |
+| [Prototipo con GPUI](experiments/README.md) | Una ventana independiente de Rust muestra Android en directo. Al reproducir la misma grabación del kart con ambos visores publicados en la Radeon 780M, Windows registró 71,18 presentaciones/s con GPUI y 82,50 con Glow, el renderizador actual. [Mediciones](experiments/results/windows-viewers-stk-presentmon.md#published-gpui-lab-v011) · [Ver la interfaz](experiments/screenshots/gpui-es-ES.png) |
 | [Ciclo de vida](src/android.rs) | Descubre SDK e imágenes, prepara AVD, inicia el motor y espera a que salga. |
 | [Vídeo y entrada](src/display.rs) | Recibe fotogramas RGBA mediante gRPC local autenticado y reenvía los eventos táctiles y de teclado. |
 | [Pantalla de inicio](android/home) | Actividad Android que consulta las aplicaciones instaladas y muestra sus iconos o imágenes de portada. Se instala mediante ADB. |

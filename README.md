@@ -309,7 +309,7 @@ For a repeatable graphics test on Windows, try **FPS WW2 URP → Start Game → 
 | Component | Role |
 |---|---|
 | [Desktop UI](src/ui.rs) | Rust, eframe/egui and Glow. Owns the native window, controls, settings and shutdown screen. |
-| [Experimental GPUI viewer](experiments/README.md) | A separate Rust window can display live Android video. Playing the same recorded kart clip with the published viewers on the Radeon 780M, Windows recorded 71.18 presentation events/s for GPUI and 82.50 for the current Glow renderer. [Measurements](experiments/results/windows-viewers-stk-presentmon-release.md) · [Screenshot](experiments/screenshots/gpui-en-US.png) |
+| [Experimental GPUI viewer](experiments/README.md) | A separate Rust window can display live Android video. Playing the same recorded kart clip with the published viewers on the Radeon 780M, Windows recorded 71.18 presentation events/s for GPUI and 82.50 for the current Glow renderer. [Measurements](experiments/results/windows-viewers-stk-presentmon.md#published-gpui-lab-v011) · [Screenshot](experiments/screenshots/gpui-en-US.png) |
 | [VM lifecycle](src/android.rs) | Discovers the SDK and images, creates AVDs, launches the selected emulator and waits for its exit. |
 | [Display and input](src/display.rs) | Receives authenticated local gRPC frames from `EmulatorController.streamScreenshot`, retains the latest pending RGBA frame and forwards touch and key input. |
 | [Android Home](android/home) | Native Android activity. Reads launcher entries through PackageManager and uses app banners or icons. The desktop client installs the embedded development APK through ADB. |
