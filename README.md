@@ -109,6 +109,8 @@ For touch, drag, scroll, keyboard input and the Android navigation buttons, enab
 
 To install a game from your PC, click **Install APK** in the toolbar above the BlueStacks preview, between the camera and folder buttons. Choose the `.apk` file and wait for the confirmation. Android installs it in the BlueStacks instance you opened. This action requires the same ADB connection as touch input. If Android rejects the file, hover over the failure message to read its reason. [Confirmation shown in the toolbar](docs/screenshots/en-us/bluestacks-apk-installed.png)
 
+![Camera, Install APK and captures folder in the BlueStacks preview. Install APK is the middle button.](docs/screenshots/en-us/bluestacks-install-apk.png)
+
 Use the camera button or **Ctrl+Shift+S** in the BlueStacks preview to save the Android screen at its native resolution. PNG capture requires an active ADB connection. The folder button opens `captures/` beside `launcher.json`.
 
 In the BlueStacks preview, open a game and click the keyboard icon and choose **Controls editor**, or press **Ctrl+Shift+A**. Place the controls on the captured game image. Android keeps running while the editor is open. Save to return to the live view. **Ctrl+Shift+P** switches between the schemes saved for that game and BlueStacks instance. Hold a D-pad direction and an action button together to send two touches. The editor displays the binding markers. Live game hints and sensor tilt are available in the native Android session.

@@ -34,6 +34,8 @@ The Windows v0.21.0 toolbar has an **Install APK** button between the camera and
 
 The automated run supplied the file path at the picker boundary. It captured the confirmation in [English](screenshots/en-us/bluestacks-apk-installed.png), [Brazilian Portuguese](screenshots/pt-br/bluestacks-apk-installed.png) and [Spanish](screenshots/es-es/bluestacks-apk-installed.png). An initial live run found that this Pie package manager rejects a trailing standalone dash. The working streaming request ends with the byte count and supplies the APK on the selected transport. [Android 9 ADB client](https://android.googlesource.com/platform/system/core/+/android-9.0.0_r61/adb/commandline.cpp#1867)
 
+We repeated the installation using the Windows executable extracted from the published v0.21.0 ZIP. A physical click on the install icon opened the native Windows file picker in each language. In English we entered the actual file path, confirmed installation and verified the APK hash in Android. In Portuguese and Spanish we cancelled the dialog and verified that the test package remained absent. The button is the middle icon in this [toolbar capture from the release](screenshots/en-us/bluestacks-install-apk.png).
+
 ### Booting an archived data disk with the installed BlueStacks engine
 
 On November 24 we created a separate, stopped Pie64 instance in BlueStacks 5.22.166.1003 on Windows. The Multi-instance Manager registered it as `Pie64_1`. We preserved its fresh data disk, restored a working copy of the archived `Data.vhdx` to its data slot and verified the full 13,208,911,872 bytes by SHA-256 before boot. Its factory root and boot media were the read-only attachments selected by the manager. The primary instance retained its own data disk.

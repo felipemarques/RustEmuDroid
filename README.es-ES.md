@@ -109,6 +109,8 @@ Para usar toques, arrastre, desplazamiento, teclado y los botones de navegación
 
 Para instalar un juego desde tu PC, pulsa **Instalar APK** en la barra situada sobre la vista previa de BlueStacks, entre los iconos de cámara y carpeta. Elige el archivo `.apk` y espera la confirmación. Android instala el juego en la instancia de BlueStacks que has abierto. El botón usa la misma conexión ADB que los controles táctiles. Si Android rechaza el archivo, pasa el puntero sobre el mensaje de error para ver el motivo. [Confirmación en la barra](docs/screenshots/es-es/bluestacks-apk-installed.png)
 
+![Cámara, Instalar APK y carpeta de capturas en la vista previa de BlueStacks. Instalar APK es el botón central.](docs/screenshots/es-es/bluestacks-install-apk.png)
+
 Pulsa el icono de cámara o **Ctrl+Mayús+S** en la vista previa de BlueStacks para guardar la pantalla de Android a su resolución nativa. La captura PNG requiere una conexión ADB activa. El botón de carpeta abre `captures/` junto a `launcher.json`.
 
 En la vista previa de BlueStacks, abre un juego y pulsa el icono de teclado y elige **Editor de controles**, o pulsa **Ctrl+Shift+A**. Coloca los controles sobre la captura. Android sigue ejecutando el juego mientras editas. Guarda para volver a la vista en directo. **Ctrl+Shift+P** alterna entre los perfiles guardados para ese juego y esa instancia de BlueStacks. Mantén pulsados una dirección y un botón de acción a la vez para enviar dos toques. El editor muestra las marcas de las teclas. En la sesión Android nativa también puedes verlas mientras juegas y asignar el sensor de inclinación.
