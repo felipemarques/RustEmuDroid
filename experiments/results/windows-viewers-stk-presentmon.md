@@ -1,5 +1,7 @@
 # Windows presentation events from the SuperTuxKart replay viewers
 
+Present interval P99 in both tables uses the lower empirical quantile. Sort the intervals and select the zero-based index `floor(0.99 × (n − 1))`.
+
 Glow and GPUI replayed the same 120-frame SuperTuxKart Black Forest clip from disk at 90 source updates/s. Both used the Radeon 780M and the same position and 1040 × 585 physical client area on its 1920 × 1080, 100 Hz display. The 640 × 360 input, both viewer executables and the PresentMon console are pinned by SHA-256 in the results. The initial standalone builds and the published v0.1.1 builds were tested in separate batches. No VM or live game was started for this comparison.
 
 ## Initial standalone builds
