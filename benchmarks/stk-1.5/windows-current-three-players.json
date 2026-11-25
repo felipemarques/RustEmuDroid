@@ -1,0 +1,315 @@
+{
+  "game": "SuperTuxKart 1.5",
+  "scene": "Black Forest native benchmark replay",
+  "apk_sha256": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e",
+  "apk_abi": "x86_64",
+  "guest_vcpus": 4,
+  "guest_display_pixels": [
+    1600,
+    900
+  ],
+  "active_guest_hz": 90,
+  "host_gpu": "NVIDIA GeForce RTX 5070 Ti",
+  "preset": "High Vulkan",
+  "present_mode": "FIFO",
+  "game_vsync": true,
+  "game_fps_preference": 90,
+  "graphics_fields": {
+    "Resolution width": "1600",
+    "Resolution height": "900",
+    "Render resolution": "1",
+    "Dynamic lighting": "1",
+    "Particle effects": "2",
+    "Animated characters": "1",
+    "Geometry Detail": "4",
+    "Bloom": "1",
+    "Glow": "1",
+    "Light Shaft": "1",
+    "Anti-Aliasing (MLAA)": "0",
+    "SSAO": "1",
+    "Anisotropic Filtering": "16",
+    "Shadow Resolution": "1024",
+    "Light scattering": "0",
+    "Degraded IBL": "0",
+    "Motion Blur": "0",
+    "Depth of Field": "0",
+    "Texture compression": "1",
+    "HD Textures": "0",
+    "HQ Mipmap": "0"
+  },
+  "players": [
+    {
+      "player": "RustEmuDroid",
+      "version": "0.21.1",
+      "android": "17 Google Play",
+      "frontend": "integrated Rust/Glow, Fit frames to window",
+      "engine": "Android Emulator 37.3.10",
+      "host_displayed_content_pixels": [
+        800,
+        450
+      ],
+      "guest_density_dpi": 320,
+      "player_executable_sha256": "513fc67688ba6c5e48a57f0db097ffc6c7fcf5358b5133c5f1d2ce2ae51de949",
+      "qemu_sha256": "fae5ffdf64cf8cbd350af1aa726e407c5dce7f335821787cd2b15a5c1671dcf8",
+      "start_delay_seconds": 14,
+      "runs": [
+        {
+          "game": {
+            "frames": 3265,
+            "duration_ms": 38075,
+            "fps": 85.75180564674983
+          },
+          "android_surfaceview": {
+            "duration_s": 20.01946355,
+            "presentations": 1710,
+            "presentations_per_second": 85.41687421988887,
+            "p99_interval_ms": 23.5075,
+            "max_interval_ms": 25.3121,
+            "intervals_over_250_ms": 0
+          },
+          "panel": {
+            "captured_size_px": [
+              800,
+              450
+            ],
+            "processed_frames": 1581,
+            "counter_duration_ms": 19123,
+            "processed_frames_per_second": 82.67531245097527,
+            "complete_counter_intervals": 19
+          },
+          "vulkan_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+          "vulkan_version": "1.3.0",
+          "vulkan_driver": "26.0.65.35",
+          "source_hashes": {
+            "stk_report_csv_sha256": "96ce6d035bf03a946ec860d99aa26b8faead7772b75e2512e8529b87e170767b",
+            "stk_frame_trace_sha256": "eb61b1e0f42b3fe32c21828fb46b64f05074a637ad00ce51fa5bb9830c44c034"
+          }
+        },
+        {
+          "game": {
+            "frames": 3254,
+            "duration_ms": 38062,
+            "fps": 85.49209185013925
+          },
+          "android_surfaceview": {
+            "duration_s": 20.0207479,
+            "presentations": 1703,
+            "presentations_per_second": 85.06175735822536,
+            "p99_interval_ms": 23.2382,
+            "max_interval_ms": 26.2354,
+            "intervals_over_250_ms": 0
+          },
+          "panel": {
+            "captured_size_px": [
+              800,
+              450
+            ],
+            "processed_frames": 1583,
+            "counter_duration_ms": 19140,
+            "processed_frames_per_second": 82.70637408568443,
+            "complete_counter_intervals": 19
+          },
+          "vulkan_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+          "vulkan_version": "1.3.0",
+          "vulkan_driver": "26.0.65.35",
+          "source_hashes": {
+            "stk_report_csv_sha256": "be69ff9da4cfa2a41f8e81219120796c8b97d47b395e02ae6564f35edb336ea3",
+            "stk_frame_trace_sha256": "8f72c8a0cbdd55e646641f2644d97fa530e4def9f7b052bf0a8f644b835141eb"
+          }
+        }
+      ],
+      "pooled": {
+        "game_fps": 85.62197092084007,
+        "android_surfaceview_per_s": 85.23931009360341,
+        "android_surfaceview_replays": 2,
+        "rust_panel_processed_frames_per_s": 82.69085016857017
+      },
+      "earlier_matched_control": {
+        "version": "0.18.1",
+        "source": "windows-vulkan-90hz-scoped-native.json",
+        "pooled": {
+          "game_fps": 82.85451921815559,
+          "android_surfaceview_per_s": 81.73080279785138,
+          "android_surfaceview_replays": 2,
+          "rust_panel_processed_frames_per_s": null
+        },
+        "surface_p99_ms_by_replay": [
+          23.8502,
+          23.4833
+        ]
+      }
+    },
+    {
+      "player": "Kemu",
+      "version": "0.7.1",
+      "android": "16 Kemu OS",
+      "frontend": "original Qt native Vulkan subwindow",
+      "engine": "Kemu Android QEMU 37.2.10",
+      "host_displayed_content_pixels": [
+        1280,
+        720
+      ],
+      "guest_density_dpi": 320,
+      "player_executable_sha256": "e5052772b1e1ec19e60d59d9d48588f62712a62f8f0c7ef08f4a189260cd978a",
+      "qemu_sha256": "9b6dd661855a65266fb8982cdea913fb189f9e967821cb621f51b85fd96ad3ea",
+      "start_delay_seconds": 12,
+      "runs": [
+        {
+          "game": {
+            "frames": 3432,
+            "duration_ms": 38128,
+            "fps": 90.01258917331096
+          },
+          "android_surfaceview": {
+            "duration_s": 20.0182753,
+            "presentations": 1800,
+            "presentations_per_second": 89.91783622837877,
+            "p99_interval_ms": 13.557951,
+            "max_interval_ms": 15.343229,
+            "intervals_over_250_ms": 0
+          },
+          "panel": null,
+          "vulkan_renderer": "Adreno (TM) 830",
+          "vulkan_version": "1.3.0",
+          "vulkan_driver": "512.849.1",
+          "source_hashes": {
+            "stk_report_csv_sha256": "e1caffc7813ae76d877406b2bb19b2fb3fac77867999ec9b638ee358b40ce8af",
+            "stk_frame_trace_sha256": "52ca5f6aad427f4eb0385c34db63b9cbfe103431010e6a184e2892fa6347546d"
+          }
+        },
+        {
+          "game": {
+            "frames": 3432,
+            "duration_ms": 38125,
+            "fps": 90.01967213114754
+          },
+          "android_surfaceview": {
+            "duration_s": 20.0187583,
+            "presentations": 1802,
+            "presentations_per_second": 90.01557304380862,
+            "p99_interval_ms": 13.337015,
+            "max_interval_ms": 16.019071,
+            "intervals_over_250_ms": 0
+          },
+          "panel": null,
+          "vulkan_renderer": "Adreno (TM) 830",
+          "vulkan_version": "1.3.0",
+          "vulkan_driver": "512.849.1",
+          "source_hashes": {
+            "stk_report_csv_sha256": "1b6d87888442aaa6b06872e02e95710ca58c2a2b8ff199e7d09bc0c07049342a",
+            "stk_frame_trace_sha256": "c4fda82af52ea6cc47b31bea62f1d2dd7385a7ea69af9d4a5d9a8ad8c7b5e763"
+          }
+        }
+      ],
+      "pooled": {
+        "game_fps": 90.01613051289786,
+        "android_surfaceview_per_s": 89.9667052256339,
+        "android_surfaceview_replays": 2,
+        "rust_panel_processed_frames_per_s": null
+      },
+      "earlier_matched_control": {
+        "version": "0.7.1",
+        "source": "windows-vulkan-90hz-scoped-kemu.json",
+        "pooled": {
+          "game_fps": 90.0174396496335,
+          "android_surfaceview_per_s": 90.06657943346292,
+          "android_surfaceview_replays": 2,
+          "rust_panel_processed_frames_per_s": null
+        },
+        "surface_p99_ms_by_replay": [
+          12.810164,
+          12.749221
+        ]
+      }
+    },
+    {
+      "player": "BlueStacks 5",
+      "version": "5.22.166.1003",
+      "android": "9 Pie64 isolated clone",
+      "frontend": "official HD-Player",
+      "host_displayed_content_pixels": [
+        1600,
+        900
+      ],
+      "outer_frame_changed": true,
+      "guest_density_dpi": 240,
+      "start_delay_seconds": 26,
+      "runs": [
+        {
+          "game": {
+            "frames": 3431,
+            "duration_ms": 38129,
+            "fps": 89.98400167851241
+          },
+          "android_surfaceview": {
+            "duration_s": 20.02305135,
+            "presentations": 1803,
+            "presentations_per_second": 90.04621565833422,
+            "p99_interval_ms": 11.111111,
+            "max_interval_ms": 11.111111,
+            "intervals_over_250_ms": 0
+          },
+          "panel": null,
+          "vulkan_renderer": "NVIDIA GeForce RTX 5070 Ti",
+          "vulkan_version": "1.3.0",
+          "vulkan_driver": "610.88.0.0",
+          "source_hashes": {
+            "stk_report_csv_sha256": "e27e981718e0eff7001ec9eee506c61169b285a76b1e3e7e9aa54935b3354023",
+            "stk_frame_trace_sha256": "19125d896a4565d19ad25fefaf7399ad2dfb4a9bd271b150e8802fd152571fab"
+          }
+        },
+        {
+          "game": {
+            "frames": 3431,
+            "duration_ms": 38126,
+            "fps": 89.9910822011226
+          },
+          "android_surfaceview": {
+            "duration_s": 20.0212801,
+            "presentations": 1800,
+            "presentations_per_second": 89.9043413313018,
+            "p99_interval_ms": 11.111111,
+            "max_interval_ms": 33.333333,
+            "intervals_over_250_ms": 0
+          },
+          "panel": null,
+          "vulkan_renderer": "NVIDIA GeForce RTX 5070 Ti",
+          "vulkan_version": "1.3.0",
+          "vulkan_driver": "610.88.0.0",
+          "source_hashes": {
+            "stk_report_csv_sha256": "e7bdc5a8c93fdda540b2ba7b818440d29789b3dafb27d79ca4c4e3e148cf8dbb",
+            "stk_frame_trace_sha256": "f217f8e54cc584810b2d232ace5ba92d318fc19801869df0e957b6e901e739ca"
+          }
+        }
+      ],
+      "pooled": {
+        "game_fps": 89.98754180053767,
+        "android_surfaceview_per_s": 89.97528163252679,
+        "android_surfaceview_replays": 2,
+        "rust_panel_processed_frames_per_s": null
+      },
+      "earlier_matched_control": {
+        "version": "5.22.166.1003",
+        "source": "windows-vulkan-90hz-scoped-pie64.json",
+        "pooled": {
+          "game_fps": 89.9910822011226,
+          "android_surfaceview_per_s": 89.94927558825245,
+          "android_surfaceview_replays": 2,
+          "rust_panel_processed_frames_per_s": null
+        },
+        "surface_p99_ms_by_replay": [
+          11.111111,
+          11.111111
+        ]
+      }
+    }
+  ],
+  "restoration_verified": true,
+  "discarded_attempts": [
+    {
+      "player": "RustEmuDroid",
+      "stage": "before APK install or warm-up",
+      "reason": "Initial QA window was not in foreground"
+    }
+  ]
+}

@@ -2,6 +2,8 @@
 
 The RustEmuDroid runs used Android Emulator 37.3.10 with the Android 17 Google Play x86-64 image, four guest vCPUs and 8 GiB of guest RAM. Unless a run specifies another setting, the guest display was 1600 × 900 and the active GPU was the GeForce RTX 5070 Ti.
 
+For the first prototype, the current release and the two other players under the same replay workload, see the [Windows performance history](performance-history.md).
+
 ## FPS comparisons on the Windows test PC
 
 We also measured memory at the Android Home screen with all three players configured for 8 GiB. The median Windows working sets of the guest-hosting processes were 1.67 GiB for BlueStacks Pie64, 3.04 GiB for Kemu and 5.73 GiB for RustEmuDroid's Android 17 QEMU. RustEmuDroid's separate desktop UI used 118 MiB. The samples were taken at different times after boot. [Process counters, boot ages and measurement script](../benchmarks/windows-home-memory/README.md)

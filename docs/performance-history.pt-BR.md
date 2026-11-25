@@ -1,0 +1,58 @@
+# Desempenho do RustEmuDroid, Kemu e BlueStacks no Windows
+
+**Relatório de 25 de novembro de 2026.** O primeiro protótipo entregou **45,86 FPS** no replay Black Forest do SuperTuxKart. Ainda na v0.1.0, o RustEmuDroid passou a **59,98 FPS** no perfil Original, próximo dos **59,90** do Kemu. Mais tarde, com o jogo em qualidade Alta e a tela Android a 90 Hz, a interface Rust chegou a **90,02 FPS** usando o motor e a imagem Android 16 do Kemu. Na rodada atual, com a v0.21.1 e Android 17 Google Play, medimos **85,62 FPS** contra **90,02 no Kemu** e **89,99 no BlueStacks**. [English](performance-history.md) · [PDF em português](../output/pdf/comparativo-de-desempenho-2026-11-25.pdf)
+
+## SuperTuxKart do primeiro protótipo até a v0.21.1
+
+Mesmo PC com Windows, Ryzen 9 8945HS e GeForce RTX 5070 Ti. A pista é o replay automático Black Forest do SuperTuxKart 1.5, com Android renderizando a 1600 × 900. Os valores são **FPS calculados pelo jogo**, a partir do número de quadros e da duração integral da corrida.
+
+| Teste na RTX 5070 Ti | RustEmuDroid | Kemu 0.7.1 | BlueStacks 5.22 Pie64 | Corridas por player |
+|---|---:|---:|---:|---|
+| 23/11 · Primeiro protótipo v0.1.0, Original, OpenGL ES, alvo 60 | 45,86 | 59,69 | Sem corrida concluída | 1 |
+| 23/11 · Painel integrado v0.1.0, motor Kemu, Original, OpenGL ES, alvo 60 | 59,98 | 59,90 | — | 3 |
+| 23/11 · Primeira rodada dos três, Original, OpenGL ES, alvo 60 | 59,93 | 59,98 | 60,02 | 3 |
+| 23/11 · Mesma rodada, **Alta**, OpenGL ES, alvo 60 | 28,90 | 28,68 | 59,99 | 3 |
+| 25/11 · v0.18.1, Alta, Vulkan FIFO, Android a 90 Hz, mesmo APK x86-64 | 82,85 | 90,02 | 89,99 | 2 |
+
+No perfil Original a 60, a mudança de configuração do protótipo para o painel integrado rendeu **14,12 FPS (+30,8%)**. Também mudou o motor e o caminho OpenGL. Na primeira comparação em Alta, Rust e Kemu executavam Android 16/x86-64 via ANGLE. O BlueStacks executava Android 9/ARM de 32 bits. Na comparação a 90 Hz, os três executaram exatamente o mesmo APK x86-64 e registraram os mesmos 21 parâmetros gráficos. As versões de Android e os drivers de cada player continuaram diferentes. [Testes iniciais e arquivos por corrida](../benchmarks/stk-1.5/README.md) · [Seis corridas a 90 Hz](../benchmarks/stk-1.5/vulkan-end-scene.md#windows-results-at-90-hz)
+
+O perfil gráfico também explica como foi possível ver **perto de 30 FPS** no kart. Em Alta, o Android 17 do Rust marcou **14,00** com o tradutor OpenGL ES padrão, **25,36** com ANGLE e **56,15** com Vulkan direto naquele ensaio de 23/11. Nas versões v0.2.4 a v0.7.0, o mesmo replay em Alta com Vulkan já sustentava **59,94 a 60,03 FPS** com alvo de 60. Essas corridas preservam o contexto da observação de 24–30 FPS durante o jogo. [Experimento de renderização](../benchmarks/stk-1.5/README.md#home-do-android-e-imagem-google-play) · [Comparação entre versões](game-testing.md#supertuxkart-release-comparison)
+
+## Rodada atual a 90 Hz
+
+| Player e Android | FPS do jogo | Apresentações do Android/s | P99 por corrida (ms) | Área do jogo na janela Windows |
+|---|---:|---:|---:|---:|
+| RustEmuDroid v0.21.1 · Android 17 | **85,62** | 85,24 | 23,51 / 23,24 | 800 × 450 px |
+| Kemu Qt 0.7.1 · Android 16 | **90,02** | 89,97 | 13,56 / 13,34 | 1280 × 720 px |
+| BlueStacks 5.22.166.1003 · Android 9 | **89,99** | 89,98 | 11,11 / 11,11 | 1600 × 900 px |
+
+O perfil habitual do Rust com Android 17 ficou **4,37 FPS (4,85%) atrás do BlueStacks** no jogo. Frente aos 82,85 FPS da v0.18.1, a diferença observada foi de **+2,77 FPS**. A v0.21.1 usou vídeo ajustado a 800 × 450, enquanto o teste da v0.18.1 transmitia 1600 × 900. O jogo continuou renderizando a 1600 × 900 nas duas versões. O painel Rust processou **82,69 quadros/s** na rodada atual.
+
+Cada player completou duas corridas novas, um de cada vez, com quatro vCPUs, o mesmo APK x86-64, os mesmos 21 parâmetros em Alta, Vulkan FIFO e 90 Hz confirmados no Android. O BlueStacks usou seu player oficial e um clone da instância Pie64. Os tamanhos das janelas de exibição, o aquecimento e o instante de amostragem do Android diferem entre players. Com duas corridas por player, pequenas variações na média têm pouca força para estabelecer um vencedor. [Seis corridas, condições e dados](../benchmarks/stk-1.5/windows-current-three-players.md)
+
+Os contadores respondem a perguntas diferentes. **FPS do jogo** inclui o replay completo. **Apresentações do Android/s** conta quadros novos da superfície do jogo numa janela de aproximadamente 20 segundos. O **P99 do intervalo** indica o tempo dentro do qual ocorreram 99% dos intervalos de apresentação nessa janela. Por exemplo, 22 ms são quase dois períodos de uma tela a 90 Hz. Medir o que chega ao monitor físico exigiria outra medição.
+
+## O que explica a diferença no kart?
+
+- **Interface Rust.** Com o mesmo motor QEMU/gfxstream, a mesma imagem Android 16, o mesmo APK e a mesma RTX, RustEmuDroid v0.20.0 e Kemu Qt entregaram **90,02 FPS** cada. O Android apresentou **89,98** e **90,07 quadros/s**, respectivamente. O painel Rust processou **84,07 quadros/s**. Há margem para melhorar a exibição mesmo quando o jogo já alcança 90. No protótipo GPUI, a comparação de imagens compostas pelo Windows produziu 86,00 mudanças/s com GPUI e 84,14 com Glow. A diferença foi menor que a variação entre as duas passagens do GPUI. [Mesmo motor, duas interfaces](../benchmarks/stk-1.5/vulkan-end-scene.md#how-the-kemu-and-rust-windows-receive-game-frames) · [Teste do GPUI](../experiments/results/windows-viewers-stk-dxgi.md)
+- **GPU.** Com a janela Rust v0.21.1 nos dois testes e a mesma RTX, o trecho instrumentado da fila Vulkan teve P95 de **0,7065 ms** no Android 17 do SDK e **0,6997 ms** no Android 16 do Kemu. Os intervalos de apresentação do Android tiveram P99 de **22,97 e 13,18 ms**. Partes do quadro fora do trecho instrumentado incluem aquisição da imagem, sincronização e apresentação. As evidências atuais dão mais motivo para investigar essas etapas e o relógio virtual do que para escrever um driver de GPU. [Tempos da fila gráfica e dos quadros](../benchmarks/stk-1.5/windows-vulkan-gpu-timestamps.md)
+- **Imagem e relógio virtual.** Mantendo o motor do SDK e a janela Rust, medimos **83,67 FPS** no Android 16 Google APIs e **85,61** no Android 17 Google Play. Na comparação com o Kemu, o kernel do Android 17 detectou que o contador de tempo dos núcleos virtuais estava dessincronizado e escolheu o relógio **HPET**. O Kemu manteve o contador **TSC**. Após o replay, a mesma leitura de relógio custou **8,44 µs** no primeiro e **0,018 µs** no segundo. O código WHPX do Kemu sincroniza esse contador na inicialização. Ainda falta medir quantos FPS esse mecanismo explica, alterando só o mecanismo de sincronização. [Imagens oficiais no mesmo motor](../benchmarks/stk-1.5/windows-sdk-android16-vs17.md) · [Logs de boot](../benchmarks/stk-1.5/windows-guest-clocksource.md) · [Medição do relógio](../benchmarks/stk-1.5/windows-guest-clock-cost.md)
+- **CPU.** Na v0.21.1, uma configuração experimental que ativa composição Vulkan e ANGLE reduziu em **14,03%** o tempo de CPU de QEMU por apresentação do Android. O kart passou de **85,61 para 85,77 FPS**. A economia de CPU foi o benefício verificável nessa carga. [Quatro corridas na mesma imagem Android 17](../benchmarks/stk-1.5/windows-android17-vulkan-composition.md)
+
+Para testar a hipótese do relógio, a alteração cabe no QEMU que roda no Windows. O experimento é manter a mesma imagem Google Play, as quatro vCPUs e a mesma configuração gráfica, alternando somente a sincronização do contador na inicialização. O critério de sucesso é obter um relógio estável entre os núcleos, verificar sua precisão contra o relógio do Windows e então repetir o kart. A API já existe no Windows. [Implementação do Kemu](https://github.com/kuloPo/Kemu-emulator_external_qemu/blob/1622371aee57f26f5446ca42ec32bd4faddfc440/target/i386/whpx-all.c#L799-L852) · [API de virtualização da Microsoft](https://learn.microsoft.com/en-us/virtualization/api/hypervisor-platform/funcs/whvsuspendpartitiontime)
+
+## Radeon 780M integrada, PUBG e memória
+
+| Medição | RustEmuDroid | Kemu | BlueStacks |
+|---|---:|---:|---:|
+| Kart, Radeon 780M, Alta, OpenGL ES, alvo 60 · FPS do jogo | 55,49 | 59,87 | 59,99 |
+| Kart, Radeon 780M, Alta, Vulkan, alvo 60 · FPS do jogo | 59,71 | — | — |
+| PUBG, RTX, lobby e inventário, Balanced/High · apresentações/s | 25,20 | — | 29,58 |
+| PUBG, RTX, campo de treino com movimento de câmera, Smooth/High · apresentações/s | 29,29 | — | 29,98 |
+| Memória residente do processo da VM na Home do Android · GiB | 5,73 | 3,04 | 1,67 |
+
+Na integrada, foram três corridas por configuração. A linha OpenGL ES usa Android 16 para Rust e Kemu e Android 9 para BlueStacks. A linha Vulkan usa Android 17 e filtragem anisotrópica 16×, frente a 8× no OpenGL ES. A primeira medição do protótipo foi na RTX. [Dados da Radeon 780M](../benchmarks/stk-1.5/radeon-780m/README.md)
+
+No PUBG, o problema mais perceptível continua sendo **a pausa ao fechar o inventário pela primeira vez**. Levou **1,60–1,68 s** no Rust v0.18.0 e **0,17 s** no BlueStacks. A v0.21.1 ainda demorou **1,61–1,65 s** em três execuções, embora o lobby parado apresentasse 29,37 quadros/s. No treino, o BlueStacks chegou a 59,89 apresentações/s ao selecionar *Extreme*. O maior ajuste oferecido ao Android 17 testado foi *High*. Falta uma série do Kemu nesse percurso. [Comparação no PUBG](game-testing.md#fps-comparisons-on-the-windows-test-pc) · [Reteste na v0.21.1](../benchmarks/pubg-mobile/v0.21.1-android17-first-close-meminfo.md)
+
+As três VMs tinham 8 GiB configurados. A memória da tabela é a mediana de três leituras do processo principal de cada VM no Windows. A interface Rust usou outros **118 MiB**. A idade das sessões e as Homes diferiram, o que limita a comparação de consumo. O relatório cobre este PC Windows. Jogos, GPUs e versões diferentes exigem medições próprias. [Contadores de memória e horários](../benchmarks/windows-home-memory/README.md)

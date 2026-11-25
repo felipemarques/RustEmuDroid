@@ -1,5 +1,7 @@
 # SuperTuxKart 1.5 no Windows
 
+[Comparativo de desempenho do primeiro protótipo até a v0.21.1](../../docs/performance-history.pt-BR.md) · [Performance history in English](../../docs/performance-history.md)
+
 [Radeon 780M integrated graphics benchmark (English)](radeon-780m/README.md)
 
 [Optional SuperTuxKart Vulkan frame profiling (English)](vulkan-end-scene.md)
