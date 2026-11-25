@@ -1,0 +1,53 @@
+meta	NVIDIA GeForce RTX 5070 Ti	4318	0	65536	64	6	31	65536	16
+type	2	1	6
+type	3	1	14
+type	4	0	7
+sample	0	-1	scalar32	206683	204780
+sample	0	-1	memcpy	60392	60021
+sample	0	2	memcpy	61754	61213
+sample	0	2	scalar32	200622	200431
+sample	0	3	scalar32	222302	221861
+sample	0	3	memcpy	73887	73436
+sample	0	4	memcpy	59901	59510
+sample	0	4	scalar32	199810	199549
+sample	1	4	memcpy	59680	59500
+sample	1	4	scalar32	199891	199480
+sample	1	3	scalar32	277013	224256
+sample	1	3	memcpy	62456	62286
+sample	1	2	memcpy	59601	59450
+sample	1	2	scalar32	202626	202475
+sample	1	-1	scalar32	236628	232019
+sample	1	-1	memcpy	65492	61544
+sample	2	-1	scalar32	209489	209158
+sample	2	-1	memcpy	59581	59410
+sample	2	2	memcpy	415329	43751
+sample	2	2	scalar32	203107	202886
+sample	2	3	scalar32	232772	232260
+sample	2	3	memcpy	62496	62265
+sample	2	4	memcpy	59550	59390
+sample	2	4	scalar32	200010	199781
+sample	3	4	memcpy	59540	59299
+sample	3	4	scalar32	199841	199450
+sample	3	3	scalar32	224967	224196
+sample	3	3	memcpy	63879	63688
+sample	3	2	memcpy	62045	61765
+sample	3	2	scalar32	205661	205490
+sample	3	-1	scalar32	224346	223955
+sample	3	-1	memcpy	61905	61654
+sample	4	-1	scalar32	205821	205661
+sample	4	-1	memcpy	61524	61193
+sample	4	2	memcpy	62246	62085
+sample	4	2	scalar32	212494	212123
+sample	4	3	scalar32	224176	223935
+sample	4	3	memcpy	67676	67335
+sample	4	4	memcpy	62526	62205
+sample	4	4	scalar32	207835	207624
+sample	5	4	memcpy	62526	62355
+sample	5	4	scalar32	209127	208917
+sample	5	3	scalar32	223073	222672
+sample	5	3	memcpy	65571	65331
+sample	5	2	memcpy	67595	67285
+sample	5	2	scalar32	223033	222543
+sample	5	-1	scalar32	211432	211102
+sample	5	-1	memcpy	63097	62847
+complete

@@ -14,3 +14,14 @@ Each boot used the same Windows QEMU, verified gfxstream DLL, Android 17 Google 
 Across the qualified Android samples, **205 of 3,396** presentation intervals exceeded 1.5 refresh periods with the cache disabled, versus **0 of 3,601** enabled. The reference is 16.667 ms at 90 Hz before rounding. The Android p99 in the earlier BlueStacks runs was 11.11 ms, and Kemu's was 13.34–13.56 ms. The three platforms also differ in Android version and presentation path. [Three-player frame pacing](windows-current-three-players.md)
 
 An independent allocation trace found that the game stored its object data in the memory type affected by this option. Median elapsed time for 4 MiB of 32-bit writes to that type dropped from 99.596 to 0.196 ms, while the uniform/indirect buffer type remained slow. This explains why the experiment targeted host-visible Vulkan memory. The game result above measures the complete replay and includes graphics work, scheduling and presentation waits. Testing other games and GPUs requires separate measurements. [Memory measurements and game allocations](windows-vulkan-mapped-writes.md) · [Experimental renderer option](gfxstream-cached-host-qa.patch)
+
+## Time spent acquiring the next swapchain image
+
+| GPU | Cache off, A1 / A2 | Cache on, B1 / B2 | Pooled mean off → on | Frames off / on |
+|---|---:|---:|---:|---:|
+| GeForce RTX 5070 Ti | 2.611 / 2.524 ms | 4.953 / 5.007 ms | **2.568 → 4.980 ms** | 6,515 / 6,865 |
+| Radeon 780M | 1.969 / 1.871 ms | 4.326 / 4.332 ms | **1.920 → 4.329 ms** | 6,423 / 6,866 |
+
+With cached allocations and 90 Hz FIFO presentation, SuperTuxKart spent about **2.41 ms more per frame** in `VK endScene acquire` on each GPU. This is consistent with reaching the next image sooner after completing other work. The elapsed scope includes waiting and scheduling. A separate Mailbox run is needed to measure game throughput above the FIFO ceiling.
+
+To reproduce the pooled means, sum the `VK endScene acquire` column in `quadros.csv` across the two full replays per condition and divide by the frame count in their two `report.csv` files. Discard the initial zero row and convert microseconds to milliseconds. The RTX sums are 16,727,516 and 34,185,558 µs, and the Radeon sums are 12,333,330 and 29,722,165 µs. [RTX traces](windows-cached-memory-kart-traces.zip) · [Radeon traces](windows-cached-memory-radeon780m-traces.zip) · [Earlier Mailbox measurement](vulkan-end-scene.md)

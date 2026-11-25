@@ -48,7 +48,20 @@ Kemu already reached roughly the same write speeds that the cache option enabled
 
 REA inspected two x86-64 Android libraries extracted from the private copy of the BlueStacks 5.22.166.1003 system image. The default Vulkan driver declares a dependency on `libvulkan_enc.so`. Its imported allocation, mapping and binding functions match symbols exported by that library, including `gfxstream::vk::ResourceTracker::on_vkAllocateMemory`, `VkEncoder::vkMapMemory` and `VkEncoder::vkMapMemoryIntoAddressSpaceGOOGLE`. This places a gfxstream encoder in the guest driver interface. AOSP's implementation documents the roles of the resource tracker and encoder. The exact BlueStacks source revision and host caching policy are unknown. [ELF matches, artifact hashes and REA evidence IDs](windows-bluestacks-vulkan-encoder.json) · [AOSP resource tracker](https://android.googlesource.com/platform/external/mesa3d/+/cba72e4fb9e0f3c9a10f446355a83a62e8fa8b9d/src/gfxstream/guest/vulkan_enc/ResourceTracker.cpp)
 
-In the earlier Vulkan replay, the game running in Pie64 identified the NVIDIA RTX 5070 Ti. The Windows player separately reported Direct3D 11 for its Qt interface. A guest driver symbol or the API used by the Windows interface cannot tell us how quickly the game can write to its mapped memory. That comparison requires running the same Android probe on the selected BlueStacks instance and matching it to the game's allocations. [Paired game measurements](windows-current-three-players.md) · [Windows renderer log and REA inspection](../pubg-mobile/renderer-evidence.json)
+### Measured writes and game allocations on Pie64
+
+BlueStacks 5.22.166.1003 ran the isolated Pie64 clone with Android 9 (API 28), four vCPUs, a 1600 x 900 display at 90 Hz and the RTX 5070 Ti. The x86-64 STK replay used High Vulkan, FIFO presentation and the same 21 graphics settings as the SDK and Kemu comparisons. The original x86-64 API 28 probe ran from the idle Android Home in a separate boot of the same clone. The table gives median **elapsed / guest thread CPU milliseconds per 4 MiB written**, with six batches per cell.
+
+| CPU write destination | Heap | Vulkan flags | Bulk copy | 32-bit stores |
+|---|---:|---:|---:|---:|
+| Aligned ordinary memory | - | - | 0.062 / 0.061 | 0.210 / 0.210 |
+| Type 2, object storage | 1 | 0x6 | 0.062 / 0.061 | 0.204 / 0.204 |
+| Type 3 | 1 | 0xe | 0.065 / 0.065 | 0.225 / 0.224 |
+| Type 4, uniform/indirect | 0 | 0x7 | 0.060 / 0.060 | 0.200 / 0.200 |
+
+The game logged **21 mapped object-storage allocations on type 2** and **12 mapped uniform/indirect allocations on type 4**. Both types matched the index, heap and flags measured by the ELF in the separate boot. Type 2 write costs were close to ordinary memory in both timing measures, as on Kemu and on the SDK engine with its cache option enabled. All 48 elapsed and CPU samples were positive. [Raw Pie64 write samples](windows-mapped-writes-pie64.tsv) · [All 33 Pie64 allocation records and provenance](windows-draw-buffer-allocations-pie64.json)
+
+In both boots, the shell Vulkan inventory returned a single empty device record. The ELF and game each reported the RTX through Vulkan. The Vulkan property was empty and the optional process-map check did not establish live library paths. The static encoder link and these timings leave the host mapping policy unverified. The logged replay was excluded from FPS comparison. Both QA fixtures were removed, the clone's scoped FPS settings were restored, and the stock STK package and configuration were preserved. [Paired game measurements](windows-current-three-players.md)
 
 ## Reproduction
 
