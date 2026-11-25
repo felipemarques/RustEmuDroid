@@ -78,6 +78,19 @@ Game FPS divides the profiler's frame count by its full replay duration. Surface
 
 During the SurfaceFlinger sample, QEMU used 2,236 CPU ms/s on the v0.15.0 return run at 60 Hz and 2,729 CPU ms/s on the v0.16.0 candidate at 90 Hz. The Rust launcher used 617 and 649 CPU ms/s, respectively. Dividing by the distinct Android presentations in those same windows gives 37.31 and 33.29 CPU ms/presentation for QEMU and 10.29 and 7.92 for the launcher. These counters sum CPU time across threads. Each quoted condition has one instrumented replay, and the two used different desktop builds. [Per-process aggregates](../benchmarks/stk-1.5/managed-windows-refresh.json)
 
+### SuperTuxKart at 90 Hz with shared-memory video on Windows
+
+An experimental RustEmuDroid 0.17.0 client switched between inline RGBA frames and Windows shared memory (MMAP) without rebooting its Android 17 Google Play VM. SuperTuxKart 1.5 ran the built-in Black Forest replay at High, 1600 × 900, using Vulkan on the RTX 5070 Ti. After one warm-up, each measured replay started a fresh game process. The Android display stayed at 90 Hz and the game's 21 graphics settings matched in all four passes.
+
+| Pass and transport | Game frames / seconds | Game FPS | Android presentations/s | Frames processed by Rust panel/s | Rust process CPU ms/s |
+|---|---:|---:|---:|---:|---:|
+| A1 inline | 3,205 / 38.059 | 84.21 | 83.36 | 76.39 | 533 |
+| B1 MMAP | 3,240 / 38.074 | 85.10 | 84.71 | 82.91 | 369 |
+| B2 MMAP | 3,227 / 38.074 | 84.76 | 83.81 | 81.84 | 371 |
+| A2 inline | 3,205 / 38.072 | 84.18 | 83.60 | 77.51 | 531 |
+
+Pooling each pair by replay duration gives **84.20 FPS inline and 84.93 FPS with MMAP**. The larger difference was in the panel, which processed **76.95 and 82.37 frames/s**, respectively. Rust process CPU usage fell from 532 to 370 ms per second. Game FPS covers the full replay. Android presentations and host CPU cover an approximately 20-second segment, and the panel counts complete reporting intervals within that segment. Panel processing is distinct from monitor scanout. These four short replays on one PC establish the size of the observed difference. PUBG used the published client in the tests below. [Per-replay results and counting rules](../benchmarks/stk-1.5/windows-mmap-replay.json) · [Transport integrity test and shared-buffer limitation](../benchmarks/desktop-texture-upload/README.md#windows-screenshot-transport-on-android-17)
+
 ## PUBG MOBILE
 
 One Windows launch of PUBG MOBILE 4.7.0 (build 21718) on v0.15.0 exited before reaching the lobby. Android started the requested splash activity and the process initialized ANGLE over Vulkan on the RTX 5070 Ti. Android then recorded a native crash (SIGSEGV, SEGV_ACCERR) in that process. Three subsequent fresh processes on the same Android 17 installation reached the lobby and completed the Inventory route. The logs establish when the failure occurred. Its underlying cause remains unknown. [Inventory runs on this build](#does-lowering-the-android-display-resolution-help-pubg-inventory)

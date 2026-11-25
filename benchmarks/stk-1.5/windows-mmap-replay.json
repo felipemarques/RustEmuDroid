@@ -1,0 +1,243 @@
+{
+  "binary_version": "0.17.0",
+  "binary_sha256": "f7db41a61581ff78c51678a6b6a4e48cf8058ba0d1ca339ee5acdc25cdcc2f0b",
+  "experimental": true,
+  "workload": "SuperTuxKart 1.5 Black Forest High/Vulkan x86-64",
+  "gpu": "NVIDIA GeForce RTX 5070 Ti",
+  "guest": "Android 17 Google Play x86-64, WHPX",
+  "emulator_version": "37.3.10",
+  "vcpus": 4,
+  "memory_mib": 8192,
+  "resolution": [
+    1600,
+    900
+  ],
+  "density_dpi": 320,
+  "active_period_ns": 11111111,
+  "configured_max_fps": 90,
+  "configured_vsync": true,
+  "game_graphics_parameters": {
+    "Resolution width": 1600,
+    "Resolution height": 900,
+    "Render resolution": 1,
+    "Dynamic lighting": 1,
+    "Particle effects": 2,
+    "Animated characters": 1,
+    "Geometry Detail": 4,
+    "Bloom": 1,
+    "Glow": 1,
+    "Light Shaft": 1,
+    "Anti-Aliasing (MLAA)": 0,
+    "SSAO": 1,
+    "Anisotropic Filtering": 16,
+    "Shadow Resolution": 1024,
+    "Light scattering": 0,
+    "Degraded IBL": 0,
+    "Motion Blur": 0,
+    "Depth of Field": 0,
+    "Texture compression": 1,
+    "HD Textures": 0,
+    "HQ Mipmap": 0
+  },
+  "windows_foreground_at_boundaries": true,
+  "procedure": "One complete warm-up, followed by four fresh STK processes in inline, MMAP, MMAP, inline order in one boot. Each mode was confirmed before the race and verified from the sampled panel counters. The normal window displayed the only gRPC video stream.",
+  "definitions": {
+    "game_fps": "Profiler frames times 1000 divided by the profiler's full replay duration in milliseconds.",
+    "game_main_loop_p95_ms": "Nearest-rank percentile of positive game main-loop samples, converted from microseconds to milliseconds.",
+    "android_presentations_per_s": "Distinct new SurfaceFlinger presentations divided by host elapsed time between the first and last poll midpoints. Sampling began about twelve seconds after the Android game-launch request.",
+    "android_p99_ms": "Sorted consecutive presentation intervals at zero-based index floor(0.99 \u00d7 (n \u2212 1)).",
+    "panel_frames_per_s": "Frames processed by the Rust display path divided by the sum of its complete instrumented intervals within the SurfaceFlinger measurement, after discarding the first partial interval.",
+    "transport_counts": {
+      "inline_in": "Inline frame replies received.",
+      "mmap_in": "Shared-memory notifications received.",
+      "replaced": "New replies that replaced a pending frame in the latest-frame slot before the panel processed it.",
+      "seq_gaps": "Skipped sequence numbers within the observed stream.",
+      "seq_repeated": "Consecutive repeated sequence numbers.",
+      "seq_first": "First frame sequence number in the sampled complete panel intervals.",
+      "seq_last": "Last frame sequence number in those intervals.",
+      "panel_processed": "Frames processed by the Rust display path.",
+      "interval_ms": "Sum of durations of those complete panel intervals."
+    },
+    "race_clock_at_screenshots_s": "In-game race clock shown by the screenshot immediately before and after the host's SurfaceFlinger collector window.",
+    "cpu_ms": "Windows user plus kernel CPU time across each process's threads, interpolated to the SurfaceFlinger sample boundaries.",
+    "pooled_by_elapsed_time": "For each arm and metric, sum the counts or CPU times and divide by the sum of their corresponding durations."
+  },
+  "laps": [
+    {
+      "lap": "A1",
+      "transport": "inline",
+      "game_frames": 3205,
+      "game_time_ms": 38059,
+      "game_fps": 84.21135605244488,
+      "game_main_loop_p95_ms": 16.49,
+      "android_presentations": 1669,
+      "android_elapsed_s": 20.02273185,
+      "android_presentations_per_s": 83.35525903774214,
+      "android_p99_ms": 23.6077,
+      "android_gaps_over_250ms": 0,
+      "panel_frames": 1466,
+      "panel_ms": 19191,
+      "panel_frames_per_s": 76.38997446719817,
+      "race_clock_at_screenshots_s": [
+        1.925,
+        23.7
+      ],
+      "transport_counts": {
+        "inline_in": 1588,
+        "mmap_in": 0,
+        "replaced": 122,
+        "seq_gaps": 12,
+        "seq_repeated": 0,
+        "panel_processed": 1466,
+        "interval_ms": 19191,
+        "seq_first": 5492,
+        "seq_last": 7091
+      },
+      "cpu_ms": {
+        "qemu": 53562.755600000004,
+        "launcher": 10663.9875
+      },
+      "cpu_ms_per_second": {
+        "qemu": 2675.097284489679,
+        "launcher": 532.5940326169828
+      }
+    },
+    {
+      "lap": "B1",
+      "transport": "mmap",
+      "game_frames": 3240,
+      "game_time_ms": 38074,
+      "game_fps": 85.09744182381678,
+      "game_main_loop_p95_ms": 15.99,
+      "android_presentations": 1696,
+      "android_elapsed_s": 20.0213222,
+      "android_presentations_per_s": 84.7096901522318,
+      "android_p99_ms": 23.3681,
+      "android_gaps_over_250ms": 0,
+      "panel_frames": 1585,
+      "panel_ms": 19116,
+      "panel_frames_per_s": 82.9148357396945,
+      "race_clock_at_screenshots_s": [
+        1.767,
+        23.517
+      ],
+      "transport_counts": {
+        "inline_in": 0,
+        "mmap_in": 1624,
+        "replaced": 39,
+        "seq_gaps": 0,
+        "seq_repeated": 0,
+        "panel_processed": 1585,
+        "interval_ms": 19116,
+        "seq_first": 881,
+        "seq_last": 2504
+      },
+      "cpu_ms": {
+        "qemu": 47117.1663,
+        "launcher": 7390.6521
+      },
+      "cpu_ms_per_second": {
+        "qemu": 2353.3493856864256,
+        "launcher": 369.13906215444655
+      }
+    },
+    {
+      "lap": "B2",
+      "transport": "mmap",
+      "game_frames": 3227,
+      "game_time_ms": 38074,
+      "game_fps": 84.75600147081998,
+      "game_main_loop_p95_ms": 16.202,
+      "android_presentations": 1678,
+      "android_elapsed_s": 20.0212817,
+      "android_presentations_per_s": 83.8108181655523,
+      "android_p99_ms": 23.5368,
+      "android_gaps_over_250ms": 0,
+      "panel_frames": 1566,
+      "panel_ms": 19136,
+      "panel_frames_per_s": 81.83528428093645,
+      "race_clock_at_screenshots_s": [
+        1.742,
+        23.483
+      ],
+      "transport_counts": {
+        "inline_in": 0,
+        "mmap_in": 1611,
+        "replaced": 45,
+        "seq_gaps": 0,
+        "seq_repeated": 0,
+        "panel_processed": 1566,
+        "interval_ms": 19136,
+        "seq_first": 4763,
+        "seq_last": 6373
+      },
+      "cpu_ms": {
+        "qemu": 47437.5754,
+        "launcher": 7421.875
+      },
+      "cpu_ms_per_second": {
+        "qemu": 2369.357572147841,
+        "launcher": 370.69929444127445
+      }
+    },
+    {
+      "lap": "A2",
+      "transport": "inline",
+      "game_frames": 3205,
+      "game_time_ms": 38072,
+      "game_fps": 84.18260138684597,
+      "game_main_loop_p95_ms": 16.152,
+      "android_presentations": 1674,
+      "android_elapsed_s": 20.0235204,
+      "android_presentations_per_s": 83.60168274905345,
+      "android_p99_ms": 23.7225,
+      "android_gaps_over_250ms": 0,
+      "panel_frames": 1489,
+      "panel_ms": 19211,
+      "panel_frames_per_s": 77.50767789287387,
+      "race_clock_at_screenshots_s": [
+        1.617,
+        23.433
+      ],
+      "transport_counts": {
+        "inline_in": 1598,
+        "mmap_in": 0,
+        "replaced": 109,
+        "seq_gaps": 17,
+        "seq_repeated": 0,
+        "panel_processed": 1489,
+        "interval_ms": 19211,
+        "seq_first": 875,
+        "seq_last": 2489
+      },
+      "cpu_ms": {
+        "qemu": 55695.3707,
+        "launcher": 10625.030299999999
+      },
+      "cpu_ms_per_second": {
+        "qemu": 2781.4974383825133,
+        "launcher": 530.6274864633692
+      }
+    }
+  ],
+  "pooled_by_elapsed_time": {
+    "inline": {
+      "game_fps": 84.19697626459656,
+      "android_presentations_per_s": 83.47847331956015,
+      "panel_frames_per_s": 76.94911723347742,
+      "cpu_ms_per_s": {
+        "qemu": 2728.2984089978113,
+        "launcher": 531.6107401785645
+      }
+    },
+    "mmap": {
+      "game_fps": 84.92672164731837,
+      "android_presentations_per_s": 84.26025461346183,
+      "panel_frames_per_s": 82.37477778939663,
+      "cpu_ms_per_s": {
+        "qemu": 2361.353470821611,
+        "launcher": 369.91917750883323
+      }
+    }
+  }
+}
