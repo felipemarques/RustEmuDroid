@@ -1,0 +1,5 @@
+lap,transport,wall_s,probe_cpu_s,qemu_cpu_s,received,distinct_seq,first_seq,last_seq,intact,mixed,unknown,distinct_intact_colors
+A1,inline,5.001925,1.296875,12.406250,298,298,1,299,298,0,0,4
+B1,mmap,5.013116,0.281250,9.468750,300,300,1,300,300,0,0,4
+B2,mmap,5.012527,0.234375,9.531250,300,300,1,300,300,0,0,4
+A2,inline,5.001084,1.500000,10.468750,299,299,1,299,299,0,0,4

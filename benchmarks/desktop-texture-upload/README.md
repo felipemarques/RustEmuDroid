@@ -26,3 +26,16 @@ The direct path saves a full CPU copy of the decoded image. QEMU averaged 302.49
 - **Guest.** Poll the game's SurfaceView with SurfaceFlinger latency every 0.5 seconds. Keep distinct, positive presentation timestamps from the second column newer than the pre-sample baseline, excluding pending timestamps. Divide the interval count by the span between the first and last retained timestamps. Use consecutive timestamp differences for P95 and maximum. These are Android surface presentations.
 
 [Per-run counters](display-upload-runs.csv)
+
+## Windows screenshot transport on Android 17
+
+A separate Windows probe subscribed to the existing Android 17 emulator while the RustEmuDroid 0.17.0 panel remained open. The guest used the RTX 5070 Ti at 1600 × 900 and 60 Hz. A fullscreen Android View cycled through red, green, blue and yellow on successive draws. We compared two ways to receive RGBA8888 images from `streamScreenshot`. The inline stream carried 5,760,000 bytes per image. With `MMAP`, the service sent metadata and wrote the pixels to a named Win32 mapping. The probe copied that mapping once per callback before inspecting the pixels. On a static Home screen, both unary and streaming MMAP matched inline captures at every pixel in four samples.
+
+| Pass | Transport | Seconds | Images received | Probe CPU seconds | QEMU CPU seconds | Images with mixed sampled colors |
+|---|---|---:|---:|---:|---:|---:|
+| A1 | Inline | 5.002 | 298 | 1.297 | 12.406 | 0 |
+| B1 | MMAP | 5.013 | 300 | 0.281 | 9.469 | 0 |
+| B2 | MMAP | 5.013 | 300 | 0.234 | 9.531 | 0 |
+| A2 | Inline | 5.001 | 299 | 1.500 | 10.469 | 0 |
+
+Both transports delivered about 60 images/s. Pooled probe CPU time per received image fell from **4.68 ms to 0.86 ms**. QEMU process CPU time includes its other work, including the running panel. Each image had one expected color at all 2,646 sampled locations in the central 800 × 450 pixels. The single shared buffer allows the producer to start its next write while a delayed reader is copying. This short test covers the observed samples. The released client continues to use inline transport. Measuring a complete game replay with the client itself would be necessary to establish a game or panel FPS change. [Per-pass data](windows-screenshot-transport.csv) · [Android Emulator streaming implementation](https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/android-grpc/services/emulator-controller/server/src/android/emulation/control/EmulatorService.cpp#781)
