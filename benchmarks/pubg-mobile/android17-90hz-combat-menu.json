@@ -1,0 +1,34 @@
+{
+  "runtime": "RustEmuDroid 0.16.0, locally built final Windows release code, Android 17 Google Play",
+  "executable_sha256": "2ef4106ea5314ef056220618acd5a5db31365cd62f7a25750b5771b7b8f67bd0",
+  "gpu": "NVIDIA GeForce RTX 5070 Ti",
+  "game": {
+    "primaryCpuAbi": "arm64-v8a",
+    "versionCode": "21718",
+    "versionName": "4.7.0"
+  },
+  "resolution": [
+    1600,
+    900
+  ],
+  "density_dpi": 320,
+  "scene": "Lobby Settings > Graphics > Customize > Combat > Smooth (preview)",
+  "frame_rate_options": [
+    "Power Saving",
+    "Medium",
+    "High"
+  ],
+  "selected_option_in_preview": "High",
+  "android_active_render_hz": 90,
+  "android_sf_period_ns": 11111111,
+  "android_uid_frame_rate_overrides": [],
+  "sf_activity_frame_rate_request": {
+    "hz": 0,
+    "category": "NoPreference"
+  },
+  "sf_blast_layer_request_printed": false,
+  "effective_game_fps_measured": false,
+  "graphics_settings_pane_before_and_after_match": true,
+  "restored_android_sf_period_ns": 16666666,
+  "android_display_mode_hz": 90
+}
