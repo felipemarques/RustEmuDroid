@@ -68,3 +68,11 @@ The A/B series controls the probe within each engine. Cross-engine phase observa
 The actual GPU was the RTX 5070 Ti in both sessions. In a separate paired test, STK logged the same 15 boolean Vulkan feature choices on both guests. Device queries also found the same storage-buffer alignment and six memory type/heap combinations, with the last two types in a different order. The allocation chosen by the game remains an open measurement. [Vulkan decisions and buffer properties](windows-vulkan-gpu-timestamps.md#vulkan-features-reported-by-the-game)
 
 [Kemu rates, phase means and hashes](windows-draw-all-kemu16.json) · [Kemu B replay files](windows-draw-all-kemu16-b-replays.zip)
+
+### Where the slow frames recur on the track
+
+![Draw generation costs peak between 7 and 9 seconds and between 29 and 31 seconds in both engines. Android 17 reaches roughly 9 ms of CPU per frame at the peaks, compared with roughly 1 ms on Kemu.](windows-draw-cpu-timeline.png)
+
+In the SDK's two instrumented replays, the highlighted four seconds contained **76 of 148** and **88 of 144** long game frames. In the two Kemu replays they contained **0 of 3** and **0 of 1**. These windows were selected after observing the traces. They give a specific part of the replay in which to test a change.
+
+Each point uses one complete second of accumulated game-loop time. Frames belong to the bin in which they start. Each line is the average of the two runs' mean render-thread CPU times for `generate` within that second. The colored band spans the two observed values. All four runs covered 38 complete seconds. The guest game and its thread supply both measurements. [Recreate the figure from the archived replays](plot-draw-timeline.py)
