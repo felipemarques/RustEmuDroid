@@ -67,7 +67,7 @@ A signed, optimized x86-64 QA APK was built from the pinned source. Offline chec
 
 ## Windows results at 90 Hz
 
-RustEmuDroid 0.18.1 ran the standalone x86-64 QA APK in an Android 17 Google Play AVD. BlueStacks 5.22.166.1003 ran the exact same APK as x86-64 on a separate Pie64 lab instance with Android 9. Both used a GeForce RTX 5070 Ti. The four Black Forest replays used High/Vulkan, 1600×900 at render scale 1, a 90 FPS game cap and game VSync. Android reported an active 90 Hz mode during each replay. STK reported Vulkan 1.3 and FIFO (`VkPresentModeKHR=2`) on both engines. RustEmuDroid reported Goldfish GFXStream driver `26.0.65.35`, while BlueStacks reported NVIDIA driver `610.88.0.0`. The 21 exported graphics fields matched across the four runs and matched the earlier stock x86-64 runs A1 and A2 at 90 Hz. The guest Android versions, display density and graphics implementations differ.
+RustEmuDroid 0.18.1 ran the standalone x86-64 QA APK in an Android 17 Google Play AVD. BlueStacks 5.22.166.1003 ran the exact same APK as x86-64 on a separate Pie64 lab instance with Android 9. Both used a GeForce RTX 5070 Ti. The four Black Forest replays used High/Vulkan, 1600×900 at render scale 1, the 90 FPS game preference and game VSync. Android reported an active 90 Hz mode during each replay. STK reported Vulkan 1.3 and FIFO (`VkPresentModeKHR=2`) on both engines. RustEmuDroid reported Goldfish GFXStream driver `26.0.65.35`, while BlueStacks reported NVIDIA driver `610.88.0.0`. The 21 exported graphics fields matched across the four runs and matched the earlier stock x86-64 runs A1 and A2 at 90 Hz. The guest Android versions, display density and graphics implementations differ.
 
 | Engine and replay | STK frames | STK duration | STK FPS | Android SurfaceView presentations | SurfaceView rate | SurfaceView P99 interval |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -92,7 +92,7 @@ The table pools both passes per engine. Each mean divides total scope duration b
 | `present` | 0.361 ms | 0.452 ms |
 | `Main loop` minus `IrrDriver update` | 1.433 ms | 0.469 ms |
 
-BlueStacks spent more elapsed time in `vkAcquireNextImageKHR` and less in `drawAll()`. Total `IrrDriver update` differed by only 0.007 ms per frame, while the rest of `Main loop` averaged 0.964 ms more on RustEmuDroid. The acquire interval includes waiting for a swapchain image and cannot establish GPU execution time or a GPU bottleneck. Each host ran two samples in separate batches. The next VSync test will change only the game option on RustEmuDroid and check whether it changes the actual FIFO present mode before measuring the alternative twice.
+BlueStacks spent more elapsed time in `vkAcquireNextImageKHR` and less in `drawAll()`. Total `IrrDriver update` differed by only 0.007 ms per frame, while the rest of `Main loop` averaged 0.964 ms more on RustEmuDroid. The acquire interval includes waiting for a swapchain image and cannot establish GPU execution time or a GPU bottleneck. The tests ran as two samples per engine in separate batches.
 
 The APK has SHA-256 `dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e`. The data include game-report digests, all reported graphics fields and all phase summaries. [RustEmuDroid data](windows-vulkan-90hz-scoped-native.json) · [BlueStacks Pie64 data](windows-vulkan-90hz-scoped-pie64.json)
 
@@ -118,3 +118,14 @@ The x86-64 baseline APK (`def3b0fd211c91eee4d91cfabae41283ed339c3fef203f3f9b0432
 | 2 | 83.478 | 82.388/s | −0.558 | −0.130/s | +0.398 ms |
 
 The scoped batch was modestly slower in these two comparisons. The measured difference includes any change between batches and cannot isolate the overhead of the markers. [Sanitized Android 17 baseline data](windows-vulkan-90hz-baseline-native.json)
+
+### Android 17 game VSync control
+
+Use `--game-vsync off` with the same `compare.py` replay command and a new output directory to repeat the game-side change. Changing only the game's `swap-interval-vsync` setting from `1` to `0` selected mailbox (`VkPresentModeKHR=1`) in two additional runs of the scoped x86-64 APK. The guest stayed at 90 Hz, with the same RTX renderer and the same 21 reported graphics fields. STK's `--benchmark` condition bypasses its software frame limiter. The XML still held the 90 FPS preference, and the game loop could exceed it. [STK 1.5 main loop](https://github.com/supertuxkart/stk-code/blob/1fb491f507216c5d181ccd85f29ff08eca003827/src/main_loop.cpp#L711-L735)
+
+| Scoped mode | STK FPS by replay | Pooled STK FPS | Android SurfaceView rate by replay | Pooled SurfaceView rate | SurfaceView P99 by replay |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| FIFO, VSync on | 82.790 / 82.920 | 82.855 | 81.204 / 82.258 per s | 81.731/s | 23.850 / 23.483 ms |
+| Mailbox, VSync off | 94.860 / 99.275 | 97.067 | 78.044 / 81.711 per s | 79.876/s | 24.349 / 23.602 ms |
+
+Pooling divides the sum of frames or presentations by the sum of the respective observation durations. Mean `acquire` time dropped from 1.881 to 0.552 ms per frame and mean `endScene` time from 3.171 to 1.836 ms. The game loop produced more frames while Android delivered fewer presentations in these runs. These separate two-run batches do not establish whether the compositor rate difference would repeat. The game VSync preference was restored after the test. [Sanitized Android 17 mailbox data](windows-vulkan-90hz-scoped-native-mailbox.json)

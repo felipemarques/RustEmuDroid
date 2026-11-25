@@ -32,7 +32,7 @@ def run(args, serial, *cmd, check=True):
                           timeout=30).stdout
 
 
-def replay(args, name, serial, preset, dest, *, fps_limit=None):
+def replay(args, name, serial, preset, dest, *, fps_limit=None, game_vsync=True):
     if name == "BlueStacks":
         if not run(args, serial, "shell", "getprop", "init.svc.bstsvcmgrtest").strip():
             raise RuntimeError(f"Expected BlueStacks on {serial}")
@@ -63,6 +63,7 @@ def replay(args, name, serial, preset, dest, *, fps_limit=None):
     if fps_limit is not None:
         video.set("max_fps", str(fps_limit))
     gfx.attrib.update(GFX)
+    gfx.set("swap-interval-vsync", "1" if game_vsync else "0")
     if preset in ("high", "high-vulkan"):
         video.attrib.update(enable_bloom="true", enable_glow="true", enable_light_shaft="true")
         gfx.attrib.update({"geometry-level": "4", "ssao": "true", "anisotropic": "8",
@@ -74,6 +75,8 @@ def replay(args, name, serial, preset, dest, *, fps_limit=None):
     tree.write(config, encoding="utf-8", xml_declaration=True)
     try:
         run(args, serial, "push", str(config), config_path)
+        if not game_vsync and run(args, serial, "exec-out", "cat", config_path) != config.read_bytes():
+            raise RuntimeError(f"Could not verify the VSync-off game configuration on {name}")
         def stamp(path):
             return run(args, serial, "shell", "stat", "-c", "%s:%Y", path, check=False).strip()
 
@@ -115,7 +118,7 @@ def replay(args, name, serial, preset, dest, *, fps_limit=None):
                 return dict(engine=name, abi=abi, preset=preset, start=start, end=time.time(),
                             frames=frames, duration_ms=duration, fps=frames*1000/duration,
                             mostly_stable=int(rows[4][1]), settings=settings,
-                            configured_max_fps=int(video.get("max_fps")))
+                            configured_max_fps=int(video.get("max_fps")), game_vsync=game_vsync)
         raise TimeoutError(f"No new complete performance report on {name}: {last_read}")
     finally:
         run(args, serial, "shell", "am", "force-stop", package)
@@ -135,6 +138,8 @@ def main():
     p.add_argument("--rounds", type=int, default=3)
     p.add_argument("--fps-limit", type=int, default=60,
                    help="Write max_fps to the game's XML (default: 60). Benchmark mode skips the game-loop limiter.")
+    p.add_argument("--game-vsync", choices=("on", "off"), default="on",
+                   help="Set VSync in the game for each replay and restore its prior value afterwards.")
     p.add_argument("--presets", nargs="+", choices=["original", "high", "vulkan", "high-vulkan"], default=["original", "high"])
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--standalone-vulkan-qa", action="store_true",
@@ -157,7 +162,7 @@ def main():
             first = index % len(engines)
             for engine, serial in engines[first:] + engines[:first]:
                 result = replay(args, engine, serial, preset, args.output / preset / str(index+1) / engine,
-                                fps_limit=args.fps_limit)
+                                fps_limit=args.fps_limit, game_vsync=args.game_vsync == "on")
                 if settings and settings != result["settings"]:
                     raise ValueError(f"Game reported different graphics parameters for {preset}")
                 settings = result["settings"]

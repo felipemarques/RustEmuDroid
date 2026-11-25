@@ -248,6 +248,8 @@ The stock initramfs also contains VirtualBox Guest Additions. Its shared-folder 
 
 The independent image still needs a complete Android boot, working shell, Home, touch and an installed game running inside RustEmuDroid.
 
+The configured key `VBoxInternal/PDM/Devices/bstdevices/Path` follows the Oracle VirtualBox pattern for an additional device module. The upstream loader reads its path, looks up `VBoxDevicesRegister` and supplies a versioned callback table. In the BlueStacks 5.22.166.1003 DLL, static PE inspection found 148 imports from 12 Windows and C runtime modules. The Oracle registration path examined here does not call the additional OEM export `vmmgrVboxPdmInit`. Whether the two builds agree on the callback layouts and how a separate host would provide the Android `hcal` service remain open. We have observed a working connection only in the official player. [Oracle device registration](https://github.com/VirtualBox/virtualbox/blob/b6bea72111fcff48f31c57c9f66365b1d3301bb9/src/VBox/VMM/VMMR3/PDMR3Device.cpp#L692-L898) · [Callback declaration](https://github.com/VirtualBox/virtualbox/blob/b6bea72111fcff48f31c57c9f66365b1d3301bb9/include/VBox/vmm/pdmdev.h#L10068-L10108)
+
 ## Opt-in data storage probe
 
 Use an offline copy of the Pie64 `Data_orig.vhdx` alongside `fastboot.vdi`. The probe checks both files against the SHA-256 hashes of the verified fixtures. The regular `Data.vhdx` and Android root are outside this probe.

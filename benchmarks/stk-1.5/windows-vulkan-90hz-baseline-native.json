@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "host": "Windows x86-64",
+  "engine": "RustEmuDroid",
+  "engine_version": "0.18.1",
+  "android_version": "17",
+  "game": "SuperTuxKart 1.5",
+  "game_package": "org.rustemudroid.qa.stkvulkan",
+  "apk_sha256": "def3b0fd211c91eee4d91cfabae41283ed339c3fef203f3f9b0432f48e5807cd",
+  "game_abi": "x86_64",
+  "instrumentation": "baseline",
+  "scene": "Black Forest",
+  "preset": "High/Vulkan",
+  "game_fps_preference": 90,
+  "game_vsync": true,
+  "runs": [
+    {
+      "run": 1,
+      "game_frames": 3184,
+      "game_duration_ms": 38056,
+      "game_fps": 83.66617616144629,
+      "game_report_sha256": "84accae4a2e70ae865f244efd9a35ea2e062526d6caaf6b3e11348300ebb3654",
+      "frame_profile_sha256": "85e4fdbb77b582c76fe055bb06b20dca35d92ed5033eaf54adfa511bac0061d2",
+      "graphics": {
+        "Resolution width": "1600",
+        "Resolution height": "900",
+        "Render resolution": "1",
+        "Dynamic lighting": "1",
+        "Particle effects": "2",
+        "Animated characters": "1",
+        "Geometry Detail": "4",
+        "Bloom": "1",
+        "Glow": "1",
+        "Light Shaft": "1",
+        "Anti-Aliasing (MLAA)": "0",
+        "SSAO": "1",
+        "Anisotropic Filtering": "16",
+        "Shadow Resolution": "1024",
+        "Light scattering": "0",
+        "Degraded IBL": "0",
+        "Motion Blur": "0",
+        "Depth of Field": "0",
+        "Texture compression": "1",
+        "HD Textures": "0",
+        "HQ Mipmap": "0"
+      },
+      "surface_flinger_period_ns": 11111111,
+      "surface_view": {
+        "duration_s": 20.02408995,
+        "presentations": 1632,
+        "presentations_per_second": 81.50183124801634,
+        "p99_interval_ms": 23.8656,
+        "max_interval_ms": 34.4181,
+        "intervals_over_250_ms": 0
+      },
+      "vulkan_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "vulkan_api_version": "1.3.0",
+      "vulkan_driver_version": "26.0.65.35",
+      "swapchains": null,
+      "cpu_scopes": {
+        "Main loop": {
+          "frames_main_gt_0": 3184,
+          "frames_segment_gt_0": 3184,
+          "sum_ms": 38056.16,
+          "mean_ms": 11.952312,
+          "p50_ms": 11.4185,
+          "p95_ms": 16.552
+        },
+        "IrrDriver update": {
+          "frames_main_gt_0": 3184,
+          "frames_segment_gt_0": 3184,
+          "sum_ms": 33343.144,
+          "mean_ms": 10.472093,
+          "p50_ms": 10.027,
+          "p95_ms": 14.875
+        },
+        "drawAll() for kart 0": {
+          "frames_main_gt_0": 3184,
+          "frames_segment_gt_0": 3184,
+          "sum_ms": 22536.146,
+          "mean_ms": 7.077935,
+          "p50_ms": 6.417,
+          "p95_ms": 12.638
+        }
+      }
+    },
+    {
+      "run": 2,
+      "game_frames": 3177,
+      "game_duration_ms": 38058,
+      "game_fps": 83.47784959798203,
+      "game_report_sha256": "768905e3c03d0075b34f0d46df8602010840a9aad64287cc64b156c6aa46564a",
+      "frame_profile_sha256": "8f5a3454f5afc41059f5814fa1cf6c5f6356394f4225c506526135f12dbbf4a5",
+      "graphics": {
+        "Resolution width": "1600",
+        "Resolution height": "900",
+        "Render resolution": "1",
+        "Dynamic lighting": "1",
+        "Particle effects": "2",
+        "Animated characters": "1",
+        "Geometry Detail": "4",
+        "Bloom": "1",
+        "Glow": "1",
+        "Light Shaft": "1",
+        "Anti-Aliasing (MLAA)": "0",
+        "SSAO": "1",
+        "Anisotropic Filtering": "16",
+        "Shadow Resolution": "1024",
+        "Light scattering": "0",
+        "Degraded IBL": "0",
+        "Motion Blur": "0",
+        "Depth of Field": "0",
+        "Texture compression": "1",
+        "HD Textures": "0",
+        "HQ Mipmap": "0"
+      },
+      "surface_flinger_period_ns": 11111111,
+      "surface_view": {
+        "duration_s": 20.02715865,
+        "presentations": 1650,
+        "presentations_per_second": 82.3881224908557,
+        "p99_interval_ms": 23.6914,
+        "max_interval_ms": 34.3347,
+        "intervals_over_250_ms": 0
+      },
+      "vulkan_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "vulkan_api_version": "1.3.0",
+      "vulkan_driver_version": "26.0.65.35",
+      "swapchains": null,
+      "cpu_scopes": {
+        "Main loop": {
+          "frames_main_gt_0": 3177,
+          "frames_segment_gt_0": 3177,
+          "sum_ms": 38058.315,
+          "mean_ms": 11.979325,
+          "p50_ms": 11.413,
+          "p95_ms": 16.663
+        },
+        "IrrDriver update": {
+          "frames_main_gt_0": 3177,
+          "frames_segment_gt_0": 3177,
+          "sum_ms": 33460.394,
+          "mean_ms": 10.532072,
+          "p50_ms": 10.036,
+          "p95_ms": 15.031
+        },
+        "drawAll() for kart 0": {
+          "frames_main_gt_0": 3177,
+          "frames_segment_gt_0": 3177,
+          "sum_ms": 22668.911,
+          "mean_ms": 7.13532,
+          "p50_ms": 6.588,
+          "p95_ms": 12.809
+        }
+      }
+    }
+  ],
+  "pooled_mean_cpu_scope_ms": {
+    "Main loop": 11.965803332809308,
+    "IrrDriver update": 10.502049677723628,
+    "drawAll() for kart 0": 7.106595975475554,
+    "Main loop minus IrrDriver update": 1.4637536550856804
+  },
+  "instrumentation_comparison": {
+    "scoped_apk_sha256": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e",
+    "matched_assets": 5577,
+    "basis": "scoped minus baseline by replay ordinal, separate batches",
+    "deltas": [
+      {
+        "run": 1,
+        "game_fps": -0.8766486828709219,
+        "surface_presentations_per_second": -0.2982436585344317,
+        "main_loop_p95_ms": 0.5309999999999988,
+        "driver_p95_ms": 0.5069999999999997
+      },
+      {
+        "run": 2,
+        "game_fps": -0.5581952497562526,
+        "surface_presentations_per_second": -0.13006787092308514,
+        "main_loop_p95_ms": 0.3979999999999997,
+        "driver_p95_ms": 0.37599999999999945
+      }
+    ]
+  }
+}

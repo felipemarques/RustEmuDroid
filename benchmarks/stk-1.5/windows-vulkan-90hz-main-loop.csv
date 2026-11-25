@@ -1,0 +1,43 @@
+engine,pass,profiled_frames,scope,total_us,mean_ms_per_frame
+RustEmuDroid,1,3159,Outside graphics,4577178,1.448933
+RustEmuDroid,1,3159,Update race,3666313,1.160593
+RustEmuDroid,1,3159,Input/GUI,83464,0.026421
+RustEmuDroid,1,3159,Music,45292,0.014337
+RustEmuDroid,1,3159,Database polling update,51581,0.016328
+RustEmuDroid,1,3159,Protocol manager update,58097,0.018391
+RustEmuDroid,1,3159,Remainder,672431,0.212862
+RustEmuDroid,2,3157,Outside graphics,4474450,1.417311
+RustEmuDroid,2,3157,Update race,3602804,1.141211
+RustEmuDroid,2,3157,Input/GUI,80618,0.025536
+RustEmuDroid,2,3157,Music,41272,0.013073
+RustEmuDroid,2,3157,Database polling update,43301,0.013716
+RustEmuDroid,2,3157,Protocol manager update,51574,0.016336
+RustEmuDroid,2,3157,Remainder,654881,0.207438
+RustEmuDroid,pooled,6316,Outside graphics,9051628,1.433127
+RustEmuDroid,pooled,6316,Update race,7269117,1.150905
+RustEmuDroid,pooled,6316,Input/GUI,164082,0.025979
+RustEmuDroid,pooled,6316,Music,86564,0.013706
+RustEmuDroid,pooled,6316,Database polling update,94882,0.015022
+RustEmuDroid,pooled,6316,Protocol manager update,109671,0.017364
+RustEmuDroid,pooled,6316,Remainder,1327312,0.210151
+BlueStacks 5 Pie64,1,3432,Outside graphics,1639129,0.477602
+BlueStacks 5 Pie64,1,3432,Update race,1519379,0.442709
+BlueStacks 5 Pie64,1,3432,Input/GUI,4486,0.001307
+BlueStacks 5 Pie64,1,3432,Music,5314,0.001548
+BlueStacks 5 Pie64,1,3432,Database polling update,9490,0.002765
+BlueStacks 5 Pie64,1,3432,Protocol manager update,2051,0.000598
+BlueStacks 5 Pie64,1,3432,Remainder,98409,0.028674
+BlueStacks 5 Pie64,2,3430,Outside graphics,1577901,0.460029
+BlueStacks 5 Pie64,2,3430,Update race,1459786,0.425594
+BlueStacks 5 Pie64,2,3430,Input/GUI,2770,0.000808
+BlueStacks 5 Pie64,2,3430,Music,6351,0.001852
+BlueStacks 5 Pie64,2,3430,Database polling update,8930,0.002603
+BlueStacks 5 Pie64,2,3430,Protocol manager update,881,0.000257
+BlueStacks 5 Pie64,2,3430,Remainder,99183,0.028916
+BlueStacks 5 Pie64,pooled,6862,Outside graphics,3217030,0.468818
+BlueStacks 5 Pie64,pooled,6862,Update race,2979165,0.434154
+BlueStacks 5 Pie64,pooled,6862,Input/GUI,7256,0.001057
+BlueStacks 5 Pie64,pooled,6862,Music,11665,0.001700
+BlueStacks 5 Pie64,pooled,6862,Database polling update,18420,0.002684
+BlueStacks 5 Pie64,pooled,6862,Protocol manager update,2932,0.000427
+BlueStacks 5 Pie64,pooled,6862,Remainder,197592,0.028795

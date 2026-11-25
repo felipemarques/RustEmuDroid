@@ -73,7 +73,7 @@ def run_record(source, index, result, apk, android, game_vsync):
     if (frames, duration, values) != (result["frames"], result["duration_ms"], result["settings"]):
         raise ValueError("The replay receipt does not match its game report")
     if result["abi"] != apk["abi"] or result["preset"] != "high-vulkan" or result["configured_max_fps"] != 90:
-        raise ValueError("Expected the scoped build's ABI, High/Vulkan and the 90 FPS game cap")
+        raise ValueError("Expected the approved ABI, High/Vulkan and the 90 FPS game preference")
     if result.get("game_vsync", True) != game_vsync:
         raise ValueError("The game configuration does not match the requested VSync setting")
     display = read_json(trial / "active-display.json")
@@ -103,7 +103,7 @@ def run_record(source, index, result, apk, android, game_vsync):
 
 def compare_baseline(output, reference, apk):
     fields = ("schema_version", "host", "engine", "engine_version", "android_version", "game_abi",
-              "scene", "preset", "game_fps_cap", "game_vsync")
+              "scene", "preset", "game_fps_preference", "game_vsync")
     if (any(reference[key] != output[key] for key in fields) or len(reference["runs"]) != 2
             or reference.get("instrumentation", "scoped") != "scoped"
             or apk["asset_match_reference_sha256"] != reference["apk_sha256"]
@@ -181,11 +181,11 @@ def main():
               "engine_version": args.engine_version, "android_version": args.android,
               "game": "SuperTuxKart 1.5", "game_package": PACKAGE, "apk_sha256": apk["sha256"],
               "game_abi": apk["abi"], "instrumentation": args.mode, "scene": "Black Forest", "preset": "High/Vulkan",
-              "game_fps_cap": 90, "game_vsync": game_vsync, "runs": runs,
+              "game_fps_preference": 90, "game_vsync": game_vsync, "runs": runs,
               "pooled_mean_cpu_scope_ms": pooled_means(runs)}
     if args.match_reference:
         reference = read_json(args.match_reference)
-        matching = ("schema_version", "apk_sha256", "game_abi", "scene", "preset", "game_fps_cap", "game_vsync")
+        matching = ("schema_version", "apk_sha256", "game_abi", "scene", "preset", "game_fps_preference", "game_vsync")
         if reference["engine"] != "RustEmuDroid" or any(reference[key] != output[key] for key in matching):
             parser.error("native reference does not use the same APK, ABI and benchmark profile")
         native_runs = reference["runs"]
