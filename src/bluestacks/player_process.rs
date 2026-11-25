@@ -79,6 +79,21 @@ pub(super) struct PlayerSource {
     pub(super) creation_time: u64,
 }
 
+/// A retained handle to the process whose path, instance and creation time were verified.
+#[derive(Debug)]
+pub(crate) struct PlayerLifetime(OwnedHandle);
+
+impl PlayerLifetime {
+    pub(crate) fn is_live(&self) -> bool {
+        process_is_live(&self.0)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn open_for_test(pid: u32) -> io::Result<Self> {
+        open_process(pid).map(Self)
+    }
+}
+
 #[derive(Debug)]
 pub(super) enum PlayerError {
     InvalidInstance,
@@ -149,7 +164,7 @@ impl std::error::Error for PlayerError {
 pub(super) fn find_preview_player(
     installed_player: &Path,
     instance: &str,
-) -> Result<PlayerSource, PlayerError> {
+) -> Result<(PlayerSource, PlayerLifetime), PlayerError> {
     find_player(installed_player, instance, None)
 }
 
@@ -160,14 +175,14 @@ pub(super) fn verify_adb_player(
     instance: &str,
     endpoint: SocketAddrV4,
 ) -> Result<PlayerSource, PlayerError> {
-    find_player(installed_player, instance, Some(endpoint))
+    find_player(installed_player, instance, Some(endpoint)).map(|(source, _)| source)
 }
 
 fn find_player(
     installed_player: &Path,
     instance: &str,
     endpoint: Option<SocketAddrV4>,
-) -> Result<PlayerSource, PlayerError> {
+) -> Result<(PlayerSource, PlayerLifetime), PlayerError> {
     if !valid_instance(instance) {
         return Err(PlayerError::InvalidInstance);
     }
@@ -224,11 +239,14 @@ fn find_player(
     if !process_is_live(&process) || window_pid(hwnd.get() as HWND) != Some(pid) {
         return Err(PlayerError::ProcessUnverified);
     }
-    Ok(PlayerSource {
-        pid,
-        hwnd,
-        creation_time,
-    })
+    Ok((
+        PlayerSource {
+            pid,
+            hwnd,
+            creation_time,
+        },
+        PlayerLifetime(process),
+    ))
 }
 
 fn listener_pid(endpoint: SocketAddrV4) -> Result<u32, PlayerError> {

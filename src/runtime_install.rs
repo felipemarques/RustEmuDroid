@@ -110,7 +110,9 @@ fn check_cancel(cancel: &AtomicBool, locale: Locale) -> Result<()> {
     Ok(())
 }
 
-pub(crate) use packages::install;
+#[cfg(feature = "ui")]
+pub(crate) use packages::can_add_image;
+pub(crate) use packages::{install, owns_runtime_tools};
 
 #[derive(Args)]
 pub(crate) struct SetupArgs {

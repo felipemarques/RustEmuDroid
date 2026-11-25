@@ -573,6 +573,87 @@ fn view_only_does_not_lose_the_player_while_waiting_for_a_preview() {
 }
 
 #[test]
+fn closed_player_returns_to_launcher_even_with_an_open_editor_or_view_only() {
+    use std::{
+        os::windows::process::CommandExt,
+        path::PathBuf,
+        process::{Command, Stdio},
+    };
+    use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+
+    for view_only in [false, true] {
+        let cmd = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32/cmd.exe");
+        let mut child = Command::new(cmd)
+            .args(["/D", "/C", "set /p wait="])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .unwrap();
+        let lifetime = PlayerLifetime::open_for_test(child.id()).unwrap();
+        let (session, input) = MirrorSession::input_recorder();
+        let mut panel = MirrorPanel {
+            session: Some(session),
+            size: Some(GUEST),
+            layout: Some((SLOT, SLOT, Instant::now())),
+            ..Default::default()
+        };
+        panel.apply_event(MirrorEvent::Player(child.id(), 1, lifetime));
+        panel.mapped.map.editing = true;
+        if view_only {
+            panel.apply_event(MirrorEvent::ViewOnly("ADB access is disabled.".into()));
+        } else {
+            panel.last_touch = Some([3, 4]);
+            panel.input_focused = true;
+            panel.rotation_pending = true;
+        }
+        let ctx = egui::Context::default();
+        let now = Instant::now();
+        let mut raw = RawInput::default();
+        raw.viewports
+            .get_mut(&egui::ViewportId::ROOT)
+            .unwrap()
+            .fullscreen = Some(true);
+        let _ = ctx.run(raw.clone(), |ctx| panel.poll_player(ctx, now));
+        assert!(panel.active());
+        assert!(panel.controls_open());
+
+        child.kill().unwrap();
+        child.wait().unwrap();
+        let out = ctx.run(raw, |ctx| {
+            panel.poll_player(ctx, now + PREVIEW_CHECK_INTERVAL)
+        });
+
+        assert!(
+            out.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::Fullscreen(false)))
+        );
+        assert!(!panel.active());
+        assert!(panel.pending.is_none());
+        assert!(panel.player.is_none());
+        assert!(panel.player_lifetime.is_none());
+        assert!(!panel.controls_open());
+        assert!(panel.last_touch.is_none());
+        assert!(panel.layout.is_none());
+        assert!(!panel.rotation_pending);
+        assert!(panel.surface_fps().is_none());
+        let sent = input.try_iter().collect::<Vec<_>>();
+        if view_only {
+            assert!(sent.is_empty());
+        } else {
+            assert!(matches!(sent.as_slice(), [MirrorInput::Release]));
+        }
+
+        let _ = ctx.run(RawInput::default(), |ctx| assert!(!panel.poll_cleanup(ctx)));
+        panel.queue("Pie64".to_owned(), None);
+        assert_eq!(panel.pending, Some(("Pie64".to_owned(), None)));
+    }
+}
+
+#[test]
 fn translates_guest_navigation_letters_and_digits_without_global_shortcuts() {
     for (key, code) in [
         (Key::Escape, 4),

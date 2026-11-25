@@ -41,7 +41,7 @@ The executable includes the RustEmuDroid Home APK. The runtime and Android image
 
 Setup works without a preinstalled Android SDK, Android Studio, Java or `sdkmanager`. It installs to `%LOCALAPPDATA%\RustEmuDroid\runtime` on Windows or `$XDG_DATA_HOME/RustEmuDroid/runtime` on Linux, which defaults to `~/.local/share/RustEmuDroid/runtime`.
 
-From a terminal, run the executable with `runtime-setup --image original` or `runtime-setup --image google-play` to review the terms and size. After review, repeat with `--accept-license` to download. Use `--licenses-from <licenses-directory>` to reuse an existing acceptance of the exact terms.
+From a terminal, run the executable with `runtime-setup --image original` or `runtime-setup --image google-play` to review the terms and size. After review, repeat with `--accept-license` to download. Use `--licenses-from <licenses-directory>` to reuse an existing acceptance of the exact terms. For a custom installation directory, add `--destination <folder>` to the setup command, then launch with `--sdk <folder> ui`. RustEmuDroid recognizes its installed emulator and ADB there.
 
 **Windows with Kemu.** With Kemu in its default location, run `.\rustemudroid.exe ui` to boot the Original profile. For a custom installation, set `RUSTEMUDROID_KEMU_ROOT` to its directory. The standalone Kemu path uses its bundled ADB, Android image and engine with the Host or Auto GPU setting.
 
@@ -99,7 +99,7 @@ After stopping Android, the session screen lets you start the same profile again
 
 ## Open an installed BlueStacks instance on Windows
 
-On Windows, choose **Open BlueStacks → Use this window** to display an installed instance and its games in RustEmuDroid. Keep the original player window restored. Windows composites its live Android surface into the Rust window. Disconnecting leaves the instance and game running. Choosing this mode first shuts down the RustEmuDroid Android VM if it is running.
+On Windows, choose **Open BlueStacks → Use this window** to display an installed instance and its games in RustEmuDroid. Keep the original player window restored. Windows composites its live Android surface into the Rust window. Disconnecting leaves the instance and game running. Choosing this mode first shuts down the RustEmuDroid Android VM if it is running. If you close the BlueStacks player while its preview is open, RustEmuDroid returns to its launcher. Select the instance again when you want to reconnect.
 
 ![Select the instance and choose Use this window to open its preview](docs/screenshots/en-us/bluestacks.png)
 

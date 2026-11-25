@@ -290,19 +290,11 @@ impl Launcher {
                         profile.init(SystemImage::from_dir_localized(path, language)?)?
                     }
                 } else if needs_init {
-                    let image = if base_state.as_ref() == Some(&profile.root)
-                        && runtime_setup::managed(&sdk)
-                    {
-                        SystemImage::from_sdk(&sdk, runtime_setup::ORIGINAL_ID).map_err(|_| language.pick(
-                            "A imagem Original não está instalada. Abra as configurações para selecionar o perfil Google Play ou instale a imagem Original.",
-                            "The Original image is not installed. Open settings to select the Google Play profile or install the Original image.",
-                            "La imagen Original no está instalada. Abre los ajustes para seleccionar el perfil Google Play o instala la imagen Original."))?
-                    } else {
-                        match default_kemu_image(&sdk) {
-                            Some(path) => SystemImage::from_dir_localized(path, language)?,
-                            None => SystemImage::preferred(&sdk)?,
-                        }
-                    };
+                    let image = runtime_setup::initial_image(
+                        &sdk,
+                        base_state.as_ref() == Some(&profile.root),
+                        language,
+                    )?;
                     profile.init(image)?
                 }
                 android::boot(
@@ -499,6 +491,7 @@ impl eframe::App for Launcher {
         }
         #[cfg(windows)]
         self.blue_mirror.update(
+            ctx,
             frame,
             self.task.is_none(),
             &self.config.sdk,

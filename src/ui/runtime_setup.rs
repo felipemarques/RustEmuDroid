@@ -1,4 +1,7 @@
-use super::{ERROR, LaunchConfig, Launcher, Locale, Profile, Sdk, theme, write_json};
+use super::{
+    ERROR, LaunchConfig, Launcher, Locale, Profile, Sdk, SystemImage, default_kemu_image, theme,
+    write_json,
+};
 use crate::runtime_install::{self, ImageChoice, InstallPlan, Progress};
 use eframe::egui;
 use std::{
@@ -39,14 +42,42 @@ pub(super) fn image_path(root: &Path, id: &str) -> PathBuf {
 
 pub(super) fn managed(sdk: &Sdk) -> bool {
     sdk.is_portable()
-        && runtime_install::default_destination().is_ok_and(|destination| {
-            destination == sdk.root
-                || destination.canonicalize().is_ok_and(|managed| {
-                    sdk.root
-                        .canonicalize()
-                        .is_ok_and(|selected| managed == selected)
-                })
-        })
+        && (runtime_install::owns_runtime_tools(&sdk.root)
+            || runtime_install::default_destination().is_ok_and(|destination| {
+                destination == sdk.root
+                    || destination.canonicalize().is_ok_and(|managed| {
+                        sdk.root
+                            .canonicalize()
+                            .is_ok_and(|selected| managed == selected)
+                    })
+            }))
+}
+
+pub(super) fn initial_image(
+    sdk: &Sdk,
+    original_profile: bool,
+    locale: Locale,
+) -> crate::Result<SystemImage> {
+    if original_profile && managed(sdk) {
+        return SystemImage::from_sdk(sdk, ORIGINAL_ID).map_err(|_| locale.pick(
+            "A imagem Original não está instalada. Abra as configurações para selecionar o perfil Google Play ou instale a imagem Original.",
+            "The Original image is not installed. Open settings to select the Google Play profile or install the Original image.",
+            "La imagen Original no está instalada. Abre los ajustes para seleccionar el perfil Google Play o instala la imagen Original.",
+        ).into());
+    }
+    match default_kemu_image(sdk) {
+        Some(path) => SystemImage::from_dir_localized(path, locale),
+        None => SystemImage::preferred(sdk),
+    }
+}
+
+fn custom_install_destination(selected_sdk: &str, choice: ImageChoice) -> Option<PathBuf> {
+    let selected = selected_sdk.trim();
+    if selected.is_empty() {
+        return None;
+    }
+    let root = std::path::absolute(selected).ok()?;
+    runtime_install::can_add_image(&root, choice).then_some(root)
 }
 
 enum Message {
@@ -106,22 +137,26 @@ impl Wizard {
     fn prepare(&mut self, ctx: &egui::Context) {
         let choice = self.choice;
         let locale = self.locale;
+        let selected_sdk = self.selected_sdk.clone();
         let (tx, rx) = mpsc::channel();
         self.phase = Phase::Planning(rx);
         self.accepted = false;
         let ctx = ctx.clone();
         thread::spawn(move || {
             let result = (|| -> crate::Result<_> {
-                let destination = runtime_install::default_destination().map_err(|cause| {
-                    format!(
-                        "{} {cause}",
-                        locale.pick(
-                            "Não foi possível localizar a pasta de dados do usuário.",
-                            "Could not locate your user data directory.",
-                            "No se pudo localizar el directorio de datos del usuario."
+                let destination = match custom_install_destination(&selected_sdk, choice) {
+                    Some(root) => root,
+                    None => runtime_install::default_destination().map_err(|cause| {
+                        format!(
+                            "{} {cause}",
+                            locale.pick(
+                                "Não foi possível localizar a pasta de dados do usuário.",
+                                "Could not locate your user data directory.",
+                                "No se pudo localizar el directorio de datos del usuario."
+                            )
                         )
-                    )
-                })?;
+                    })?,
+                };
                 Ok((destination, runtime_install::plan(choice, locale)?))
             })()
             .map_err(|error| error.to_string());

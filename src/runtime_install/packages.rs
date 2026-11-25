@@ -1,3 +1,5 @@
+#[cfg(feature = "ui")]
+use super::ImageChoice;
 use super::{Component, InstallPlan, Locale, Progress, Result, check_cancel, client};
 use sha1::{Digest, Sha1};
 use sha2::Sha256;
@@ -11,6 +13,50 @@ use std::{
 
 const RECEIPT: &str = ".rustemudroid-package";
 const LOCK: &str = ".rustemudroid-install.lock";
+
+pub(crate) fn owns_runtime_tools(root: &Path) -> bool {
+    ["emulator", "platform-tools"].into_iter().all(|package| {
+        let receipt = root.join(package).join(RECEIPT);
+        fs::symlink_metadata(&receipt).is_ok_and(|info| info.is_file() && info.len() <= 256)
+            && fs::read_to_string(receipt).is_ok_and(|receipt| {
+                let mut lines = receipt.lines();
+                lines.next() == Some(package)
+                    && lines.next().is_some_and(|digest| {
+                        matches!(digest.len(), 40 | 64)
+                            && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    })
+            })
+    })
+}
+
+#[cfg(feature = "ui")]
+pub(crate) fn can_add_image(root: &Path, choice: ImageChoice) -> bool {
+    let Ok(root) = root.canonicalize() else {
+        return false;
+    };
+    let lock = root.join(LOCK);
+    if !fs::symlink_metadata(&lock).is_ok_and(|metadata| metadata.is_file())
+        || !owns_runtime_tools(&root)
+    {
+        return false;
+    }
+    let image = choice
+        .package()
+        .split(';')
+        .fold(root.clone(), |path, segment| path.join(segment));
+    [root.join("emulator"), root.join("platform-tools"), image]
+        .into_iter()
+        .all(|path| {
+            path.ancestors()
+                .take_while(|parent| *parent != root.as_path())
+                .all(|parent| match fs::symlink_metadata(parent) {
+                    Ok(_) => parent
+                        .canonicalize()
+                        .is_ok_and(|actual| actual.starts_with(&root)),
+                    Err(error) => error.kind() == io::ErrorKind::NotFound,
+                })
+        })
+}
 
 impl Component {
     fn archive_root(&self) -> &str {

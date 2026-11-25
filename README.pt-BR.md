@@ -41,7 +41,7 @@ O executável inclui o APK da Home do RustEmuDroid. O motor e a imagem Android s
 
 O assistente funciona sem uma instalação prévia do Android SDK, Android Studio, Java ou `sdkmanager`. No Windows, os componentes ficam em `%LOCALAPPDATA%\RustEmuDroid\runtime`. No Linux, ficam em `$XDG_DATA_HOME/RustEmuDroid/runtime` ou, por padrão, `~/.local/share/RustEmuDroid/runtime`.
 
-No terminal, execute `runtime-setup --image original` ou `runtime-setup --image google-play` como argumento do executável para consultar os termos e o tamanho. Para iniciar o download após a leitura, repita o comando com `--accept-license`. Para reaproveitar um aceite anterior idêntico, use `--licenses-from <pasta-de-licenças>`.
+No terminal, execute `runtime-setup --image original` ou `runtime-setup --image google-play` como argumento do executável para consultar os termos e o tamanho. Para iniciar o download após a leitura, repita o comando com `--accept-license`. Para reaproveitar um aceite anterior idêntico, use `--licenses-from <pasta-de-licenças>`. Para instalar em outra pasta, acrescente `--destination <pasta>` ao comando de instalação e abra o programa com `--sdk <pasta> ui`. O RustEmuDroid reconhece o emulador e o ADB instalados nessa pasta.
 
 **Windows com Kemu.** Com o Kemu na pasta padrão, execute `.\rustemudroid.exe ui` para abrir o perfil Original. Para uma instalação em outra pasta, defina `RUSTEMUDROID_KEMU_ROOT` com esse caminho. Esse modo usa o ADB, a imagem e o motor fornecidos pelo Kemu. Selecione GPU do computador ou Automática.
 
@@ -99,7 +99,7 @@ Ao encerrar o Android, a tela da sessão permite iniciar o mesmo perfil novament
 
 ## Abrir uma instância instalada do BlueStacks no Windows
 
-No Windows, escolha **Abrir BlueStacks → Usar nesta janela** para ver a instância instalada e seus jogos no RustEmuDroid. Mantenha a janela original do player restaurada. O Windows compõe a imagem do Android dentro da janela Rust. Ao desconectar, a instância e o jogo continuam abertos. Se o Android do RustEmuDroid estiver em execução, ele será encerrado antes da conexão.
+No Windows, escolha **Abrir BlueStacks → Usar nesta janela** para ver a instância instalada e seus jogos no RustEmuDroid. Mantenha a janela original do player restaurada. O Windows compõe a imagem do Android dentro da janela Rust. Ao desconectar, a instância e o jogo continuam abertos. Se o Android do RustEmuDroid estiver em execução, ele será encerrado antes da conexão. Se você fechar o player do BlueStacks com a prévia aberta, o RustEmuDroid volta ao launcher. Para reconectar, selecione a instância novamente.
 
 ![Escolha a instância e Usar nesta janela para abrir a prévia do jogo](docs/screenshots/pt-br/bluestacks.png)
 

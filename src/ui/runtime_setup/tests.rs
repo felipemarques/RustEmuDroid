@@ -2,6 +2,97 @@ use super::*;
 use std::fs;
 
 #[test]
+fn selected_custom_install_keeps_original_and_play_profiles_separate() {
+    let temp = tempfile::tempdir().unwrap();
+    let runtime = temp.path().join("my installed runtime");
+    let external = temp.path().join("another SDK");
+    let base = temp.path().join("profile data");
+    let prefs = base.join("launcher.json");
+    for name in ["emulator", "platform-tools"] {
+        for root in [&runtime, &external] {
+            fs::create_dir_all(root.join(name)).unwrap();
+        }
+        fs::write(
+            runtime.join(name).join(".rustemudroid-package"),
+            format!("{name}\n{}\n", "a".repeat(64)),
+        )
+        .unwrap();
+    }
+    for (package, tool) in [("emulator", "emulator"), ("platform-tools", "adb")] {
+        for root in [&runtime, &external] {
+            fs::write(
+                root.join(package)
+                    .join(format!("{tool}{}", std::env::consts::EXE_SUFFIX)),
+                [],
+            )
+            .unwrap();
+        }
+    }
+    for image in [ORIGINAL_ID, GOOGLE_ID] {
+        let dir = image_path(&runtime, image);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("system.img"), []).unwrap();
+    }
+    let current = LaunchConfig::load(Some(runtime.clone()), base.clone(), None, &prefs);
+    assert!(custom_install_destination(&current.sdk, ImageChoice::GooglePlay).is_none());
+    fs::write(runtime.join(".rustemudroid-install.lock"), []).unwrap();
+    let destination = custom_install_destination(&current.sdk, ImageChoice::GooglePlay).unwrap();
+    assert_eq!(destination, runtime);
+    assert!(
+        custom_install_destination(external.to_str().unwrap(), ImageChoice::GooglePlay).is_none()
+    );
+
+    let sdk = Sdk::find(Some(runtime.clone())).unwrap();
+    assert!(managed(&sdk));
+    let original = Profile::new(base.clone());
+    original
+        .init(initial_image(&sdk, true, Locale::EnUs).unwrap())
+        .unwrap();
+    let aosp = image_path(&runtime, ORIGINAL_ID).canonicalize().unwrap();
+    assert_eq!(
+        original.system_dir(&sdk).unwrap().canonicalize().unwrap(),
+        aosp
+    );
+    let data = base.join("avd/RustEmuDroid.avd/userdata-qemu.img");
+    fs::write(&data, b"original profile data").unwrap();
+
+    let mut wizard = Wizard::new(&current, &current);
+    wizard.destination = destination;
+    wizard.choice = ImageChoice::GooglePlay;
+    let play = wizard
+        .installed_config(&current, &current, &base, GOOGLE_ID)
+        .unwrap();
+    assert_eq!(Path::new(&play.sdk), runtime);
+    assert_eq!(Path::new(&play.state), base.join("google-play-37"));
+    assert_eq!(Path::new(&play.image), image_path(&runtime, GOOGLE_ID));
+    assert_eq!(fs::read(data).unwrap(), b"original profile data");
+    assert!(!base.join("google-play-37/avd/RustEmuDroid.ini").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn wizard_does_not_extend_managed_runtime_through_external_images_link() {
+    let temp = tempfile::tempdir().unwrap();
+    let runtime = temp.path().join("managed");
+    let external = temp.path().join("external");
+    fs::create_dir_all(&external).unwrap();
+    for package in ["emulator", "platform-tools"] {
+        fs::create_dir_all(runtime.join(package)).unwrap();
+        fs::write(
+            runtime.join(package).join(".rustemudroid-package"),
+            format!("{package}\n{}\n", "a".repeat(64)),
+        )
+        .unwrap();
+    }
+    fs::write(runtime.join(".rustemudroid-install.lock"), []).unwrap();
+    std::os::unix::fs::symlink(&external, runtime.join("system-images")).unwrap();
+    assert!(
+        custom_install_destination(runtime.to_str().unwrap(), ImageChoice::GooglePlay).is_none()
+    );
+    assert!(fs::read_dir(external).unwrap().next().is_none());
+}
+
+#[test]
 fn installed_image_uses_the_right_profile_and_preserves_the_existing_avd() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("runtime");

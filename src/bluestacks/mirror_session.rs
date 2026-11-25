@@ -23,7 +23,9 @@ use super::{
     mirror_control::{MirrorControl, query_display_size, read_bounded, service, transport_socket},
     mirror_foreground::ForegroundWatch,
     mirror_target::{ConfiguredTarget, MirrorTarget, TargetError, configured_target},
-    player_process::{PlayerError, PlayerSource, find_preview_player, verify_adb_player},
+    player_process::{
+        PlayerError, PlayerLifetime, PlayerSource, find_preview_player, verify_adb_player,
+    },
     valid_package,
 };
 
@@ -43,7 +45,7 @@ const SURFACE_FPS_OUTPUT_LIMIT: usize = 256 * 1024;
 
 #[derive(Debug)]
 pub(crate) enum MirrorEvent {
-    Player(u32, u64),
+    Player(u32, u64, PlayerLifetime),
     Ready([u32; 2]),
     Foreground(u64, Option<String>),
     RotationChecked([u32; 2]),
@@ -279,15 +281,19 @@ impl Worker {
         adb_hint: Option<PathBuf>,
         existing_pid: Option<u32>,
     ) {
-        let (installation, player) = match self.player(&instance, package.as_deref(), existing_pid)
-        {
-            Ok(value) => value,
-            Err(error) => {
-                self.emit(MirrorEvent::Failed(error.to_string()));
-                return;
-            }
-        };
-        if !self.emit(MirrorEvent::Player(player.pid, player.creation_time)) {
+        let (installation, player, lifetime) =
+            match self.player(&instance, package.as_deref(), existing_pid) {
+                Ok(value) => value,
+                Err(error) => {
+                    self.emit(MirrorEvent::Failed(error.to_string()));
+                    return;
+                }
+            };
+        if !self.emit(MirrorEvent::Player(
+            player.pid,
+            player.creation_time,
+            lifetime,
+        )) {
             return;
         }
         if let Err(error) = self.control(&installation, &instance, player, adb_hint.as_deref()) {
@@ -300,7 +306,7 @@ impl Worker {
         instance: &str,
         package: Option<&str>,
         existing_pid: Option<u32>,
-    ) -> io::Result<(Installation, PlayerSource)> {
+    ) -> io::Result<(Installation, PlayerSource, PlayerLifetime)> {
         self.check_cancelled()?;
         if package.is_some_and(|id| !valid_package(id)) {
             return Err(io::Error::new(
@@ -320,21 +326,21 @@ impl Worker {
             ));
         }
         if let Some(pid) = existing_pid {
-            let player =
+            let (player, lifetime) =
                 find_preview_player(&installation.player, instance).map_err(io::Error::other)?;
             if player.pid != pid {
                 return Err(io::Error::other(
                     "The already-running player does not match the operator's test PID.",
                 ));
             }
-            return Ok((installation, player));
+            return Ok((installation, player, lifetime));
         }
         if let Some(package) = package {
             self.check_cancelled()?;
             launch(Some(instance), Some(package)).map_err(io::Error::other)?;
         } else {
             match find_preview_player(&installation.player, instance) {
-                Ok(player) => return Ok((installation, player)),
+                Ok((player, lifetime)) => return Ok((installation, player, lifetime)),
                 Err(PlayerError::NoPlayer) => {
                     self.check_cancelled()?;
                     launch(Some(instance), None).map_err(io::Error::other)?;
@@ -347,7 +353,7 @@ impl Worker {
         loop {
             self.check_cancelled()?;
             match find_preview_player(&installation.player, instance) {
-                Ok(player) => return Ok((installation, player)),
+                Ok((player, lifetime)) => return Ok((installation, player, lifetime)),
                 Err(PlayerError::NoPlayer | PlayerError::NoWindow) if Instant::now() < deadline => {
                     thread::sleep(Duration::from_millis(500));
                 }

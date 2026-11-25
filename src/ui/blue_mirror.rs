@@ -2,6 +2,7 @@ use super::{Locale, Tool, theme};
 use crate::bluestacks::{
     mirror_control::{KeyAction, TouchAction},
     mirror_session::{MirrorEvent, MirrorInput, MirrorSession, SurfaceFpsQuery},
+    player_process::PlayerLifetime,
     preview::{PreviewRect, ThumbnailPreview},
 };
 use crate::surface_fps::SurfaceFps;
@@ -22,6 +23,8 @@ mod live_test;
 #[cfg(test)]
 mod tests;
 
+const PREVIEW_CHECK_INTERVAL: Duration = Duration::from_millis(200);
+
 #[derive(Default)]
 pub(super) struct MirrorPanel {
     pending: Option<(String, Option<String>)>,
@@ -32,6 +35,8 @@ pub(super) struct MirrorPanel {
     layout: Option<(PreviewRect, PreviewRect, Instant)>,
     destination: isize,
     player: Option<(u32, u64)>,
+    player_lifetime: Option<PlayerLifetime>,
+    player_check_at: Option<Instant>,
     size: Option<[u32; 2]>,
     last_touch: Option<[u32; 2]>,
     input_geometry: Option<(PreviewRect, f32, [u32; 2])>,
@@ -126,6 +131,7 @@ impl MirrorPanel {
 
     pub(super) fn update(
         &mut self,
+        ctx: &egui::Context,
         frame: &eframe::Frame,
         native_stopped: bool,
         sdk: &str,
@@ -157,11 +163,32 @@ impl MirrorPanel {
         {
             self.apply_event(event);
         }
+        self.poll_player(ctx, Instant::now());
+    }
+
+    fn poll_player(&mut self, ctx: &egui::Context, now: Instant) {
+        if let Some(lifetime) = &self.player_lifetime
+            && self.player_check_at.is_none_or(|time| time <= now)
+        {
+            if lifetime.is_live() {
+                self.player_check_at = Some(now + PREVIEW_CHECK_INTERVAL);
+                return;
+            }
+            self.disconnect();
+            if ctx.input(|input| input.viewport().fullscreen.unwrap_or(false)) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+            }
+            ctx.request_repaint();
+        }
     }
 
     fn apply_event(&mut self, event: MirrorEvent) {
         match event {
-            MirrorEvent::Player(pid, created) => self.player = Some((pid, created)),
+            MirrorEvent::Player(pid, created, lifetime) => {
+                self.player = Some((pid, created));
+                self.player_lifetime = Some(lifetime);
+                self.player_check_at = None;
+            }
             MirrorEvent::Foreground(epoch, package) => {
                 let foreground = package.as_deref().map(|package| (epoch, package));
                 if self
@@ -201,6 +228,8 @@ impl MirrorPanel {
                 eprintln!("BlueStacks mirror (player): {error}");
                 self.size = None;
                 self.player = None;
+                self.player_lifetime = None;
+                self.player_check_at = None;
                 self.preview = None;
                 self.layout = None;
                 self.view_error = Some(error);
@@ -324,7 +353,7 @@ impl MirrorPanel {
         chrome: bool,
         host_gesture: bool,
     ) {
-        ctx.request_repaint_after(Duration::from_millis(200));
+        ctx.request_repaint_after(PREVIEW_CHECK_INTERVAL);
         if obscured {
             self.hide();
             return;
@@ -378,7 +407,7 @@ impl MirrorPanel {
                     let positioned = match self.layout {
                         Some((previous, fitted, checked))
                             if previous == slot
-                                && now.duration_since(checked) < Duration::from_millis(200) =>
+                                && now.duration_since(checked) < PREVIEW_CHECK_INTERVAL =>
                         {
                             Ok(fitted)
                         }

@@ -49,29 +49,14 @@ impl Sdk {
             .ok()
             .and_then(|exe| exe.parent().map(|parent| parent.join("runtime")));
         let managed = crate::runtime_install::default_destination().ok();
-        if let (Some(selected), Some(root)) = (&configured, &managed)
-            && same_directory(selected, root)
-        {
-            return Self::from_root(root.clone(), RuntimeKind::Portable, locale);
-        }
-        let allow_fallback = configured.is_none();
-        let found = Self::discover(
+        Self::discover(
             configured,
             portable,
             default_sdk_path(),
             cfg!(windows).then(kemu_install_root).flatten(),
+            managed,
             locale,
-        );
-        found.or_else(|error| {
-            if allow_fallback
-                && let Some(root) = managed
-                && root.is_dir()
-            {
-                Self::from_root(root, RuntimeKind::Portable, locale)
-            } else {
-                Err(error)
-            }
-        })
+        )
     }
 
     fn discover(
@@ -79,10 +64,16 @@ impl Sdk {
         portable: Option<PathBuf>,
         default: Option<PathBuf>,
         kemu: Option<PathBuf>,
+        managed: Option<PathBuf>,
         locale: Locale,
     ) -> Result<Self> {
         if let Some(root) = configured {
-            let kind = if portable.is_some_and(|path| same_directory(&root, &path)) {
+            let kind = if portable
+                .iter()
+                .chain(&managed)
+                .any(|path| same_directory(&root, path))
+                || crate::runtime_install::owns_runtime_tools(&root)
+            {
                 RuntimeKind::Portable
             } else {
                 RuntimeKind::Sdk
@@ -96,29 +87,41 @@ impl Sdk {
         }
         let sdk = default
             .filter(|root| root.exists())
-            .ok_or_else(|| -> Box<dyn std::error::Error> {
-                let command = if cfg!(windows) {
-                    r".\rustemudroid.exe runtime-setup --image google-play"
-                } else {
-                    "./rustemudroid runtime-setup --image google-play"
-                };
-                let message = locale.pick(
-                    "Runtime Android não encontrado. Execute o comando abaixo na pasta do programa para consultar os detalhes da instalação.",
-                    "Android runtime not found. Run the following command from the extracted application folder to review the installation.",
-                    "No se ha encontrado el entorno de Android. Ejecuta el siguiente comando desde la carpeta del programa para consultar los detalles de instalación.",
-                );
-                format!("{message}\n{command}").into()
-            })
-            .and_then(|root| Self::from_root(root, RuntimeKind::Sdk, locale));
-        if sdk.is_ok() {
-            return sdk;
-        }
+            .map(|root| Self::from_root(root, RuntimeKind::Sdk, locale));
+        let mut detail = match sdk {
+            Some(Ok(runtime)) => return Ok(runtime),
+            Some(Err(error)) => Some(error),
+            None => None,
+        };
         if let Some(root) = kemu
             && (root.join(KEMU_EMULATOR).is_file() || root.join("Kemu.exe").is_file())
         {
-            return Self::from_root(root, RuntimeKind::Kemu, locale);
+            match Self::from_root(root, RuntimeKind::Kemu, locale) {
+                Ok(runtime) => return Ok(runtime),
+                Err(error) => detail = Some(error),
+            }
         }
-        sdk
+        if let Some(root) = managed.filter(|root| root.is_dir()) {
+            match Self::from_root(root, RuntimeKind::Portable, locale) {
+                Ok(runtime) => return Ok(runtime),
+                Err(error) => detail = Some(error),
+            }
+        }
+        let command = if cfg!(windows) {
+            r".\rustemudroid.exe runtime-setup --image google-play"
+        } else {
+            "./rustemudroid runtime-setup --image google-play"
+        };
+        let message = locale.pick(
+            "Runtime Android não encontrado. Execute o comando abaixo na pasta do programa para consultar os detalhes da instalação.",
+            "Android runtime not found. Run the following command from the extracted application folder to review the installation.",
+            "No se ha encontrado el entorno de Android. Ejecuta el siguiente comando desde la carpeta del programa para consultar los detalles de instalación.",
+        );
+        if let Some(error) = detail {
+            Err(format!("{error}\n{message}\n{command}").into())
+        } else {
+            Err(format!("{message}\n{command}").into())
+        }
     }
 
     fn from_root(root: PathBuf, kind: RuntimeKind, locale: Locale) -> Result<Self> {
@@ -517,6 +520,16 @@ impl SystemImage {
         if let Some((_, image)) = newest_aosp {
             return Ok(image);
         }
+        if crate::runtime_install::owns_runtime_tools(&sdk.root) {
+            return Err(sdk
+                .locale
+                .pick(
+                    "Instale uma imagem com runtime-setup no mesmo destino ou informe a pasta da imagem.",
+                    "Install an image with runtime-setup in the same destination or specify the image directory.",
+                    "Instala una imagen con runtime-setup en el mismo destino o indica la carpeta de la imagen.",
+                )
+                .into());
+        }
         Err(sdk
             .locale
             .pick(
@@ -537,8 +550,13 @@ impl SystemImage {
         })?;
         let location = format!("system-images/{api}/{tag}/x86_64/");
         if !sdk.root.join(&location).join("system.img").is_file() {
+            let installer = if crate::runtime_install::owns_runtime_tools(&sdk.root) {
+                "runtime-setup"
+            } else {
+                "SDK Manager"
+            };
             return Err(format!(
-                "{} {} ({package}, SDK Manager)",
+                "{} {} ({package}, {installer})",
                 sdk.locale.pick(
                     "Imagem ausente em",
                     "Image missing at",
@@ -1495,7 +1513,7 @@ mod tests {
         let missing = dir.path().join("Android").join("Sdk");
         for locale in [Locale::PtBr, Locale::EnUs, Locale::EsEs] {
             let discover = |configured| {
-                Sdk::discover(configured, None, Some(missing.clone()), None, locale)
+                Sdk::discover(configured, None, Some(missing.clone()), None, None, locale)
                     .err()
                     .unwrap()
                     .to_string()
@@ -1513,6 +1531,15 @@ mod tests {
             let explicit = discover(Some(missing.clone()));
             assert!(explicit.contains(missing.to_str().unwrap()));
             assert!(!explicit.contains("runtime-setup"));
+        }
+        fs::create_dir_all(&missing).unwrap();
+        for locale in [Locale::PtBr, Locale::EnUs, Locale::EsEs] {
+            let error = Sdk::discover(None, None, Some(missing.clone()), None, None, locale)
+                .err()
+                .unwrap()
+                .to_string();
+            assert!(error.contains(missing.to_str().unwrap()));
+            assert!(error.lines().last().unwrap().contains("runtime-setup"));
         }
     }
 
@@ -1566,15 +1593,18 @@ mod tests {
         let portable = dir.0.join("runtime");
         let global = dir.0.join("global");
         let kemu = dir.0.join("kemu");
+        let managed = dir.0.join("managed");
         sdk_layout(&portable);
         sdk_layout(&global);
         kemu_layout(&kemu);
+        sdk_layout(&managed);
         let find = |configured| {
             Sdk::discover(
                 configured,
                 Some(portable.clone()),
                 Some(global.clone()),
                 Some(kemu.clone()),
+                Some(managed.clone()),
                 Locale::EnUs,
             )
         };
@@ -1582,9 +1612,77 @@ mod tests {
         assert!(find(Some(portable.join("emulator/.."))).unwrap().kind == RuntimeKind::Portable);
         assert!(find(Some(global.clone())).unwrap().kind == RuntimeKind::Sdk);
         assert!(find(Some(dir.0.join("missing"))).is_err());
-        fs::remove_file(portable.join(format!("platform-tools/adb{}", env::consts::EXE_SUFFIX)))
-            .unwrap();
+        let adb = format!("platform-tools/adb{}", env::consts::EXE_SUFFIX);
+        fs::remove_file(portable.join(&adb)).unwrap();
         assert_eq!(find(None).unwrap().root, global);
+        fs::remove_file(global.join(adb)).unwrap();
+        assert_eq!(find(None).unwrap().root, kemu);
+        fs::remove_file(kemu.join("platform-tools/adb.exe")).unwrap();
+        assert_eq!(find(None).unwrap().root, managed);
+    }
+
+    #[test]
+    fn a_managed_custom_destination_remains_portable_when_selected() {
+        let directory = tempfile::tempdir().unwrap();
+        let external = directory.path().join("external SDK");
+        let custom = directory.path().join("custom managed runtime");
+        sdk_layout(&external);
+        sdk_layout(&custom);
+        file(
+            &custom,
+            "emulator/.rustemudroid-package",
+            &format!("emulator\n{}\n", "a".repeat(40)),
+        );
+        let find = |root| {
+            Sdk::discover(
+                Some(root),
+                None,
+                Some(external.clone()),
+                None,
+                None,
+                Locale::EnUs,
+            )
+            .unwrap()
+        };
+        assert!(!find(custom.clone()).is_portable());
+        file(
+            &custom,
+            "platform-tools/.rustemudroid-package",
+            &format!("platform-tools\n{}\n", "b".repeat(64)),
+        );
+        let sdk = find(custom.clone());
+        assert!(sdk.is_portable());
+        assert_eq!(sdk.root, custom);
+        assert!(
+            SystemImage::preferred(&sdk)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("runtime-setup")
+        );
+        let package = crate::runtime_install::ImageChoice::GooglePlay.package();
+        assert!(
+            SystemImage::from_sdk(&sdk, package)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("runtime-setup")
+        );
+        file(
+            &sdk.root,
+            "system-images/android-37.0/google_apis_playstore/x86_64/system.img",
+            "",
+        );
+        assert_eq!(SystemImage::preferred(&sdk).unwrap().api, "android-37.0");
+        let external = find(external.clone());
+        assert!(!external.is_portable());
+        assert!(
+            SystemImage::preferred(&external)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("SDK Manager")
+        );
     }
 
     #[test]
@@ -1599,6 +1697,7 @@ mod tests {
             None,
             Some(dir.0.join("missing-sdk")),
             Some(kemu.clone()),
+            None,
             Locale::EnUs,
         )
         .unwrap();
