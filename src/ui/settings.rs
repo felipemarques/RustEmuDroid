@@ -24,6 +24,8 @@ pub(super) struct LaunchConfig {
     pub hardware: Hardware,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub amd_uma_vulkan_by_profile: BTreeMap<PathBuf, bool>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) vulkan_cache_runtime_by_profile: BTreeMap<PathBuf, PathBuf>,
     pub show_fps: bool,
     #[serde(default)]
     pub android_fps: bool,
@@ -43,6 +45,7 @@ impl LaunchConfig {
             || self.gpu != other.gpu
             || self.hardware != other.hardware
             || self.amd_uma_vulkan() != other.amd_uma_vulkan()
+            || self.vulkan_cache_runtime() != other.vulkan_cache_runtime()
     }
 
     fn profile_key(&self) -> Option<PathBuf> {
@@ -68,6 +71,23 @@ impl LaunchConfig {
         }
     }
 
+    pub(super) fn vulkan_cache_runtime(&self) -> Option<&Path> {
+        self.profile_key()
+            .and_then(|key| self.vulkan_cache_runtime_by_profile.get(&key))
+            .map(PathBuf::as_path)
+    }
+
+    #[cfg(any(windows, test))]
+    pub(super) fn set_vulkan_cache_runtime(&mut self, path: Option<PathBuf>) {
+        if let Some(key) = self.profile_key() {
+            if let Some(path) = path {
+                self.vulkan_cache_runtime_by_profile.insert(key, path);
+            } else {
+                self.vulkan_cache_runtime_by_profile.remove(&key);
+            }
+        }
+    }
+
     pub fn load(sdk: Option<PathBuf>, state: PathBuf, gpu: Option<Gpu>, file: &Path) -> Self {
         let mut config = fs::File::open(file)
             .ok()
@@ -79,6 +99,7 @@ impl LaunchConfig {
                 gpu: if cfg!(windows) { Gpu::Host } else { Gpu::Auto },
                 hardware: Hardware::default(),
                 amd_uma_vulkan_by_profile: BTreeMap::new(),
+                vulkan_cache_runtime_by_profile: BTreeMap::new(),
                 show_fps: true,
                 android_fps: false,
                 adaptive_video: false,
@@ -198,6 +219,45 @@ mod tests {
         saved.set_amd_uma_vulkan(false);
         assert!(!saved.amd_uma_vulkan());
         assert!(!saved.boot_changed(&old));
+    }
+
+    #[test]
+    fn vulkan_cache_runtime_migrates_and_restarts_only_the_selected_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = dir.path().join("launcher.json");
+        let profile = dir.path().join("android-17");
+        let legacy = LaunchConfig::load(None, profile.clone(), None, &prefs);
+        let json = serde_json::to_value(&legacy).unwrap();
+        assert!(json.get("vulkan_cache_runtime_by_profile").is_none());
+        let mut configured: LaunchConfig = serde_json::from_value(json).unwrap();
+        assert!(configured.vulkan_cache_runtime().is_none());
+
+        let prepared = dir.path().join("prepared");
+        configured.set_vulkan_cache_runtime(Some(prepared.clone()));
+        assert!(configured.boot_changed(&legacy));
+        assert_eq!(configured.state, legacy.state);
+        assert_eq!(configured.sdk, legacy.sdk);
+        assert_eq!(configured.image, legacy.image);
+
+        write_json(&prefs, &configured).unwrap();
+        let mut restored = LaunchConfig::load(None, profile, None, &prefs);
+        assert_eq!(restored.vulkan_cache_runtime(), Some(prepared.as_path()));
+        assert!(!restored.boot_changed(&configured));
+        let original = dir.path().join("original").display().to_string();
+        restored.state = original.clone();
+        assert!(restored.vulkan_cache_runtime().is_none());
+        let mut other = legacy.clone();
+        other.state = original;
+        assert!(!restored.boot_changed(&other));
+
+        let second = dir.path().join("another").join("sdk");
+        restored.set_vulkan_cache_runtime(Some(second.clone()));
+        assert!(restored.boot_changed(&other));
+        restored.state = legacy.state.clone();
+        restored.set_vulkan_cache_runtime(None);
+        assert!(!restored.boot_changed(&legacy));
+        restored.state = other.state;
+        assert_eq!(restored.vulkan_cache_runtime(), Some(second.as_path()));
     }
 }
 
@@ -495,6 +555,73 @@ impl ProfileImages {
     }
 }
 
+#[cfg(windows)]
+fn vulkan_cache_runtime_picker(
+    ui: &mut egui::Ui,
+    frame: Option<&eframe::Frame>,
+    draft: &mut LaunchConfig,
+    locale: Locale,
+) {
+    ui.add_space(7.);
+    ui.label(
+        RichText::new(locale.pick(
+            "Cache de memória Vulkan (experimental)",
+            "Vulkan memory cache (experimental)",
+            "Caché de memoria Vulkan (experimental)",
+        ))
+        .strong(),
+    );
+    theme::label(
+        ui,
+        locale.pick(
+            "Selecione a pasta sdk do motor preparado ou a pasta que a contém. A escolha vale só para este perfil e mantém a imagem Android e os dados.",
+            "Select the prepared engine’s sdk folder or its parent. The choice applies to this profile and keeps its Android image and data.",
+            "Selecciona la carpeta sdk del motor preparado o la carpeta que la contiene. El cambio se aplica a este perfil y conserva la imagen y los datos de Android.",
+        ),
+    );
+    if let Some(path) = draft.vulkan_cache_runtime() {
+        let path = path.to_string_lossy();
+        ui.add(egui::Label::new(path.as_ref()).truncate())
+            .on_hover_text(path.as_ref());
+    } else {
+        ui.weak(locale.pick("Motor padrão", "Default engine", "Motor predeterminado"));
+    }
+    ui.add_enabled_ui(draft.profile_key().is_some(), |ui| {
+        ui.horizontal_wrapped(|ui| {
+            let choose = locale.pick(
+                "Escolher pasta do motor…",
+                "Choose runtime folder…",
+                "Elegir carpeta del motor…",
+            );
+            if ui.add(theme::button(choose)).clicked() {
+                let mut dialog = rfd::FileDialog::new().set_title(choose);
+                if let Some(frame) = frame {
+                    dialog = dialog.set_parent(frame);
+                }
+                if let Some(path) = draft.vulkan_cache_runtime() {
+                    dialog = dialog.set_directory(path);
+                }
+                if let Some(path) = dialog.pick_folder() {
+                    draft.set_vulkan_cache_runtime(Some(path));
+                }
+            }
+            if ui
+                .add_enabled(
+                    draft.vulkan_cache_runtime().is_some(),
+                    theme::button(locale.pick(
+                        "Voltar ao motor padrão",
+                        "Use default engine",
+                        "Volver al motor predeterminado",
+                    )),
+                )
+                .clicked()
+            {
+                draft.set_vulkan_cache_runtime(None);
+            }
+        });
+    });
+}
+
 impl Launcher {
     pub(super) fn open_settings(&mut self) {
         self.adapters.request();
@@ -681,6 +808,8 @@ impl Launcher {
                         path_input(ui, locale.pick("Pasta do runtime (vazio = automático)", "Runtime folder (empty = automatic)", "Carpeta del entorno (vacía = automático)"), &mut draft.sdk);
                         path_input(ui, locale.pick("Imagem de sistema", "System image", "Imagen del sistema"), &mut draft.image);
                         path_input(ui, locale.pick("Diretório do perfil", "Profile folder", "Carpeta del perfil"), &mut draft.state);
+                        #[cfg(windows)]
+                        vulkan_cache_runtime_picker(ui, frame, draft, locale);
                     });
                     if !self.output.is_empty() {
                         egui::CollapsingHeader::new(locale.pick("Saída do launcher", "Launcher output", "Salida del iniciador")).id_salt("launcher-output").show(ui, |ui| {

@@ -1,10 +1,10 @@
 [package]
 name = "rustemudroid"
-version = "0.21.1"
+version = "0.22.0"
 edition = "2024"
 
 [features]
-ui = ["dep:eframe", "dep:tonic", "dep:prost", "dep:tokio", "dep:bytemuck", "dep:rfd", "dep:serde", "dep:serde_json", "dep:ash", "dep:gilrs", "dep:png", "dep:raw-window-handle"]
+ui = ["dep:eframe", "dep:tonic", "dep:prost", "dep:tokio", "dep:bytemuck", "dep:rfd", "dep:serde", "dep:ash", "dep:gilrs", "dep:png", "dep:raw-window-handle"]
 
 [dependencies]
 png = { version = "0.18", optional = true }
@@ -16,7 +16,7 @@ tokio = { version = "1", optional = true, features = ["rt", "time", "sync", "mac
 bytemuck = { version = "1", optional = true }
 rfd = { version = "0.15.4", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
-serde_json = { version = "1", optional = true }
+serde_json = "1"
 tempfile = "3"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 zip = { version = "9.8", default-features = false, features = ["deflate-flate2-zlib-rs"] }

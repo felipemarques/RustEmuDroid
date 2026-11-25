@@ -108,6 +108,10 @@ enum Action {
         #[arg(long, value_enum, default_value_t = Engine::Auto)]
         engine: Engine,
 
+        /// Motor de cache Vulkan preparado para Windows.
+        #[arg(long, value_name = "DIR")]
+        vulkan_cache_runtime: Option<PathBuf>,
+
         /// Tempo máximo de espera pelo Android.
         #[arg(long, default_value_t = 180, value_parser = clap::value_parser!(u64).range(1..))]
         timeout: u64,
@@ -257,6 +261,7 @@ fn run(cli: Cli) -> Result<()> {
             check,
             gpu,
             engine,
+            vulkan_cache_runtime,
             timeout,
         } => android::boot(
             &sdk,
@@ -265,6 +270,7 @@ fn run(cli: Cli) -> Result<()> {
                 gpu,
                 hardware,
                 amd_uma_vulkan: false,
+                vulkan_cache_runtime,
                 engine,
                 headless,
                 check,

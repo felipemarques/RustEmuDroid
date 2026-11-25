@@ -77,6 +77,8 @@ Para probar una pantalla de alta frecuencia, abre **Ajustes → Gráficos → Fr
 
 Para jugar en una ventana pequeña, activa **Ajustes → Gráficos → Ajustar el vídeo al tamaño de la ventana** y guarda los cambios. El reproductor nativo puede transferir menos píxeles por fotograma mientras el juego se renderiza a la resolución configurada en Android. La pantalla completa usa la resolución original. PNG y MP4 la conservan. El GIF y el JPEG XL animado toman los fotogramas originales y ajustan la salida a un máximo de 720 × 720. La opción viene desactivada y se puede cambiar durante la sesión. [Resultados de SuperTuxKart en ventana](benchmarks/stk-1.5/vulkan-end-scene.md#matching-the-screenshot-stream-to-the-windows-panel)
 
+En Windows, abre **Ajustes → Entorno, imagen y perfil → Caché de memoria Vulkan (experimental)** para probar un motor SDK preparado. Usa **Elegir carpeta del motor…** para seleccionar su carpeta `sdk` o la carpeta que la contiene. Después, guarda y reinicia Android. El motor utiliza la imagen de Android y los datos de aplicaciones del perfil seleccionado. Para recuperar el motor habitual, pulsa **Volver al motor predeterminado** y guarda. [Preparar el motor con caché, instrucciones de compilación en inglés](experiments/whpx-clock/README.md#2-create-the-private-runtime).
+
 ![Ajustes de idioma, perfil, renderizado, GPU y cámara](docs/screenshots/es-es/settings.png)
 
 ## Utilizar los controles de escritorio

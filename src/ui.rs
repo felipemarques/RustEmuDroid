@@ -258,6 +258,11 @@ impl Launcher {
         let gpu = self.config.gpu;
         let hardware = self.config.hardware.clone();
         let amd_uma_vulkan = self.config.amd_uma_vulkan();
+        let vulkan_cache_runtime = if cfg!(windows) {
+            self.config.vulkan_cache_runtime().map(PathBuf::from)
+        } else {
+            None
+        };
         let language = self.config.locale;
         let (events, receiver) = mpsc::channel();
         self.failed = false;
@@ -308,6 +313,7 @@ impl Launcher {
                         gpu,
                         hardware,
                         amd_uma_vulkan,
+                        vulkan_cache_runtime,
                         engine: Engine::Auto,
                         headless: check,
                         check,

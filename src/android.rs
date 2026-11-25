@@ -1,3 +1,4 @@
+mod cached_runtime;
 mod refresh;
 
 use std::{
@@ -753,6 +754,7 @@ pub struct BootOptions {
     pub gpu: Gpu,
     pub hardware: Hardware,
     pub amd_uma_vulkan: bool,
+    pub vulkan_cache_runtime: Option<PathBuf>,
     pub engine: Engine,
     pub headless: bool,
     pub check: bool,
@@ -876,6 +878,7 @@ pub fn boot(
         gpu,
         hardware,
         amd_uma_vulkan,
+        vulkan_cache_runtime,
         engine,
         headless,
         check,
@@ -896,6 +899,18 @@ pub fn boot(
         cfg!(windows).then(kemu_install_root).flatten(),
     )?;
     let runtime = installed.as_deref();
+    let cache_sdk = vulkan_cache_runtime
+        .as_deref()
+        .map(|path| {
+            cached_runtime::select(
+                path,
+                runtime.is_none() && !is_kemu_image(&system_dir),
+                gpu,
+                sdk.locale,
+            )
+        })
+        .transpose()?;
+    let engine_sdk = cache_sdk.as_ref().unwrap_or(sdk);
     let gaming;
     let profile = if runtime.is_some() {
         gaming = Profile::localized(profile.root.join("gaming"), sdk.locale);
@@ -975,7 +990,11 @@ pub fn boot(
         }
         cmd
     } else {
-        let mut cmd = Command::new(&sdk.emulator);
+        let mut cmd = Command::new(&engine_sdk.emulator);
+        if cache_sdk.is_some() {
+            cmd.env("RUSTEMUDROID_QA_VULKAN_CACHED_HOST", "1")
+                .env_remove("RUSTEMUDROID_QA_WHPX_SYNC_TSC");
+        }
         if embedded || headless {
             // The SDK can block before ADB starts to ask about a previous crash.
             // The launcher and QEMU both inherit this session-local setting.
@@ -983,6 +1002,8 @@ pub fn boot(
         }
         cmd
     };
+    // The emulator launcher resolves QEMU next to its executable. Keep SDK image
+    // lookup on the profile's normal root, including relative image.sysdir.1.
     let sdk_root = runtime.unwrap_or(&sdk.root);
     hardware.apply(&mut command, gpu);
     command
@@ -1020,7 +1041,14 @@ pub fn boot(
         &system_dir,
     );
     if headless {
-        command.args(["-no-window", "-no-audio"]);
+        // -no-window selects the stock headless QEMU. The staged cache build
+        // supplies the Qt core, which also supports running with a hidden window.
+        let window_flag = if cache_sdk.is_some() {
+            "-qt-hide-window"
+        } else {
+            "-no-window"
+        };
+        command.args([window_flag, "-no-audio"]);
     }
 
     let (port, console, adb_port) = free_port_pair()?;
@@ -1168,6 +1196,36 @@ pub fn boot(
             && adb_output(sdk, &serial, ["shell", "getprop", "sys.boot_completed"])
                 .is_some_and(|output| output.trim() == "1")
         {
+            if cache_sdk.is_some() {
+                let activated = fs::read(&log_path).is_ok_and(|log| {
+                    String::from_utf8_lossy(&log)
+                        .contains("RustEmuDroid QA: requested cached Vulkan host allocations")
+                });
+                if !activated {
+                    if stop_owned_vm(sdk, &serial, &expected_avd) {
+                        let _ = wait_for_exit(&mut vm.0, Duration::from_secs(15));
+                    }
+                    return Err(format!(
+                        "{} {}",
+                        sdk.locale.pick(
+                            "O motor iniciou sem confirmar o cache Vulkan. Consulte",
+                            "The engine started without confirming Vulkan caching. See",
+                            "El motor arrancó sin confirmar la caché Vulkan. Consulta",
+                        ),
+                        log_path.display(),
+                    )
+                    .into());
+                }
+                notify(BootEvent::Message(
+                    sdk.locale
+                        .pick(
+                            "Cache de memória Vulkan ativado pelo motor.",
+                            "Engine enabled Vulkan memory caching.",
+                            "El motor activó la caché de memoria Vulkan.",
+                        )
+                        .into(),
+                ));
+            }
             let version = adb_output(
                 sdk,
                 &serial,

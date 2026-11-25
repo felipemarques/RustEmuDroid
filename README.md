@@ -75,6 +75,8 @@ To try a high-refresh display, open **Settings → Graphics → Android refresh 
 
 In a smaller window, enable **Settings → Graphics → Fit video frames to the window** and save. The native player can then transfer fewer pixels per frame while the game renders at its configured Android resolution. Fullscreen uses the native resolution. PNG and MP4 preserve it. GIF and animated JPEG XL use native frames as input and fit the output within 720 × 720. The option is off by default and takes effect during the session. [Windowed SuperTuxKart results](benchmarks/stk-1.5/vulkan-end-scene.md#matching-the-screenshot-stream-to-the-windows-panel)
 
+On Windows, open **Settings → Runtime, image, and profile → Vulkan memory cache (experimental)** to try a prepared SDK engine. Select its `sdk` folder or the folder containing it with **Choose runtime folder…**, then save and restart Android. The engine uses the selected profile’s Android image and app data. To restore the regular engine, choose **Use default engine** and save. [Prepare the cache engine](experiments/whpx-clock/README.md#2-create-the-private-runtime).
+
 ![Settings with profile selection, rendering mode, Vulkan adapter and webcam](docs/screenshots/en-us/settings.png)
 
 ## Use the desktop controls

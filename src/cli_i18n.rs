@@ -218,6 +218,11 @@ fn init_help(command: Command, l: Locale) -> Command {
 
 fn boot_help(command: Command, l: Locale) -> Command {
     arguments(command, [
+            ("vulkan_cache_runtime", l.pick(
+                "Pasta do motor Windows preparado com cache Vulkan (staging.json ou a subpasta sdk).",
+                "Prepared Windows Vulkan cache engine directory (the folder containing staging.json or its sdk subfolder).",
+                "Carpeta del motor Windows preparado con caché Vulkan (la carpeta con staging.json o su subcarpeta sdk).",
+            )),
             ("adapter", l.pick(
                 "Nome da placa Vulkan para os modos host e auto.",
                 "Vulkan adapter name for the host and auto modes.",

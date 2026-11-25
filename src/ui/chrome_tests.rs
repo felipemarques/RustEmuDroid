@@ -217,6 +217,7 @@ fn title_bar_layout_and_window_actions() {
             gpu: Gpu::Auto,
             hardware: Default::default(),
             amd_uma_vulkan_by_profile: Default::default(),
+            vulkan_cache_runtime_by_profile: Default::default(),
             show_fps: true,
             android_fps: false,
             adaptive_video: false,
@@ -419,6 +420,140 @@ fn settings_save_android_surface_fps_without_restarting_play() {
         let saved = LaunchConfig::load(None, dir.path().into(), None, &prefs);
         assert!(saved.android_fps && saved.show_fps);
         assert!(saved.adaptive_video);
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn settings_restore_default_vulkan_runtime_for_the_running_profile() {
+    for locale in Locale::ALL {
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = dir.path().join("launcher.json");
+        let profile = dir.path().join("android-17");
+        let mut config = LaunchConfig::load(None, profile.clone(), Some(Gpu::Host), &prefs);
+        config.locale = locale;
+        config.set_vulkan_cache_runtime(Some(dir.path().join("prepared").join("sdk")));
+        let brand = ctx.load_texture(
+            "brand",
+            egui::ColorImage::filled([2, 2], INK),
+            Default::default(),
+        );
+        let mut app = Launcher::new(brand, config.clone(), prefs.clone(), false);
+        app.playing = true;
+        app.stage = BootStage::Booted;
+        app.settings = Some(config);
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1080., 1200.));
+        let mut tick = |events| {
+            ctx.run(
+                RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| app.show_settings(ctx, None),
+            )
+        };
+        let locate = |out: &FullOutput, text: &str| {
+            let targets = labels(out, text);
+            assert_eq!(
+                targets.len(),
+                1,
+                "{text} for {}: {:?}",
+                locale.tag(),
+                out.shapes
+                    .iter()
+                    .filter_map(|s| match &s.shape {
+                        Shape::Text(text) => Some(text.galley.text()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            let point = targets[0].center();
+            assert!(screen.contains(point), "{text} is outside the window");
+            point
+        };
+        for _ in 0..3 {
+            tick(vec![]);
+        }
+        let inside_scroll_area = locate(
+            &tick(vec![]),
+            locale.pick("Painel Rust", "Rust panel", "Panel Rust"),
+        );
+        let scroll_down = |point| {
+            vec![
+                Event::PointerMoved(point),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0., -650.),
+                    modifiers: Modifiers::NONE,
+                },
+            ]
+        };
+        tick(scroll_down(inside_scroll_area));
+        for _ in 0..15 {
+            tick(vec![]);
+        }
+        let section = locate(
+            &tick(vec![]),
+            locale.pick(
+                "Runtime, imagem e perfil",
+                "Runtime, image, and profile",
+                "Entorno, imagen y perfil",
+            ),
+        );
+        tick(vec![Event::PointerMoved(section), button(section, true)]);
+        tick(vec![button(section, false)]);
+        for _ in 0..15 {
+            tick(vec![]);
+        }
+        tick(scroll_down(inside_scroll_area));
+        for _ in 0..15 {
+            tick(vec![]);
+        }
+        let opened = tick(vec![]);
+        locate(
+            &opened,
+            locale.pick(
+                "Escolher pasta do motor…",
+                "Choose runtime folder…",
+                "Elegir carpeta del motor…",
+            ),
+        );
+        let use_default = locate(
+            &opened,
+            locale.pick(
+                "Voltar ao motor padrão",
+                "Use default engine",
+                "Volver al motor predeterminado",
+            ),
+        );
+        tick(vec![
+            Event::PointerMoved(use_default),
+            button(use_default, true),
+        ]);
+        tick(vec![button(use_default, false)]);
+        let updated = tick(vec![]);
+        locate(
+            &updated,
+            locale.pick("Motor padrão", "Default engine", "Motor predeterminado"),
+        );
+        let save = locate(
+            &updated,
+            locale.pick(
+                "Salvar e reiniciar Android",
+                "Save and restart Android",
+                "Guardar y reiniciar Android",
+            ),
+        );
+        tick(vec![Event::PointerMoved(save), button(save, true)]);
+        tick(vec![button(save, false)]);
+        assert!(app.settings.is_none());
+        assert!(app.restart && app.stop.load(std::sync::atomic::Ordering::Acquire));
+        let saved = LaunchConfig::load(None, profile.clone(), None, &prefs);
+        assert_eq!(saved.state, profile.display().to_string());
+        assert!(saved.vulkan_cache_runtime().is_none());
     }
 }
 
