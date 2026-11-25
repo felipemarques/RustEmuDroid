@@ -35,3 +35,18 @@ For a complete route from the project harness, run `python -B export-counts.py <
 | `inventory.json` | `layer`, `origin_ns`, `approximate_host_to_guest_offset_ns`, sorted `guest_presentation_ns`, 48-second `total` metrics, and scheduled taps in `route[]` |
 
 The exporter checks the frame totals and tap schedule, selects the most CPU-active task with the game-thread name and writes relative timestamps and role totals. [Measured Windows results](../../../docs/game-testing.md#what-the-game-thread-did-during-the-first-inventory-close) · [Android 17 samples](../v0.18.0-android17-thread-counters.json)
+
+## One-close retest on RustEmuDroid v0.19.0
+
+PUBG MOBILE 4.7.0 used its original global Balanced preference, Classic style and disabled Lobby Graphics Enhancement on Android 17 and an RTX 5070 Ti. The stationary game SurfaceView presented 155 distinct frames in the 5.263075947-second window, **29.45 presentations/s**. This counts timestamps in the half-open interval from −13.343075947 s to −8.080 s relative to the lower bound of the close tap. The route used one fresh Inventory visit.
+
+The first close produced a **1,617.664 ms presentation gap** and a **1,616.447 ms ready gap** between the same two frames. The last presentation and ready time before the gap fell inside the estimated 30 ms tap bracket. The game returned to Lobby in the same process. An earlier attempt showed an exit confirmation after the attempted open, so the visual guard ended it before a close tap.
+
+| Window | Complete samples | Process RSS first / last / peak, KiB | Busiest game thread minor faults |
+| --- | ---: | ---: | ---: |
+| Stationary Lobby | 52 | 2,751,176 / 2,751,792 / 2,751,792 | 624 |
+| First-close ready gap | 15 | 2,767,580 / 2,772,096 / 2,772,096 | 61,824 |
+
+During 1.431 sampled seconds inside the gap, the busiest game thread accumulated 1,120 ms of CPU time. The process recorded 62,135 minor faults and zero major faults. Its last sampled RSS was 4,516 KiB above the first value. Shared RSS rose by 2,980 KiB, and anonymous RSS peaked 1,824 KiB above its first value before ending 1,488 KiB higher. Process swap stayed at zero in all 270 samples. The fault totals count events, while RSS describes sampled process-wide residency. [Relative frame timestamps, counters, and first/last/peak memory values](v0.19.0-android17-first-close.json)
+
+The earlier accepted v0.18.0 run used Customize Lobby Balanced/High on a four-visit route. It recorded a 1,583.816 ms first-close ready gap and 62,293 minor faults on the busiest game thread. The different presets and routes limit a launcher-version comparison. The v0.18.1 recording above also used Customize Lobby Balanced/High. It verified the memory observer and was excluded from the route comparison. [Earlier accepted v0.18.0 counters](../v0.18.0-android17-thread-counters.json)

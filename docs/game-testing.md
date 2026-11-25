@@ -304,7 +304,13 @@ We repeated the route on the restored Pie64 instance using a 25 ms observer inte
 
 The same eight Android 17 samples also recorded process resident memory. Across the 1.411 seconds with 62,524 process minor faults, resident memory rose from 692,714 to 692,965 pages, a net increase of 251. Its highest sampled value was 1,257 pages above the start. The stationary lobby grew by 32 pages over 5.446 seconds. The fault counter counts events, whereas resident memory counts pages present at each sample. The measurements leave open which mappings generated the faults and what happened between reads. [Resident memory and fault counters by interval](../benchmarks/pubg-mobile/inventory-process-rss.json)
 
-An earlier v0.4.0 Perfetto trace sampled anonymous, file-backed and shared memory in a different run. The samples bracketing its 1.674-second first close showed a 5.96 MiB increase in resident memory, including 4.67 MiB anonymous. Process swap stayed at zero in all 111 samples. Measuring these classes in the same run as the fault burst would allow a direct comparison. [Earlier trace conditions](#memory-and-io-during-inventory)
+An earlier v0.4.0 Perfetto trace sampled anonymous, file-backed and shared memory in a different run. The samples bracketing its 1.674-second first close showed a 5.96 MiB increase in resident memory, including 4.67 MiB anonymous. Process swap stayed at zero in all 111 samples. The v0.19.0 measurement below captures all three classes and thread faults together. [Earlier trace conditions](#memory-and-io-during-inventory)
+
+#### First Inventory close on the published v0.19.0 Windows build
+
+On the RTX 5070 Ti, with the original Balanced/Classic graphics settings and a 60 Hz Android 17 guest, the stationary lobby presented **29.45 frames/s** (155 in 5.263 s). The first return from Inventory to the lobby in this fresh PUBG process produced a **1.618 s gap between presentations**. The next game buffer became ready after **1.616 s**. The active game thread accumulated 1.12 s of CPU time and 61,824 minor page faults during the 1.431 s covered by the counters. The entire process recorded 62,135 minor faults and zero major faults in that interval. The process's resident memory rose by 4,516 KiB from the first to the last sample. Its swap stayed at zero. These measurements do not identify the function performing the work.
+
+We verified the lobby before opening Inventory, the Inventory controls before closing it and the return to the lobby in the same process. An earlier attempt opened the game's exit confirmation and was excluded. This single close uses a different route from the repeated 48-second comparisons above. [Counts, sampling coverage and memory](../benchmarks/pubg-mobile/thread-counters/v0.19.0-android17-first-close.json)
 
 ### Why did BlueStacks present PUBG's Inventory more consistently?
 

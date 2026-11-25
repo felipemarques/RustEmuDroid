@@ -1,0 +1,893 @@
+{
+  "launcher": "RustEmuDroid 0.19.0, Android 17 Google Play, RTX 5070 Ti, 1600x900, nominal 60 Hz",
+  "launcher_release": {
+    "version": "0.19.0",
+    "binary_sha256": "ccfdf3242e1c6192497129bdddab0a63021e092eabad8607a261db4eec6535c0"
+  },
+  "workload": "PUBG MOBILE 4.7.0 build 21718, ARM64. One fresh Inventory open and close.",
+  "checks": [
+    "stationary lobby before tap",
+    "original Global graphics preset visually verified",
+    "Inventory close and title controls before closing",
+    "same process back at lobby after close"
+  ],
+  "clock": "Input bounded by guest /proc/uptime reads (10 ms resolution). Offset estimated from the observer's boottime header and first monotonic sample. Frame-ready and process counters share the monotonic clock.",
+  "sample_count": 270,
+  "memory_sampled": true,
+  "interval_ms": 100,
+  "cpu_ticks_per_s": 100,
+  "tap_bound_ms": [
+    0,
+    30.0
+  ],
+  "open_tap_relative_ms": [
+    -6740.0,
+    -6710.0
+  ],
+  "close_selection": "Longest presentation-to-presentation gap from 150 ms before the bounded tap to 4 s after it.",
+  "first_close_present_gap_ms": 1617.6637,
+  "first_close_ready_gap_ms": 1616.4473,
+  "stationary_lobby": {
+    "window_relative_ns": [
+      -13343075947,
+      -8080000000
+    ],
+    "window_duration_ns": 5263075947,
+    "samples": 52,
+    "coverage_relative_ns": [
+      -13342175447,
+      -8154987547
+    ],
+    "coverage_ns": 5187187900,
+    "coverage_fraction": 0.9855810465658857,
+    "counters": {
+      "FAsyncLoading": {
+        "minor_faults": 5,
+        "major_faults": 0,
+        "user_ticks": 1,
+        "kernel_ticks": 4,
+        "cpu_ms": 50.0
+      },
+      "RHIThread": {
+        "minor_faults": 25,
+        "major_faults": 0,
+        "user_ticks": 32,
+        "kernel_ticks": 52,
+        "cpu_ms": 840.0
+      },
+      "RenderThread 1": {
+        "minor_faults": 313,
+        "major_faults": 0,
+        "user_ticks": 36,
+        "kernel_ticks": 20,
+        "cpu_ms": 560.0
+      },
+      "UEGameThread (highest CPU)": {
+        "minor_faults": 624,
+        "major_faults": 0,
+        "user_ticks": 135,
+        "kernel_ticks": 89,
+        "cpu_ms": 2240.0
+      },
+      "UEGameThread (other tasks combined)": {
+        "minor_faults": 0,
+        "major_faults": 0,
+        "user_ticks": 0,
+        "kernel_ticks": 0,
+        "cpu_ms": 0.0
+      },
+      "process": {
+        "minor_faults": 1070,
+        "major_faults": 0,
+        "user_ticks": 251,
+        "kernel_ticks": 214,
+        "cpu_ms": 4650.0
+      }
+    },
+    "process_memory_kib": {
+      "VmRSS": {
+        "first": 2751176,
+        "last": 2751792,
+        "peak": 2751792,
+        "last_minus_first": 616,
+        "peak_minus_first": 616
+      },
+      "RssAnon": {
+        "first": 1599328,
+        "last": 1599840,
+        "peak": 1599840,
+        "last_minus_first": 512,
+        "peak_minus_first": 512
+      },
+      "RssFile": {
+        "first": 460684,
+        "last": 460732,
+        "peak": 460732,
+        "last_minus_first": 48,
+        "peak_minus_first": 48
+      },
+      "RssShmem": {
+        "first": 691164,
+        "last": 691220,
+        "peak": 691220,
+        "last_minus_first": 56,
+        "peak_minus_first": 56
+      },
+      "VmSwap": {
+        "first": 0,
+        "last": 0,
+        "peak": 0,
+        "last_minus_first": 0,
+        "peak_minus_first": 0
+      }
+    },
+    "presentations": {
+      "boundary_rule": "Count each distinct actual presentation timestamp in [start, end), then divide by the exact window duration.",
+      "window_relative_ns": [
+        -13343075947,
+        -8080000000
+      ],
+      "window_duration_ns": 5263075947,
+      "count": 155,
+      "presentations_per_second": 29.45045854570109,
+      "first_relative_ns": -13311298747,
+      "last_relative_ns": -8080052747,
+      "presentations_relative_ns": [
+        -13311298747,
+        -13280410947,
+        -13245925247,
+        -13212730047,
+        -13179160147,
+        -13146642647,
+        -13109570747,
+        -13079814147,
+        -13047256347,
+        -13012439347,
+        -12979441947,
+        -12947103747,
+        -12912200647,
+        -12880512847,
+        -12830331947,
+        -12812039247,
+        -12780798047,
+        -12745517747,
+        -12709399847,
+        -12679305647,
+        -12646272647,
+        -12613367747,
+        -12579149647,
+        -12541248947,
+        -12496469447,
+        -12462763047,
+        -12429966847,
+        -12394482647,
+        -12362333947,
+        -12327676547,
+        -12293989447,
+        -12260307047,
+        -12230563147,
+        -12195263147,
+        -12162077447,
+        -12129437147,
+        -12096434847,
+        -12062371247,
+        -12029996947,
+        -11996366247,
+        -11962194447,
+        -11929818147,
+        -11897050447,
+        -11858494047,
+        -11829228747,
+        -11797154447,
+        -11761409447,
+        -11730243047,
+        -11697171447,
+        -11663082947,
+        -11622329447,
+        -11580346447,
+        -11546675247,
+        -11513167847,
+        -11478623847,
+        -11444443747,
+        -11413481047,
+        -11379395347,
+        -11346658547,
+        -11313378947,
+        -11279249047,
+        -11246426047,
+        -11212112347,
+        -11179969247,
+        -11146632847,
+        -11112579347,
+        -11072501947,
+        -11046812847,
+        -11013056747,
+        -10977651347,
+        -10947099447,
+        -10911741447,
+        -10879924947,
+        -10847698547,
+        -10796309247,
+        -10760020847,
+        -10728899347,
+        -10695577747,
+        -10661163947,
+        -10627156247,
+        -10589901347,
+        -10555006247,
+        -10528630947,
+        -10483236347,
+        -10461866047,
+        -10430335347,
+        -10395470647,
+        -10361223147,
+        -10313935047,
+        -10287176647,
+        -10262439247,
+        -10222949647,
+        -10196895447,
+        -10161451047,
+        -10129033347,
+        -10094796847,
+        -10062458847,
+        -10029625847,
+        -9976350647,
+        -9942224947,
+        -9913114947,
+        -9879651647,
+        -9845603847,
+        -9811229547,
+        -9776077247,
+        -9744068347,
+        -9713303047,
+        -9680151647,
+        -9643173247,
+        -9612855047,
+        -9578761047,
+        -9547256147,
+        -9513117247,
+        -9479222547,
+        -9446977947,
+        -9412783547,
+        -9379264147,
+        -9347351147,
+        -9313448047,
+        -9281025947,
+        -9247323747,
+        -9212831447,
+        -9180628147,
+        -9146271647,
+        -9113057847,
+        -9075648447,
+        -9047140447,
+        -9012519747,
+        -8962348847,
+        -8929648047,
+        -8895288147,
+        -8859061247,
+        -8829669547,
+        -8797565247,
+        -8763198847,
+        -8731025647,
+        -8695344747,
+        -8661677847,
+        -8625633547,
+        -8596348647,
+        -8561811847,
+        -8529486247,
+        -8496830047,
+        -8462172647,
+        -8430149447,
+        -8397569947,
+        -8362867647,
+        -8329914947,
+        -8279931647,
+        -8237833647,
+        -8212024447,
+        -8181002047,
+        -8146991447,
+        -8112229247,
+        -8080052747
+      ]
+    }
+  },
+  "first_close_present": {
+    "window_relative_ns": [
+      21369753,
+      1639033453
+    ],
+    "window_duration_ns": 1617663700,
+    "samples": 15,
+    "coverage_relative_ns": [
+      109847353,
+      1540760153
+    ],
+    "coverage_ns": 1430912800,
+    "coverage_fraction": 0.8845551767032913,
+    "counters": {
+      "FAsyncLoading": {
+        "minor_faults": 120,
+        "major_faults": 0,
+        "user_ticks": 2,
+        "kernel_ticks": 4,
+        "cpu_ms": 60.0
+      },
+      "RHIThread": {
+        "minor_faults": 0,
+        "major_faults": 0,
+        "user_ticks": 0,
+        "kernel_ticks": 0,
+        "cpu_ms": 0.0
+      },
+      "RenderThread 1": {
+        "minor_faults": 2,
+        "major_faults": 0,
+        "user_ticks": 0,
+        "kernel_ticks": 0,
+        "cpu_ms": 0.0
+      },
+      "UEGameThread (highest CPU)": {
+        "minor_faults": 61824,
+        "major_faults": 0,
+        "user_ticks": 90,
+        "kernel_ticks": 22,
+        "cpu_ms": 1120.0
+      },
+      "UEGameThread (other tasks combined)": {
+        "minor_faults": 0,
+        "major_faults": 0,
+        "user_ticks": 0,
+        "kernel_ticks": 0,
+        "cpu_ms": 0.0
+      },
+      "process": {
+        "minor_faults": 62135,
+        "major_faults": 0,
+        "user_ticks": 104,
+        "kernel_ticks": 36,
+        "cpu_ms": 1400.0
+      }
+    },
+    "process_memory_kib": {
+      "VmRSS": {
+        "first": 2767580,
+        "last": 2772096,
+        "peak": 2772096,
+        "last_minus_first": 4516,
+        "peak_minus_first": 4516
+      },
+      "RssAnon": {
+        "first": 1615460,
+        "last": 1616948,
+        "peak": 1617284,
+        "last_minus_first": 1488,
+        "peak_minus_first": 1824
+      },
+      "RssFile": {
+        "first": 460972,
+        "last": 461020,
+        "peak": 461020,
+        "last_minus_first": 48,
+        "peak_minus_first": 48
+      },
+      "RssShmem": {
+        "first": 691148,
+        "last": 694128,
+        "peak": 694128,
+        "last_minus_first": 2980,
+        "peak_minus_first": 2980
+      },
+      "VmSwap": {
+        "first": 0,
+        "last": 0,
+        "peak": 0,
+        "last_minus_first": 0,
+        "peak_minus_first": 0
+      }
+    }
+  },
+  "first_close_ready": {
+    "window_relative_ns": [
+      18113753,
+      1634561053
+    ],
+    "window_duration_ns": 1616447300,
+    "samples": 15,
+    "coverage_relative_ns": [
+      109847353,
+      1540760153
+    ],
+    "coverage_ns": 1430912800,
+    "coverage_fraction": 0.8852208172824441,
+    "counters": {
+      "FAsyncLoading": {
+        "minor_faults": 120,
+        "major_faults": 0,
+        "user_ticks": 2,
+        "kernel_ticks": 4,
+        "cpu_ms": 60.0
+      },
+      "RHIThread": {
+        "minor_faults": 0,
+        "major_faults": 0,
+        "user_ticks": 0,
+        "kernel_ticks": 0,
+        "cpu_ms": 0.0
+      },
+      "RenderThread 1": {
+        "minor_faults": 2,
+        "major_faults": 0,
+        "user_ticks": 0,
+        "kernel_ticks": 0,
+        "cpu_ms": 0.0
+      },
+      "UEGameThread (highest CPU)": {
+        "minor_faults": 61824,
+        "major_faults": 0,
+        "user_ticks": 90,
+        "kernel_ticks": 22,
+        "cpu_ms": 1120.0
+      },
+      "UEGameThread (other tasks combined)": {
+        "minor_faults": 0,
+        "major_faults": 0,
+        "user_ticks": 0,
+        "kernel_ticks": 0,
+        "cpu_ms": 0.0
+      },
+      "process": {
+        "minor_faults": 62135,
+        "major_faults": 0,
+        "user_ticks": 104,
+        "kernel_ticks": 36,
+        "cpu_ms": 1400.0
+      }
+    },
+    "process_memory_kib": {
+      "VmRSS": {
+        "first": 2767580,
+        "last": 2772096,
+        "peak": 2772096,
+        "last_minus_first": 4516,
+        "peak_minus_first": 4516
+      },
+      "RssAnon": {
+        "first": 1615460,
+        "last": 1616948,
+        "peak": 1617284,
+        "last_minus_first": 1488,
+        "peak_minus_first": 1824
+      },
+      "RssFile": {
+        "first": 460972,
+        "last": 461020,
+        "peak": 461020,
+        "last_minus_first": 48,
+        "peak_minus_first": 48
+      },
+      "RssShmem": {
+        "first": 691148,
+        "last": 694128,
+        "peak": 694128,
+        "last_minus_first": 2980,
+        "peak_minus_first": 2980
+      },
+      "VmSwap": {
+        "first": 0,
+        "last": 0,
+        "peak": 0,
+        "last_minus_first": 0,
+        "peak_minus_first": 0
+      }
+    }
+  },
+  "schema": 1,
+  "environment": {
+    "game_renderer": "ANGLE Vulkan via Goldfish GFXStream on NVIDIA GeForce RTX 5070 Ti",
+    "android_density_dpi": 320,
+    "graphics_preset": "Original global Balanced preference, Classic style, Lobby Graphics Enhancement disabled",
+    "workload_scope": "One first Inventory visit in a fresh game process. The 48-second route has four visits and needs a separate capture."
+  },
+  "stationary_control": "The control ends 30 ms before the pre-open visual check began. The rate uses the SurfaceView timestamp window, while the counters require complete observer samples inside it.",
+  "close_evidence": {
+    "window_relative_ns": [
+      -150000000,
+      4030000000
+    ],
+    "boundary_rule": "Use both endpoints of the search window. Select the largest gap between consecutive distinct presentation timestamps, then use unique ready timestamps for the same endpoints.",
+    "tap_bounds_relative_ns": [
+      0,
+      30000000
+    ],
+    "last_presentation_and_ready_before_gap_inside_estimated_tap_bracket": true,
+    "frames": [
+      {
+        "presentation_relative_ns": -145640047,
+        "ready_candidates_relative_ns": [
+          -148820547
+        ]
+      },
+      {
+        "presentation_relative_ns": -111285647,
+        "ready_candidates_relative_ns": [
+          -113716847
+        ]
+      },
+      {
+        "presentation_relative_ns": -80312447,
+        "ready_candidates_relative_ns": [
+          -82393547
+        ]
+      },
+      {
+        "presentation_relative_ns": -46567747,
+        "ready_candidates_relative_ns": [
+          -49110147
+        ]
+      },
+      {
+        "presentation_relative_ns": -12783847,
+        "ready_candidates_relative_ns": [
+          -14701647
+        ]
+      },
+      {
+        "presentation_relative_ns": 21369753,
+        "ready_candidates_relative_ns": [
+          18113753
+        ]
+      },
+      {
+        "presentation_relative_ns": 1639033453,
+        "ready_candidates_relative_ns": [
+          1634561053
+        ]
+      },
+      {
+        "presentation_relative_ns": 1820463953,
+        "ready_candidates_relative_ns": [
+          1817999853
+        ]
+      },
+      {
+        "presentation_relative_ns": 1920156953,
+        "ready_candidates_relative_ns": [
+          1917539053
+        ]
+      },
+      {
+        "presentation_relative_ns": 1955243253,
+        "ready_candidates_relative_ns": [
+          1952811553
+        ]
+      },
+      {
+        "presentation_relative_ns": 1971467653,
+        "ready_candidates_relative_ns": [
+          1967457453
+        ]
+      },
+      {
+        "presentation_relative_ns": 2003035353,
+        "ready_candidates_relative_ns": [
+          2000806353
+        ]
+      },
+      {
+        "presentation_relative_ns": 2019390053,
+        "ready_candidates_relative_ns": [
+          2017251653
+        ]
+      },
+      {
+        "presentation_relative_ns": 2054051553,
+        "ready_candidates_relative_ns": [
+          2051232753
+        ]
+      },
+      {
+        "presentation_relative_ns": 2089921553,
+        "ready_candidates_relative_ns": [
+          2083942753
+        ]
+      },
+      {
+        "presentation_relative_ns": 2119871553,
+        "ready_candidates_relative_ns": [
+          2117402153
+        ]
+      },
+      {
+        "presentation_relative_ns": 2153549153,
+        "ready_candidates_relative_ns": [
+          2151181253
+        ]
+      },
+      {
+        "presentation_relative_ns": 2192013753,
+        "ready_candidates_relative_ns": [
+          2184833353
+        ]
+      },
+      {
+        "presentation_relative_ns": 2220291853,
+        "ready_candidates_relative_ns": [
+          2217926553
+        ]
+      },
+      {
+        "presentation_relative_ns": 2253995253,
+        "ready_candidates_relative_ns": [
+          2251267253
+        ]
+      },
+      {
+        "presentation_relative_ns": 2286372253,
+        "ready_candidates_relative_ns": [
+          2284052653
+        ]
+      },
+      {
+        "presentation_relative_ns": 2539042753,
+        "ready_candidates_relative_ns": [
+          2536398453
+        ]
+      },
+      {
+        "presentation_relative_ns": 2570057153,
+        "ready_candidates_relative_ns": [
+          2567635253
+        ]
+      },
+      {
+        "presentation_relative_ns": 2603088553,
+        "ready_candidates_relative_ns": [
+          2599987253
+        ]
+      },
+      {
+        "presentation_relative_ns": 2621117753,
+        "ready_candidates_relative_ns": [
+          2618693053
+        ]
+      },
+      {
+        "presentation_relative_ns": 2653026453,
+        "ready_candidates_relative_ns": [
+          2650758653
+        ]
+      },
+      {
+        "presentation_relative_ns": 2687138853,
+        "ready_candidates_relative_ns": [
+          2685203353
+        ]
+      },
+      {
+        "presentation_relative_ns": 2720446953,
+        "ready_candidates_relative_ns": [
+          2718416153
+        ]
+      },
+      {
+        "presentation_relative_ns": 2754442053,
+        "ready_candidates_relative_ns": [
+          2751809453
+        ]
+      },
+      {
+        "presentation_relative_ns": 2788233753,
+        "ready_candidates_relative_ns": [
+          2786190353
+        ]
+      },
+      {
+        "presentation_relative_ns": 2836878053,
+        "ready_candidates_relative_ns": [
+          2834496653
+        ]
+      },
+      {
+        "presentation_relative_ns": 2852896653,
+        "ready_candidates_relative_ns": [
+          2850854753
+        ]
+      },
+      {
+        "presentation_relative_ns": 2887233053,
+        "ready_candidates_relative_ns": [
+          2885352153
+        ]
+      },
+      {
+        "presentation_relative_ns": 3003516253,
+        "ready_candidates_relative_ns": [
+          3001321853
+        ]
+      },
+      {
+        "presentation_relative_ns": 3036571453,
+        "ready_candidates_relative_ns": [
+          3034090253
+        ]
+      },
+      {
+        "presentation_relative_ns": 3070215553,
+        "ready_candidates_relative_ns": [
+          3067594853
+        ]
+      },
+      {
+        "presentation_relative_ns": 3105236953,
+        "ready_candidates_relative_ns": [
+          3102540753
+        ]
+      },
+      {
+        "presentation_relative_ns": 3137082753,
+        "ready_candidates_relative_ns": [
+          3135095453
+        ]
+      },
+      {
+        "presentation_relative_ns": 3170104153,
+        "ready_candidates_relative_ns": [
+          3167792453
+        ]
+      },
+      {
+        "presentation_relative_ns": 3205159453,
+        "ready_candidates_relative_ns": [
+          3201872753
+        ]
+      },
+      {
+        "presentation_relative_ns": 3237740653,
+        "ready_candidates_relative_ns": [
+          3234978053
+        ]
+      },
+      {
+        "presentation_relative_ns": 3270569753,
+        "ready_candidates_relative_ns": [
+          3268178353
+        ]
+      },
+      {
+        "presentation_relative_ns": 3303063553,
+        "ready_candidates_relative_ns": [
+          3300916853
+        ]
+      },
+      {
+        "presentation_relative_ns": 3338072853,
+        "ready_candidates_relative_ns": [
+          3335483653
+        ]
+      },
+      {
+        "presentation_relative_ns": 3370871353,
+        "ready_candidates_relative_ns": [
+          3368287453
+        ]
+      },
+      {
+        "presentation_relative_ns": 3404575653,
+        "ready_candidates_relative_ns": [
+          3401823653
+        ]
+      },
+      {
+        "presentation_relative_ns": 3520434053,
+        "ready_candidates_relative_ns": [
+          3518007153
+        ]
+      },
+      {
+        "presentation_relative_ns": 3553417053,
+        "ready_candidates_relative_ns": [
+          3550809653
+        ]
+      },
+      {
+        "presentation_relative_ns": 3570669853,
+        "ready_candidates_relative_ns": [
+          3568232653
+        ]
+      },
+      {
+        "presentation_relative_ns": 3604331053,
+        "ready_candidates_relative_ns": [
+          3601809653
+        ]
+      },
+      {
+        "presentation_relative_ns": 3637900553,
+        "ready_candidates_relative_ns": [
+          3635357453
+        ]
+      },
+      {
+        "presentation_relative_ns": 3670479453,
+        "ready_candidates_relative_ns": [
+          3667997953
+        ]
+      },
+      {
+        "presentation_relative_ns": 3703349353,
+        "ready_candidates_relative_ns": [
+          3700527453
+        ]
+      },
+      {
+        "presentation_relative_ns": 3738676853,
+        "ready_candidates_relative_ns": [
+          3736575653
+        ]
+      },
+      {
+        "presentation_relative_ns": 3770585253,
+        "ready_candidates_relative_ns": [
+          3768178153
+        ]
+      },
+      {
+        "presentation_relative_ns": 3803300353,
+        "ready_candidates_relative_ns": [
+          3801100153
+        ]
+      },
+      {
+        "presentation_relative_ns": 3853708753,
+        "ready_candidates_relative_ns": [
+          3851174953
+        ]
+      },
+      {
+        "presentation_relative_ns": 3888196653,
+        "ready_candidates_relative_ns": [
+          3885430153
+        ]
+      },
+      {
+        "presentation_relative_ns": 4020092353,
+        "ready_candidates_relative_ns": [
+          4017310853
+        ]
+      }
+    ]
+  },
+  "observer": {
+    "nominal_sample_interval_ms": 100,
+    "complete_samples": 270,
+    "surface_polls": 46,
+    "memory_unit": "KiB",
+    "process_swap_zero_throughout_capture": true
+  },
+  "excluded_attempts": [
+    {
+      "reason": "An Exit game confirmation occupied the lobby after the attempted first open. The visual guard stopped the route before any close tap.",
+      "included_in_metrics": false
+    }
+  ],
+  "previous_evidence": {
+    "v0.18.0": {
+      "role": "Earlier accepted close on a four-visit route, for context",
+      "graphics_preset": "Customize Lobby Balanced/High, Classic style, Lobby Graphics Enhancement disabled",
+      "counters": "../v0.18.0-android17-thread-counters.json",
+      "first_close_ready_gap_ms": 1583.8163,
+      "first_close_busiest_game_thread_minor_faults": 62293
+    },
+    "v0.18.1": {
+      "role": "Observer memory-field validation",
+      "graphics_preset": "Customize Lobby Balanced/High, Classic style, Lobby Graphics Enhancement disabled",
+      "route_exclusion": "The third visit showed the Backpack Finish screen. A separate single-close attempt stopped at a promotion before measurement."
+    }
+  },
+  "limitations": [
+    "This is one accepted close with the original global preference. Preset and route differences preclude attributing the timing difference to the launcher version.",
+    "The tap is bounded by /proc/uptime and aligned to monotonic time approximately. The time at which the game consumed the input is unknown.",
+    "The ready gap measures progress at the Android game SurfaceView. The stationary rate measures compositor presentations, separate from internal game FPS and desktop display.",
+    "Minor faults count events. First, last and peak RSS describe sampled process-wide residency and cannot identify which memory mappings faulted."
+  ]
+}
