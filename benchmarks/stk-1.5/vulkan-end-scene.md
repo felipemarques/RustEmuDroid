@@ -90,6 +90,8 @@ A follow-up on the same Kemu engine and Android 16 image measured **90.02 game F
 
 In a separate v0.21.1 test, changing the Android 17 host composition and guest EGL implementation together reduced QEMU CPU time per presentation by 14.03%. The medians of two kart replays in each mode were 85.61 and 85.77 FPS. [Android 17 compositor and ANGLE experiment](windows-android17-vulkan-composition.md)
 
+Keeping the desktop client and SDK engine fixed, the Android 16 Google APIs image delivered 83.67 FPS and the Android 17 Google Play image delivered 85.61 FPS. The Android 16 image used by Kemu comes from a different build. [Official image comparison on the same runtime](windows-sdk-android16-vs17.md)
+
 The table pools both passes per player. Each mean divides total scope duration by all positive `Main loop` samples, including frames where a child scope recorded zero duration.
 
 | CPU-thread elapsed time per frame | RustEmuDroid | Kemu | BlueStacks |

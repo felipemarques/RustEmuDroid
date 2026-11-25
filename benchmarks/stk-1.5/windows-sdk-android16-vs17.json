@@ -1,0 +1,350 @@
+{
+  "android_emulator": {
+    "version": "37.3.10",
+    "build": "16970787",
+    "sha256": {
+      "emulator/emulator.exe": "7476c5d7cf249182b7310d45e5304778bd5a337e8d6d11890edb27954b0f9717",
+      "emulator/qemu/windows-x86_64/qemu-system-x86_64.exe": "fae5ffdf64cf8cbd350af1aa726e407c5dce7f335821787cd2b15a5c1671dcf8",
+      "emulator/lib64/libgfxstream_backend.dll": "4769b6be73db471ccee75bfad2a5590d86991d836258eaf383ea2ffe99757238",
+      "emulator/lib/advancedFeatures.ini": "0f4532724ad5d666139607ab64bfb3eb42af140343ffb69c97afe72cb686d5f8",
+      "platform-tools/adb.exe": "bae5ce98846b19caa74a34900850caa8b21d01976932b2ad83baeb5de5651aee"
+    }
+  },
+  "rustemudroid": {
+    "version": "0.21.1",
+    "sha256": "513fc67688ba6c5e48a57f0db097ffc6c7fcf5358b5133c5f1d2ce2ae51de949"
+  },
+  "apk_sha256": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e",
+  "workload": {
+    "game": "SuperTuxKart 1.5",
+    "track": "Black Forest",
+    "preset": "high-vulkan",
+    "guest_display_pixels": [
+      1600,
+      900
+    ],
+    "active_hz": 90,
+    "density_dpi": 320,
+    "guest_vcpus": 4,
+    "guest_memory_mib": 8192,
+    "viewport_physical_pixels": [
+      800,
+      450
+    ],
+    "display_transport_rgba_pixels": [
+      800,
+      450
+    ],
+    "adapter": "NVIDIA GeForce RTX 5070 Ti",
+    "present_mode": "FIFO",
+    "settings": [
+      "1600",
+      "900",
+      "1",
+      "1",
+      "2",
+      "1",
+      "4",
+      "1",
+      "1",
+      "1",
+      "0",
+      "1",
+      "16",
+      "1024",
+      "0",
+      "0",
+      "0",
+      "0",
+      "1",
+      "0",
+      "0"
+    ]
+  },
+  "images": {
+    "16": {
+      "tag": "google_apis",
+      "build": "BE2A.250530.026.F3",
+      "revision": 7,
+      "runs": [
+        {
+          "replay": "16/1",
+          "fingerprint": "google/sdk_gphone64_x86_64/emu64xa:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys",
+          "android_graphics": {
+            "hardware_egl": "emulation",
+            "hwui_renderer": "skiagl",
+            "host_composition_app_flags": {
+              "useVulkanComposition": [
+                false
+              ],
+              "useVulkanNativeSwapchain": [
+                false
+              ],
+              "guestVulkanOnly": [
+                false
+              ]
+            },
+            "surfaceflinger_gles": "GLES: Google (NVIDIA Corporation), Android Emulator OpenGL ES Translator (NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2), OpenGL ES 3.1 (4.5.0 NVIDIA 610.88)"
+          },
+          "game": {
+            "frames": 3179,
+            "duration_ms": 38046,
+            "fps": 83.55674709562109,
+            "abi": "x86_64",
+            "game_vsync": true,
+            "configured_max_fps": 90
+          },
+          "android_surfaceview": {
+            "duration_s": 20.032919,
+            "presentations": 1670,
+            "presentations_per_second": 83.36278901741679,
+            "p99_interval_ms": 24.1492,
+            "max_interval_ms": 33.7976,
+            "intervals_over_250_ms": 0
+          },
+          "windows_panel": {
+            "captured_size_px": [
+              800,
+              450
+            ],
+            "processed_frames": 1508,
+            "counter_duration_ms": 19121,
+            "processed_frames_per_second": 78.86616808744313,
+            "complete_counter_intervals": 19
+          },
+          "windows_cpu": {
+            "qemu": {
+              "cpu_ms": 65992.4294,
+              "cpu_ms_per_second": 3294.1993825263303,
+              "cpu_ms_per_android_presentation": 39.51642479041916
+            },
+            "presenter": {
+              "cpu_ms": 5281.264,
+              "cpu_ms_per_second": 263.629279387592,
+              "cpu_ms_per_android_presentation": 3.162433532934132
+            }
+          },
+          "sha256": {
+            "stk_csv": "9bc0a9618a2b96f7d4abc97b807af5361b07e25706580e1514bae8b70695bafa",
+            "stk_frame_trace": "33b5849aa1843ae01b432deddb1276756a4b5b6d98698305a39d6c9f2c039dcc",
+            "sample": "1005c2a106bcd1fed8a32710ae1d93371e54a8af0581c684d20cd600cae7f4db"
+          }
+        },
+        {
+          "replay": "16/2",
+          "fingerprint": "google/sdk_gphone64_x86_64/emu64xa:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys",
+          "android_graphics": {
+            "hardware_egl": "emulation",
+            "hwui_renderer": "skiagl",
+            "host_composition_app_flags": {
+              "useVulkanComposition": [
+                false
+              ],
+              "useVulkanNativeSwapchain": [
+                false
+              ],
+              "guestVulkanOnly": [
+                false
+              ]
+            },
+            "surfaceflinger_gles": "GLES: Google (NVIDIA Corporation), Android Emulator OpenGL ES Translator (NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2), OpenGL ES 3.1 (4.5.0 NVIDIA 610.88)"
+          },
+          "game": {
+            "frames": 3190,
+            "duration_ms": 38074,
+            "fps": 83.78420969690603,
+            "abi": "x86_64",
+            "game_vsync": true,
+            "configured_max_fps": 90
+          },
+          "android_surfaceview": {
+            "duration_s": 20.02981765,
+            "presentations": 1640,
+            "presentations_per_second": 81.877929627582,
+            "p99_interval_ms": 23.9902,
+            "max_interval_ms": 27.9573,
+            "intervals_over_250_ms": 0
+          },
+          "windows_panel": {
+            "captured_size_px": [
+              800,
+              450
+            ],
+            "processed_frames": 1406,
+            "counter_duration_ms": 18161,
+            "processed_frames_per_second": 77.41864434777821,
+            "complete_counter_intervals": 18
+          },
+          "windows_cpu": {
+            "qemu": {
+              "cpu_ms": 63585.933099999995,
+              "cpu_ms_per_second": 3174.5637534548396,
+              "cpu_ms_per_android_presentation": 38.771910426829265
+            },
+            "presenter": {
+              "cpu_ms": 4851.5356,
+              "cpu_ms_per_second": 242.21566490396881,
+              "cpu_ms_per_android_presentation": 2.9582534146341466
+            }
+          },
+          "sha256": {
+            "stk_csv": "ef21c16bc79c81e5bad593e5af09c51bbfa94e8d50d96acd18b0f442bf533609",
+            "stk_frame_trace": "76e6b125fc592f0d492bb8fa8bb2ae232791ef73611e78145ec5cb4075d036a7",
+            "sample": "2ef4327c96cb3b49f54b9e625061a711a211b8769c44e4fd09ac691f9acae8c0"
+          }
+        }
+      ],
+      "pooled": {
+        "game_fps": 83.67052023121387,
+        "sf_presentations_per_second": 82.62041679571583,
+        "panel_processed_frames_per_second": 78.16104286250737,
+        "windows_cpu_ms_per_s": {
+          "qemu": 3234.3861986272973,
+          "presenter": 252.92330098473192
+        }
+      }
+    },
+    "17": {
+      "tag": "google_apis_playstore",
+      "build": "CE2A.260420.051.A2",
+      "revision": 7,
+      "runs": [
+        {
+          "replay": "17/1",
+          "fingerprint": "google/sdk_gphone64_x86_64/emu64xa:17/CE2A.260420.051.A2/16418371:user/release-keys",
+          "android_graphics": {
+            "hardware_egl": "emulation",
+            "hwui_renderer": "skiagl",
+            "host_composition_app_flags": {
+              "useVulkanComposition": [
+                false
+              ],
+              "useVulkanNativeSwapchain": [
+                false
+              ],
+              "guestVulkanOnly": [
+                false
+              ]
+            },
+            "surfaceflinger_gles": "GLES: Google (NVIDIA Corporation), Android Emulator OpenGL ES Translator (NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2), OpenGL ES 3.1 (4.5.0 NVIDIA 610.88)"
+          },
+          "game": {
+            "frames": 3255,
+            "duration_ms": 38062,
+            "fps": 85.51836477326468,
+            "abi": "x86_64",
+            "game_vsync": true,
+            "configured_max_fps": 90
+          },
+          "android_surfaceview": {
+            "duration_s": 20.0235215,
+            "presentations": 1711,
+            "presentations_per_second": 85.44950497343837,
+            "p99_interval_ms": 23.2908,
+            "max_interval_ms": 35.6034,
+            "intervals_over_250_ms": 0
+          },
+          "windows_panel": {
+            "captured_size_px": [
+              800,
+              450
+            ],
+            "processed_frames": 1590,
+            "counter_duration_ms": 19111,
+            "processed_frames_per_second": 83.19815812882634,
+            "complete_counter_intervals": 19
+          },
+          "windows_cpu": {
+            "qemu": {
+              "cpu_ms": 44382.8984,
+              "cpu_ms_per_second": 2216.538104948223,
+              "cpu_ms_per_android_presentation": 25.939741905318527
+            },
+            "presenter": {
+              "cpu_ms": 5570.3453,
+              "cpu_ms_per_second": 278.1900925868609,
+              "cpu_ms_per_android_presentation": 3.2556080070134423
+            }
+          },
+          "sha256": {
+            "stk_csv": "6fde10ab0c4a42f473e5ef315b8891df59b8c0c8a2b2fa89a64c65c03c9f974f",
+            "stk_frame_trace": "13e79651109f4e00c5d0d67fd67d37bf1c649e782ba4247fe97b178cfc7d65a0",
+            "sample": "bb44de316ecf65e3da487e2a3ccd2142e7d5b43da4402c4a373c090b9e8677e8"
+          }
+        },
+        {
+          "replay": "17/2",
+          "fingerprint": "google/sdk_gphone64_x86_64/emu64xa:17/CE2A.260420.051.A2/16418371:user/release-keys",
+          "android_graphics": {
+            "hardware_egl": "emulation",
+            "hwui_renderer": "skiagl",
+            "host_composition_app_flags": {
+              "useVulkanComposition": [
+                false
+              ],
+              "useVulkanNativeSwapchain": [
+                false
+              ],
+              "guestVulkanOnly": [
+                false
+              ]
+            },
+            "surfaceflinger_gles": "GLES: Google (NVIDIA Corporation), Android Emulator OpenGL ES Translator (NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2), OpenGL ES 3.1 (4.5.0 NVIDIA 610.88)"
+          },
+          "game": {
+            "frames": 3262,
+            "duration_ms": 38062,
+            "fps": 85.70227523514266,
+            "abi": "x86_64",
+            "game_vsync": true,
+            "configured_max_fps": 90
+          },
+          "android_surfaceview": {
+            "duration_s": 20.01898155,
+            "presentations": 1706,
+            "presentations_per_second": 85.21912045021091,
+            "p99_interval_ms": 23.411,
+            "max_interval_ms": 32.5652,
+            "intervals_over_250_ms": 0
+          },
+          "windows_panel": {
+            "captured_size_px": [
+              800,
+              450
+            ],
+            "processed_frames": 1591,
+            "counter_duration_ms": 19139,
+            "processed_frames_per_second": 83.1286901092011,
+            "complete_counter_intervals": 19
+          },
+          "windows_cpu": {
+            "qemu": {
+              "cpu_ms": 44289.1284,
+              "cpu_ms_per_second": 2212.3567220131636,
+              "cpu_ms_per_android_presentation": 25.960802110199296
+            },
+            "presenter": {
+              "cpu_ms": 5718.742700000001,
+              "cpu_ms_per_second": 285.66601581187837,
+              "cpu_ms_per_android_presentation": 3.3521352286049244
+            }
+          },
+          "sha256": {
+            "stk_csv": "747e57ea66260a1ffb1452890b85f19199f31bc755a07c6a0c8cbe63cf9c1a6a",
+            "stk_frame_trace": "dfc3023347b6eb8e7736c0db37e1152abbdaf43e190a8f36f38682302534d10d",
+            "sample": "4864cd281fd0f6a713711ae747946a0998ac0b23d17e36e109739fa4a8132c3d"
+          }
+        }
+      ],
+      "pooled": {
+        "game_fps": 85.61032000420367,
+        "sf_presentations_per_second": 85.33432577212477,
+        "panel_processed_frames_per_second": 83.16339869281046,
+        "windows_cpu_ms_per_s": {
+          "qemu": 2214.4476505196894,
+          "presenter": 281.9276303957227
+        }
+      }
+    }
+  }
+}

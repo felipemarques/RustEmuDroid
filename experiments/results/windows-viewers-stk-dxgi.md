@@ -13,4 +13,4 @@ Desktop Duplication supplied the most recent composed image and its QPC timestam
 
 Pooled exact-update rates were **84.14/s for Glow** and **86.00/s for GPUI**. The corresponding material rates were **84.14** and **86.00/s**. No acquisition reported superseded desktop updates.
 
-The difference did not clear the check for a consistent direction in both adjacent pairs and at both pixel thresholds beyond the two-run spread of each renderer.
+The comparison required both adjacent-pair differences to point in the same direction and exceed the larger of the two viewers' run-to-run spreads at both pixel thresholds. This batch fell short of that rule.
