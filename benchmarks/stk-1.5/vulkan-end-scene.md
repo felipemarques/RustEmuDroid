@@ -86,6 +86,8 @@ Pooling frames and durations gives **82.85 game FPS and 81.73 Android presentati
 
 A follow-up on the same Kemu engine and Android 16 image measured **90.02 game FPS and 89.98 Android presentations/s** with the integrated RustEmuDroid v0.20.0 frontend. The original Kemu window remained near 90 FPS under the same workload. [Matched Kemu engine with both frontends](#how-the-kemu-and-rust-windows-receive-game-frames)
 
+In a separate v0.21.1 test, changing the Android 17 host composition and guest EGL implementation together reduced QEMU CPU time per presentation by 14.03%. The medians of two kart replays in each mode were 85.61 and 85.77 FPS. [Android 17 compositor and ANGLE experiment](windows-android17-vulkan-composition.md)
+
 The table pools both passes per player. Each mean divides total scope duration by all positive `Main loop` samples, including frames where a child scope recorded zero duration.
 
 | CPU-thread elapsed time per frame | RustEmuDroid | Kemu | BlueStacks |
