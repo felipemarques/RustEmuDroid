@@ -66,6 +66,39 @@
           "image_sha256": "4d6e8b18f2236b99b241e54b55ff4a0c8dbb393ac9436d0d77cb825a05ba21db"
         }
       ]
+    },
+    {
+      "player": "BlueStacks 5.22.166.1003 (OpenGL Compatibility)",
+      "samples": [
+        {
+          "run": "forest-1",
+          "character_state": "stationary",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "1d392397aeab77c4b047a5eb03b54324d8b08bf6efd176ca9f17163340c8a430"
+        },
+        {
+          "run": "forest-2",
+          "character_state": "stationary",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "dd9865b34ebb535c0f135d0e6db6d7288e3bfc699c8f90a1efeb1414ce04cd96"
+        },
+        {
+          "run": "walk-1",
+          "character_state": "swimming",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "2436a1ccfe357548cf46b81180b87158d1a973333bc52738e29ec989802a46ae"
+        },
+        {
+          "run": "walk-2",
+          "character_state": "swimming",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "d3582a83d14ddcf469cd7a8bde764a5999dd2bb656547e357bbf73cf89beecb1"
+        }
+      ]
     }
   ]
 }

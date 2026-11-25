@@ -14,7 +14,7 @@ SCENES = ("forest", "walk")
 PLAYERS = {"rust": "RustEmuDroid", "kemu": "Kemu", "blue": "BlueStacks", "bluestacks": "BlueStacks"}
 RENDER = re.compile(
     r"\b(Vulkan|OpenGL(?: API)?(?: OpenGL ES| ES)?)\s+([0-9]+(?:\.[0-9]+){1,3})(?:[A-Za-z0-9._ ()-]*?)"
-    r"\s+-\s+(Mobile|Forward\+|Compatibility)\s+-\s+Using Device(?: #\d+)?:\s*"
+    r"\s+-\s+(Forward Mobile|Mobile|Forward\+|Compatibility)\s+-\s+Using Device(?: #\d+)?:\s*"
     r"([A-Za-z0-9._+/()®™ -]{1,160})\s*$", re.I | re.M
 )
 HUD = re.compile(r"\b(\d{1,4})\s*fps\s*[.·|:\- ]*\s*resolu[cç][aã]o\s*(?:3D\s*)?(\d{1,3})\s*%", re.I)
@@ -122,7 +122,7 @@ def run(name, folder, expected, settings):
         require(install["package"] == PACKAGE and digest(install["sha256"]) == expected
                 and "primaryCpuAbi=x86_64" in install["package_fields"], "Unverified installed Rust APK or ABI")
         profile = read(folder / "profile.json")
-        version, player_hash = None, digest(profile["binary_sha256"])
+        version, player_hash = profile.get("release_version"), digest(profile["binary_sha256"])
     else:
         install = read(folder / "apk-cleanup.json")
         identity = read(folder / "identity.json")
@@ -131,8 +131,9 @@ def run(name, folder, expected, settings):
                 and install["primary_cpu_abi"] == identity["primary_cpu_abi"] == "x86_64"
                 and install["removed"], "Unverified peer APK, ABI or cleanup")
         version = identity["engine_version"]
-        require(re.fullmatch(r"v?\d+(?:\.\d+){1,4}", version), "Unexpected player version label")
         player_hash = None
+    require(version is None or re.fullmatch(r"v?\d+(?:\.\d+){1,4}", version),
+            "Unexpected player version label")
     intervals = [measured_frame_set(root, case, period) for case in summary["cases"]]
     cases = [(item["scene"], item["repeat"]) for item in intervals]
     require(cases and len(cases) == len(set(cases)), "Duplicate or missing replay cases")

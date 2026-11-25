@@ -17,6 +17,12 @@ On the RustEmuDroid Android 17 profile, the original release APK installed and s
 
 On BlueStacks 5.22.166.1003 Pie64, the original APK started the Godot main loop and synthesized the forest sounds. The renderer reported repeated Vulkan queue presentation errors. Both Android's framebuffer and the foreground Windows player stayed black. There is no gameplay FPS result for this combination. [Renderer, observation time and test conditions](windows-bluestacks-vulkan-start.json)
 
+### BlueStacks with OpenGL Compatibility
+
+Using the audio-adjusted build and switching Godot to its OpenGL Compatibility renderer made the game playable on the same Pie64 test instance and physical RTX. At 1600 × 900 and 60 Hz, the stationary view measured **59.90 / 59.99 presentations/s**. The walk into the river measured **58.18 / 59.97**. The first walk contained one **433.33 ms** interval between presentations. Its P99 was still 16.67 ms. The second walk's longest interval was 16.67 ms. This is a separate rendering condition from the Vulkan comparison above.
+
+The APK keeps the Vulkan build's audio adjustment and adds the Godot arguments `--rendering-method gl_compatibility --rendering-driver opengl3`. The game selected OpenGL ES 3.2 Compatibility and reported an Adreno 650 device identity inside Android. All four end frames showed 60 FPS at 80% render scale. [OpenGL frame intervals and build identity](windows-rtx-opengl.json) · [End-frame HUD readings](windows-hud-check.json)
+
 ## Build and measurement
 
 The starting build is Cipó Livre 0.1 (version code 1), package `br.com.felipemarques.cipolivre`. The Android emulator preset exports x86-64 from the pinned Cipó Livre revision using the official Godot 4.7.2 editor and release Android template for Windows. A local QA key signs the APK. Use a single recorded APK SHA-256 across a comparison. The export records each QA audio variant separately. [Cipó Livre source and Android preset](https://github.com/felipemarques/cipo-godot/tree/2f4088e8cd82ca5e210552ab9d6c7511e83891a1) · [Official Godot 4.7.2 downloads](https://godotengine.org/download/archive/4.7.2-stable/)
