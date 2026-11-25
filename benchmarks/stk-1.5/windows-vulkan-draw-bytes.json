@@ -1,0 +1,162 @@
+{
+  "purpose": "CPU-side logical write volume only; exclude these runs from FPS rankings",
+  "conditions": {
+    "game": "SuperTuxKart 1.5, Black Forest replay",
+    "upstream_commit": "1fb491f507216c5d181ccd85f29ff08eca003827",
+    "preset": "High Vulkan",
+    "render_width_px": 1600,
+    "render_height_px": 900,
+    "display_refresh_hz": 90,
+    "host_gpu": "NVIDIA GeForce RTX 5070 Ti",
+    "vulkan_driver_version": "26.0.65.35",
+    "vulkan_present_mode": "FIFO",
+    "guest": "Android 17 Google Play r7",
+    "guest_abi": "x86_64",
+    "guest_vcpus": 4,
+    "guest_fingerprint": "google/sdk_gphone64_x86_64/emu64xa:17/CE2A.260420.051.A2/16418371:user/release-keys",
+    "emulator_build": "Android emulator version 37.3.10.0 (build_id qa-whpx-16970787) (CL:N/A)",
+    "vulkan_cached_host": true,
+    "whpx_tsc_sync": false,
+    "media_toolchain_build_concurrent": true,
+    "same_boot": true,
+    "replay_order": [
+      "off",
+      "on"
+    ],
+    "matching_report_graphics_fields": 21,
+    "benchmark_args": {
+      "off": [
+        "--benchmark"
+      ],
+      "on": [
+        "--benchmark",
+        "--qa-draw-bytes"
+      ]
+    }
+  },
+  "sha256": {
+    "archive": "2534425958f1476a3bd32b73c11db999eac4de1419c124df87f2731bffa4d9e5",
+    "patch": "9b86ece8c3349c6817d936a41adfabc53514e7312358e34b39e063f8c6f64843",
+    "apk": "a5477baf121c86d269cdf56f845fe8acc58c5afd26ded3350450a8a1c6d3c4f4",
+    "apk_certificate": "4ee9e02425d4ed6d6f3fac9b736ae606f1db20c2aa1d5edf9eff5425c64e60c3",
+    "apk_libmain_so": "48aea1b041fd6e506061701df123882df6b9d5e65810a9923e33a064b703b17b",
+    "reference_scoped_apk": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e",
+    "black_forest_replay": "0049a18428049c02dcfdb6e2944c7ba7196f2a0017f239d0305ed12fb15614df",
+    "emulator": "7476c5d7cf249182b7310d45e5304778bd5a337e8d6d11890edb27954b0f9717",
+    "qemu": "0698696ebcc59745f57ffc3c975382a399a83ebbe80e3f30ee0d982a9ea481cc",
+    "gfxstream_backend": "4769b6be73db471ccee75bfad2a5590d86991d836258eaf383ea2ffe99757238"
+  },
+  "unchanged_apk_entries_outside_libmain_and_signing": 5600,
+  "restoration": {
+    "qa_package_removed": true,
+    "test_xml_restored": true,
+    "ordinary_home_restored": true
+  },
+  "stats": {
+    "trace_member_sha256": {
+      "off/quadros.csv": "579097004559f35588d49b8c49a8a884ce0786ea2b58318dd7f65add75cff522",
+      "off/renderer.txt": "5ababbfa8a5ac78adb605ff38cfb55fd2da6f575c4ff5a6479791ec9c2d88669",
+      "off/report.csv": "4e97393c7abe6a466a5b903a2df3516ac9c1ac64794713f0843292278a6e1bfb",
+      "on/draw-bytes.csv": "06960574c714b5993e7557e89fdc203b6591aed932460ceee3e04ae3ff87beaa",
+      "on/quadros.csv": "db70b8d4c30cd1e72536d78726757cba7a2a6d32cb82035e40153cace230c9b0",
+      "on/renderer.txt": "f311ca20e487eea6a4d5c8d16452d0d63884903e48f28e46a900d72a9c6dd7d0",
+      "on/report.csv": "b2a76acacbeb677c9febf4f1ad9e644d4165bce5277e40df1fd25aaf10ee2f49"
+    },
+    "off_game_frames": 3429,
+    "on_rows": 3420,
+    "on_game_frames": 3419,
+    "excluded_rows": [
+      {
+        "frame": 0,
+        "main_loop_us": 0,
+        "storage_generate_calls": 0,
+        "storage_attempts": 0,
+        "storage_skinning_bytes": 0,
+        "storage_object_bytes": 0,
+        "storage_material_bytes": 0,
+        "upload_calls": 0,
+        "uniform_bytes": 0,
+        "indirect_bytes": 0
+      }
+    ],
+    "call_counts": {
+      "storage_generate_calls": 3419,
+      "storage_attempts": 3419,
+      "upload_calls": 3419
+    },
+    "bytes": {
+      "storage_skinning_bytes": {
+        "total_bytes": 4676992,
+        "mean_bytes": 1367.9415033635566,
+        "p50_bytes": 1216,
+        "p95_bytes": 1792,
+        "p99_bytes": 1792,
+        "peak_bytes": 3200,
+        "share_percent": 0.6374806855425316
+      },
+      "storage_object_bytes": {
+        "total_bytes": 706486208,
+        "mean_bytes": 206635.33430827726,
+        "p50_bytes": 158720,
+        "p95_bytes": 495040,
+        "p99_bytes": 551232,
+        "peak_bytes": 590336,
+        "share_percent": 96.2950785894403
+      },
+      "storage_material_bytes": {
+        "total_bytes": 2781344,
+        "mean_bytes": 813.4963439602222,
+        "p50_bytes": 784,
+        "p95_bytes": 1556,
+        "p99_bytes": 1636,
+        "peak_bytes": 1648,
+        "share_percent": 0.379101157292894
+      },
+      "uniform_bytes": {
+        "total_bytes": 5816768,
+        "mean_bytes": 1701.3068148581456,
+        "p50_bytes": 2032,
+        "p95_bytes": 2032,
+        "p99_bytes": 2032,
+        "peak_bytes": 2032,
+        "share_percent": 0.7928337812598055
+      },
+      "indirect_bytes": {
+        "total_bytes": 13906720,
+        "mean_bytes": 4067.4817198011115,
+        "p50_bytes": 3920,
+        "p95_bytes": 7780,
+        "p99_bytes": 8180,
+        "peak_bytes": 8240,
+        "share_percent": 1.89550578646447
+      },
+      "storage_bytes": {
+        "total_bytes": 713944544,
+        "mean_bytes": 208816.77215560107,
+        "p50_bytes": 161044,
+        "p95_bytes": 498336,
+        "p99_bytes": 554656,
+        "peak_bytes": 593760,
+        "share_percent": 97.31166043227573
+      },
+      "uniform_indirect_bytes": {
+        "total_bytes": 19723488,
+        "mean_bytes": 5768.7885346592575,
+        "p50_bytes": 5872,
+        "p95_bytes": 9812,
+        "p99_bytes": 10212,
+        "peak_bytes": 10272,
+        "share_percent": 2.6883395677242756
+      },
+      "all_counted_bytes": {
+        "total_bytes": 733668032,
+        "mean_bytes": 214585.56069026032,
+        "p50_bytes": 167088,
+        "p95_bytes": 507888,
+        "p99_bytes": 564848,
+        "peak_bytes": 603952,
+        "share_percent": 100.0
+      }
+    }
+  }
+}

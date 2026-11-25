@@ -1,0 +1,392 @@
+diff --git a/src/main.cpp b/src/main.cpp
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -288,6 +288,9 @@
+ #include "utils/log.hpp"
+ #include "mini_glm.hpp"
+ #include "utils/profiler.hpp"
++#ifdef __ANDROID__
++#include "ge_qa_draw_bytes.hpp"
++#endif
+ #include "utils/stk_process.hpp"
+ #include "utils/string_utils.hpp"
+ #include "utils/translation.hpp"
+@@ -621,6 +624,9 @@
+     "       --profile-time=n   Enable automatic driven profile mode for n "
+                               "seconds.\n"
+     "       --benchmark        Start Benchmark Mode, save results and exit. \n"
++#ifdef __ANDROID__
++    "       --qa-draw-bytes   Count Vulkan mapped writes in a QA benchmark.\n"
++#endif
+     "       --unlock-all       Permanently unlock all karts and tracks for testing.\n"
+     "       --no-unlock-all    Disable unlock-all (i.e. base unlocking on player achievement).\n"
+     "       --xmas=n           Toggle Xmas/Christmas mode. n=0 Use current date, n=1, Always enable,\n"
+@@ -1751,6 +1757,13 @@
+         Log::verbose("main", "Benchmark mode requested from command-line");
+         UserConfigParams::m_no_start_screen = true;
+         UserConfigParams::m_benchmark = true;
++#ifdef __ANDROID__
++        if (CommandLine::has("--qa-draw-bytes"))
++        {
++            GeQaDrawBytes::enabled = true;
++            Log::info("Profiler", "STK_QA_DRAW_BYTES_V1 active");
++        }
++#endif
+     }   // --benchmark
+     
+     if(CommandLine::has("--unlock-all"))
+diff --git a/src/utils/profiler.cpp b/src/utils/profiler.cpp
+--- a/src/utils/profiler.cpp
++++ b/src/utils/profiler.cpp
+@@ -16,6 +16,9 @@
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ 
+ #include "profiler.hpp"
++#ifdef __ANDROID__
++#include "ge_qa_draw_bytes.hpp"
++#endif
+ 
+ #include "config/user_config.hpp"
+ #include "graphics/glwrap.hpp"
+@@ -237,6 +240,10 @@
+     if (!UserConfigParams::m_profiler_enabled)
+         reset();
+ 
++#ifdef __ANDROID__
++    if (GeQaDrawBytes::enabled && !UserConfigParams::m_profiler_enabled)
++        GeQaDrawBytes::reset(m_max_frames);
++#endif
+     UserConfigParams::m_profiler_enabled = true;
+ 
+     // Would the profiler be enabled immediately, calls that have started but
+@@ -253,6 +260,9 @@
+  */
+ void Profiler::desactivate()
+ {
++#ifdef __ANDROID__
++    GeQaDrawBytes::current = nullptr;
++#endif
+     UserConfigParams::m_profiler_enabled = false;
+     computeStableFPS();
+ }   // desactivate
+@@ -324,6 +334,10 @@
+     else if(m_freeze_state == WAITING_FOR_UNFREEZE)
+         m_freeze_state = UNFROZEN;
+ 
++#ifdef __ANDROID__
++    if (GeQaDrawBytes::enabled)
++        GeQaDrawBytes::next(m_current_frame, m_freeze_state == UNFROZEN);
++#endif
+     m_lock.unlock();
+ }   // synchronizeFrame
+ 
+@@ -757,6 +771,17 @@
+     }
+     f.close();
+ 
++#ifdef __ANDROID__
++    std::ofstream draw_bytes;
++    std::size_t write_rows = 0;
++    if (GeQaDrawBytes::enabled && !GeQaDrawBytes::frames.empty())
++    {
++        draw_bytes.open(FileUtils::getPortableWritingPath(base_name +
++            ".qa-draw-bytes-" + (Track::getCurrentTrack() != NULL ?
++                Track::getCurrentTrack()->getIdent() : "menu") + ".csv"));
++        GeQaDrawBytes::writeHeader(draw_bytes);
++    }
++#endif
+     // 2: Save per-thread CPU data
+     for (int thread_id = 0; thread_id < m_threads_used; thread_id++)
+     {
+@@ -772,6 +797,10 @@
+         if (start > m_max_frames) start -= m_max_frames;
+         while (start != m_current_frame)
+         {
++#ifdef __ANDROID__
++            if (thread_id == 0 && draw_bytes.is_open())
++                GeQaDrawBytes::writeRow(draw_bytes, write_rows++, start);
++#endif
+             for (unsigned int i = 0; i < td.m_ordered_headings.size(); i++)
+             {
+                 const EventData &ed = td.m_all_event_data[td.m_ordered_headings[i]];
+@@ -784,6 +813,16 @@
+     }   // for all thread_ids
+ 
+ 
++#ifdef __ANDROID__
++    if (GeQaDrawBytes::enabled)
++    {
++        draw_bytes.close();
++        if (draw_bytes && write_rows != 0)
++            Log::info("Profiler", "STK_QA_DRAW_BYTES_V1 end rows=%zu", write_rows);
++        else
++            Log::warn("Profiler", "STK_QA_DRAW_BYTES_V1 export failed");
++    }
++#endif
+     // 3: Save GPU data
+     std::ofstream f_gpu(FileUtils::getPortableWritingPath(base_name + ".profile-"
+         + (Track::getCurrentTrack() != NULL ? Track::getCurrentTrack()->getIdent() : "menu") + "-gpu" + ".csv"));
+diff --git a/lib/graphics_engine/src/ge_vulkan_draw_call.cpp b/lib/graphics_engine/src/ge_vulkan_draw_call.cpp
+--- a/lib/graphics_engine/src/ge_vulkan_draw_call.cpp
++++ b/lib/graphics_engine/src/ge_vulkan_draw_call.cpp
+@@ -13,6 +13,9 @@
+ #include "ge_vulkan_dynamic_buffer.hpp"
+ #include "ge_vulkan_dynamic_spm_buffer.hpp"
+ #include "ge_vulkan_environment_map.hpp"
++#ifdef __ANDROID__
++#include "ge_qa_draw_bytes.hpp"
++#endif
+ #include "ge_vulkan_features.hpp"
+ #include "ge_vulkan_hiz_depth.hpp"
+ #include "ge_vulkan_light_handler.hpp"
+@@ -403,8 +406,20 @@
+             return nodes_area.at(a.first.first) < nodes_area.at(b.first.first);
+         });
+ 
++#ifdef __ANDROID__
++    static_assert(sizeof(ObjectData) == 13 * sizeof(float) +
++        sizeof(irr::video::SColor) + 2 * sizeof(int),
++        "Object payload size excludes padding");
++    GeQaDrawBytes::Frame* const qa_bytes = GeQaDrawBytes::current;
++    if (qa_bytes)
++        ++qa_bytes->storage_generate_calls;
++#endif
+     size_t min_size = 0;
+ start:
++#ifdef __ANDROID__
++    if (qa_bytes)
++        ++qa_bytes->storage_attempts;
++#endif
+     m_cmds.clear();
+     m_dyspmb_materials.clear();
+     m_materials_data.clear();
+@@ -421,6 +436,10 @@
+ 
+     static irr::core::matrix4 identity = irr::core::matrix4();
+     memcpy(mapped_addr, identity.pointer(), sizeof(irr::core::matrix4));
++#ifdef __ANDROID__
++    if (qa_bytes)
++        qa_bytes->storage_skinning_bytes += sizeof(irr::core::matrix4);
++#endif
+     size_t written_size = sizeof(irr::core::matrix4);
+     mapped_addr += sizeof(irr::core::matrix4);
+ 
+@@ -434,6 +453,10 @@
+             goto start;
+         }
+         memcpy(mapped_addr, node->getSkinningMatrices().data(), bone_size);
++#ifdef __ANDROID__
++        if (qa_bytes)
++            qa_bytes->storage_skinning_bytes += bone_size;
++#endif
+         written_size += bone_size;
+         mapped_addr += bone_size;
+         skinning_offets[node] = added_joint;
+@@ -493,6 +516,10 @@
+                 getShader(m));
+             ObjectData* data = (ObjectData*)mapped_addr;
+             data->init(node, material_id, -1, 0);
++#ifdef __ANDROID__
++            if (qa_bytes)
++                qa_bytes->storage_object_bytes += sizeof(ObjectData);
++#endif
+             m_dyspmb_materials[q.first] = std::make_pair(material_id,
+                 dynamic_spm_offset);
+             written_size += dynamic_spm_size;
+@@ -607,6 +634,10 @@
+                         obj->init(
+                             static_cast<irr::scene::IBillboardSceneNode*>(
+                             node), material_id, m_billboard_rotation);
++#ifdef __ANDROID__
++                        if (qa_bytes)
++                            qa_bytes->storage_object_bytes += sizeof(ObjectData);
++#endif
+                         written_size += sizeof(ObjectData);
+                         mapped_addr += sizeof(ObjectData);
+                     }
+@@ -643,6 +674,10 @@
+                             written_size += sizeof(ObjectData);
+                             mapped_addr += sizeof(ObjectData);
+                         }
++#ifdef __ANDROID__
++                        if (qa_bytes)
++                            qa_bytes->storage_object_bytes += sizeof(ObjectData) * ps;
++#endif
+                     }
+                 }
+                 else if (skip_instance_key || it == cur_key.end())
+@@ -660,6 +695,10 @@
+                     ObjectData* obj = (ObjectData*)mapped_addr;
+                     obj->init(node, bind_mesh_textures ? -1 : material_id,
+                         skinning_offset, r.second);
++#ifdef __ANDROID__
++                    if (qa_bytes)
++                        qa_bytes->storage_object_bytes += sizeof(ObjectData);
++#endif
+                     written_size += sizeof(ObjectData);
+                     mapped_addr += sizeof(ObjectData);
+                 }
+@@ -765,6 +804,10 @@
+                     goto start;
+                 }
+                 memcpy(mapped_addr, material.second.data(), material_size);
++#ifdef __ANDROID__
++                if (qa_bytes)
++                    qa_bytes->storage_material_bytes += material_size;
++#endif
+                 written_size += material_size;
+                 mapped_addr += material_size;
+                 size_t cur_padding = getPadding(written_size, sbo_alignment);
+@@ -795,6 +838,10 @@
+             goto start;
+         }
+         memcpy(mapped_addr, material.second.data(), material_size);
++#ifdef __ANDROID__
++        if (qa_bytes)
++            qa_bytes->storage_material_bytes += material_size;
++#endif
+         written_size += material_size;
+         mapped_addr += material_size;
+         size_t cur_padding = getPadding(written_size, sbo_alignment);
+@@ -1667,9 +1714,29 @@
+         dst_stage |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+     }
+     int current_buffer_idx = vk->getCurrentBufferIdx();
++#ifdef __ANDROID__
++    GeQaDrawBytes::Frame* const qa_bytes = GeQaDrawBytes::current;
++    size_t copied = 0;
++#endif
+     m_update_data_descriptor_sets =
+-        m_dynamic_data->setCurrentData(data_uploading, cmd,
+-        current_buffer_idx) || m_update_data_descriptor_sets;
++        m_dynamic_data->setCurrentData(data_uploading, cmd, current_buffer_idx
++#ifdef __ANDROID__
++        , qa_bytes ? &copied : nullptr
++#endif
++        ) || m_update_data_descriptor_sets;
++#ifdef __ANDROID__
++    if (qa_bytes)
++    {
++        ++qa_bytes->upload_calls;
++        if (copied != 0)
++        {
++            const size_t indirect = use_multidraw ?
++                m_cmds.size() * sizeof(VkDrawIndexedIndirectCommand) : 0;
++            qa_bytes->indirect_bytes += indirect;
++            qa_bytes->uniform_bytes += copied - indirect;
++        }
++    }
++#endif
+ 
+     const size_t whole_size = m_skinning_data_padded_size +
+         m_object_data_padded_size + m_materials_padded_size;
+diff --git a/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.hpp b/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.hpp
+--- a/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.hpp
++++ b/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.hpp
+@@ -43,7 +43,11 @@
+     // ------------------------------------------------------------------------
+     bool setCurrentData(const std::vector<std::pair<void*, size_t> >& data,
+                         VkCommandBuffer custom_cmd = VK_NULL_HANDLE,
+-                        unsigned cur_frame = -1);
++                        unsigned cur_frame = -1
++#ifdef __ANDROID__
++                        , size_t* written_bytes = nullptr
++#endif
++                        );
+     // ------------------------------------------------------------------------
+     bool setCurrentData(void* data, size_t size,
+                         VkCommandBuffer custom_cmd = VK_NULL_HANDLE,
+diff --git a/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.cpp b/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.cpp
+--- a/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.cpp
++++ b/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.cpp
+@@ -140,7 +140,11 @@
+ bool GEVulkanDynamicBuffer::setCurrentData(const std::vector<
+                                            std::pair<void*, size_t> >& data,
+                                            VkCommandBuffer custom_cmd,
+-                                           unsigned cur_frame)
++                                           unsigned cur_frame
++#ifdef __ANDROID__
++                                           , size_t* written_bytes
++#endif
++                                           )
+ {
+     GEVulkanDriver* vk = getVKDriver();
+ 
+@@ -166,7 +170,13 @@
+     for (auto& p : data)
+     {
+         if (p.first != NULL)
++        {
+             memcpy(addr, p.first, p.second);
++#ifdef __ANDROID__
++            if (written_bytes)
++                *written_bytes += p.second;
++#endif
++        }
+         addr += p.second;
+     }
+     vmaFlushAllocation(vk->getVmaAllocator(), m_host_memory[cur_frame], 0,
+diff --git a/lib/graphics_engine/include/ge_qa_draw_bytes.hpp b/lib/graphics_engine/include/ge_qa_draw_bytes.hpp
+new file mode 100644
+--- /dev/null
++++ b/lib/graphics_engine/include/ge_qa_draw_bytes.hpp
+@@ -0,0 +1,59 @@
++#ifndef GE_QA_DRAW_BYTES_HPP
++#define GE_QA_DRAW_BYTES_HPP
++#ifdef __ANDROID__
++
++#include <cstddef>
++#include <cstdint>
++#include <ostream>
++#include <vector>
++
++namespace GeQaDrawBytes
++{
++struct Frame
++{
++    std::uint64_t storage_generate_calls = 0;
++    std::uint64_t storage_attempts = 0;
++    std::uint64_t storage_skinning_bytes = 0;
++    std::uint64_t storage_object_bytes = 0;
++    std::uint64_t storage_material_bytes = 0;
++    std::uint64_t upload_calls = 0;
++    std::uint64_t uniform_bytes = 0;
++    std::uint64_t indirect_bytes = 0;
++};
++
++inline bool enabled = false;
++inline std::vector<Frame> frames;
++inline thread_local Frame* current = nullptr;
++
++inline void reset(std::size_t capacity)
++{
++    current = nullptr;
++    frames.assign(capacity, Frame{});
++}
++
++inline void next(std::size_t slot, bool recording)
++{
++    current = nullptr;
++    frames[slot] = {};
++    if (recording)
++        current = &frames[slot];
++}
++
++inline void writeHeader(std::ostream& out)
++{
++    out << "frame,storage_generate_calls,storage_attempts,storage_skinning_bytes,"
++           "storage_object_bytes,storage_material_bytes,upload_calls,uniform_bytes,"
++           "indirect_bytes\n";
++}
++
++inline void writeRow(std::ostream& out, std::size_t index, std::size_t slot)
++{
++    const Frame& data = frames[slot];
++    out << index << ',' << data.storage_generate_calls << ',' << data.storage_attempts
++        << ',' << data.storage_skinning_bytes << ',' << data.storage_object_bytes
++        << ',' << data.storage_material_bytes << ',' << data.upload_calls
++        << ',' << data.uniform_bytes << ',' << data.indirect_bytes << '\n';
++}
++}
++#endif
++#endif
