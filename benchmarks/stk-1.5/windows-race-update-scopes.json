@@ -1,0 +1,1211 @@
+{
+  "schema_version": 1,
+  "workload": {
+    "game": "SuperTuxKart 1.5 CPU-scoped QA",
+    "apk_sha256": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e",
+    "abi": "x86_64",
+    "scene": "Black Forest",
+    "preset": "High/Vulkan FIFO",
+    "host_gpu": "NVIDIA GeForce RTX 5070 Ti",
+    "game_vsync": true,
+    "guest_refresh_hz": 90,
+    "graphics": {
+      "Resolution width": "1600",
+      "Resolution height": "900",
+      "Render resolution": "1",
+      "Dynamic lighting": "1",
+      "Particle effects": "2",
+      "Animated characters": "1",
+      "Geometry Detail": "4",
+      "Bloom": "1",
+      "Glow": "1",
+      "Light Shaft": "1",
+      "Anti-Aliasing (MLAA)": "0",
+      "SSAO": "1",
+      "Anisotropic Filtering": "16",
+      "Shadow Resolution": "1024",
+      "Light scattering": "0",
+      "Degraded IBL": "0",
+      "Motion Blur": "0",
+      "Depth of Field": "0",
+      "Texture compression": "1",
+      "HD Textures": "0",
+      "HQ Mipmap": "0"
+    }
+  },
+  "method": {
+    "profile_columns": {
+      "main_loop": "Main loop",
+      "irr_driver_update": "IrrDriver update",
+      "update_race": "Update race",
+      "world_update": "World::update()",
+      "world_graphics_weather": "World::update (weather)",
+      "world_graphics_camera": "World::updateGraphics (camera)",
+      "input_gui": "Input/GUI",
+      "music": "Music",
+      "database_polling": "Database polling update",
+      "protocol_manager": "Protocol manager update"
+    },
+    "included_rows": "Thread 0 CSV rows with a strictly positive Main loop marker. One all-zero selected row per CSV excluded.",
+    "profiler_clock": "gettimeofday() on Android (STK 1.5 Utils Profiler). All timings are elapsed scope time on a calling thread.",
+    "interval_partition": {
+      "outside_renderer_and_race": "Main loop - IrrDriver update - Update race",
+      "main_loop_unassigned": "outside_renderer_and_race - Input/GUI - Music - Database polling update - Protocol manager update",
+      "update_race_unassigned": "Update race - World::update() - World::update (weather) - World::updateGraphics (camera)"
+    },
+    "pooling": "Sum scope microseconds, retained frames and reported profiler milliseconds across the two laps before normalizing.",
+    "profiled_seconds": "Use report.csv duration. STK derives it from the Main loop microseconds and truncates to milliseconds."
+  },
+  "groups": {
+    "historical_android17": {
+      "description": "RustEmuDroid 0.18.1, Android 17 Google Play",
+      "reference_json": "windows-vulkan-90hz-scoped-native.json",
+      "runs": [
+        {
+          "lap": "1",
+          "game_frames": 3159,
+          "profiled_duration_ms": 38157,
+          "game_fps": 82.78952747857537,
+          "zero_profile_rows_excluded": 1,
+          "scopes": {
+            "main_loop": {
+              "total_us": 38157431,
+              "ms_per_frame": 12.078958847736626,
+              "ms_per_profiled_second": 1000.0112954372723
+            },
+            "irr_driver_update": {
+              "total_us": 33580253,
+              "ms_per_frame": 10.630026274137384,
+              "ms_per_profiled_second": 880.0548523206751
+            },
+            "update_race": {
+              "total_us": 3666313,
+              "ms_per_frame": 1.1605929091484648,
+              "ms_per_profiled_second": 96.08493854338653
+            },
+            "world_update": {
+              "total_us": 2461510,
+              "ms_per_frame": 0.7792054447610003,
+              "ms_per_profiled_second": 64.51005058049637
+            },
+            "world_graphics_weather": {
+              "total_us": 36908,
+              "ms_per_frame": 0.011683444127888572,
+              "ms_per_profiled_second": 0.9672668186702309
+            },
+            "world_graphics_camera": {
+              "total_us": 54824,
+              "ms_per_frame": 0.017354859132636912,
+              "ms_per_profiled_second": 1.436800587048248
+            },
+            "input_gui": {
+              "total_us": 83464,
+              "ms_per_frame": 0.0264210193099082,
+              "ms_per_profiled_second": 2.187383704169615
+            },
+            "music": {
+              "total_us": 45292,
+              "ms_per_frame": 0.014337448559670781,
+              "ms_per_profiled_second": 1.1869905915035248
+            },
+            "database_polling": {
+              "total_us": 51581,
+              "ms_per_frame": 0.01632826843937955,
+              "ms_per_profiled_second": 1.351809628639568
+            },
+            "protocol_manager": {
+              "total_us": 58097,
+              "ms_per_frame": 0.018390946502057613,
+              "ms_per_profiled_second": 1.5225777707891082
+            },
+            "update_race_unassigned": {
+              "total_us": 1113071,
+              "ms_per_frame": 0.35234916112693887,
+              "ms_per_profiled_second": 29.170820557171684
+            },
+            "outside_renderer_and_race": {
+              "total_us": 910865,
+              "ms_per_frame": 0.2883396644507756,
+              "ms_per_profiled_second": 23.871504573210682
+            },
+            "main_loop_unassigned": {
+              "total_us": 672431,
+              "ms_per_frame": 0.21286198163975942,
+              "ms_per_profiled_second": 17.622742878108866
+            }
+          },
+          "game_report_sha256": "a9a2fc2cb8a54c9cf07be25f17fc62776ce6567b76c9c53600419476cf4af9c0",
+          "frame_profile_sha256": "270c256dac4ca65c70cb17c0d3e6b27de5898495ec738e37b62bcf34571a3827"
+        },
+        {
+          "lap": "2",
+          "game_frames": 3157,
+          "profiled_duration_ms": 38073,
+          "game_fps": 82.91965434822578,
+          "zero_profile_rows_excluded": 1,
+          "scopes": {
+            "main_loop": {
+              "total_us": 38073099,
+              "ms_per_frame": 12.059898321191003,
+              "ms_per_profiled_second": 1000.0026002679064
+            },
+            "irr_driver_update": {
+              "total_us": 33598649,
+              "ms_per_frame": 10.64258758314856,
+              "ms_per_profiled_second": 882.479683765398
+            },
+            "update_race": {
+              "total_us": 3602804,
+              "ms_per_frame": 1.1412112765283497,
+              "ms_per_profiled_second": 94.62884458802826
+            },
+            "world_update": {
+              "total_us": 2442195,
+              "ms_per_frame": 0.7735809312638582,
+              "ms_per_profiled_second": 64.14506343077771
+            },
+            "world_graphics_weather": {
+              "total_us": 34379,
+              "ms_per_frame": 0.010889768767817548,
+              "ms_per_profiled_second": 0.9029758621595356
+            },
+            "world_graphics_camera": {
+              "total_us": 54397,
+              "ms_per_frame": 0.017230598669623058,
+              "ms_per_profiled_second": 1.428755285898143
+            },
+            "input_gui": {
+              "total_us": 80618,
+              "ms_per_frame": 0.02553626860943934,
+              "ms_per_profiled_second": 2.117458566438158
+            },
+            "music": {
+              "total_us": 41272,
+              "ms_per_frame": 0.013073170731707317,
+              "ms_per_profiled_second": 1.0840227983085127
+            },
+            "database_polling": {
+              "total_us": 43301,
+              "ms_per_frame": 0.013715869496357301,
+              "ms_per_profiled_second": 1.137315157723321
+            },
+            "protocol_manager": {
+              "total_us": 51574,
+              "ms_per_frame": 0.016336395312005068,
+              "ms_per_profiled_second": 1.3546082525674363
+            },
+            "update_race_unassigned": {
+              "total_us": 1071833,
+              "ms_per_frame": 0.339509977827051,
+              "ms_per_profiled_second": 28.152050009192866
+            },
+            "outside_renderer_and_race": {
+              "total_us": 871646,
+              "ms_per_frame": 0.27609946151409565,
+              "ms_per_profiled_second": 22.89407191448008
+            },
+            "main_loop_unassigned": {
+              "total_us": 654881,
+              "ms_per_frame": 0.20743775736458664,
+              "ms_per_profiled_second": 17.20066713944265
+            }
+          },
+          "game_report_sha256": "80c93ada47c6f8e3fd9a0d2c8c0f27517d14a0315b2d3fa42e577e7d96d9165a",
+          "frame_profile_sha256": "9974333d724c6f9881ea44078c67e408711956fbd3593d46b01229dc378fad76"
+        }
+      ],
+      "pooled": {
+        "game_frames": 6316,
+        "profiled_duration_ms": 76230,
+        "game_fps": 82.85451921815559,
+        "scopes": {
+          "main_loop": {
+            "total_us": 76230530,
+            "ms_per_frame": 12.069431602279925,
+            "ms_per_profiled_second": 1000.0069526433163
+          },
+          "irr_driver_update": {
+            "total_us": 67178902,
+            "ms_per_frame": 10.63630493983534,
+            "ms_per_profiled_second": 881.2659320477502
+          },
+          "update_race": {
+            "total_us": 7269117,
+            "ms_per_frame": 1.1509051614946169,
+            "ms_per_profiled_second": 95.35769382133019
+          },
+          "world_update": {
+            "total_us": 4903705,
+            "ms_per_frame": 0.7763940785307156,
+            "ms_per_profiled_second": 64.32775810048537
+          },
+          "world_graphics_weather": {
+            "total_us": 71287,
+            "ms_per_frame": 0.011286732108929701,
+            "ms_per_profiled_second": 0.9351567624294898
+          },
+          "world_graphics_camera": {
+            "total_us": 109221,
+            "ms_per_frame": 0.017292748575047496,
+            "ms_per_profiled_second": 1.4327823691460055
+          },
+          "input_gui": {
+            "total_us": 164082,
+            "ms_per_frame": 0.025978784040531982,
+            "ms_per_profiled_second": 2.1524596615505707
+          },
+          "music": {
+            "total_us": 86564,
+            "ms_per_frame": 0.013705509816339456,
+            "ms_per_profiled_second": 1.1355634264725174
+          },
+          "database_polling": {
+            "total_us": 94882,
+            "ms_per_frame": 0.01502248258391387,
+            "ms_per_profiled_second": 1.2446805719532992
+          },
+          "protocol_manager": {
+            "total_us": 109671,
+            "ms_per_frame": 0.017363996200126665,
+            "ms_per_profiled_second": 1.438685556867375
+          },
+          "update_race_unassigned": {
+            "total_us": 2184904,
+            "ms_per_frame": 0.345931602279924,
+            "ms_per_profiled_second": 28.661996589269318
+          },
+          "outside_renderer_and_race": {
+            "total_us": 1782511,
+            "ms_per_frame": 0.28222150094996834,
+            "ms_per_profiled_second": 23.383326774235865
+          },
+          "main_loop_unassigned": {
+            "total_us": 1327312,
+            "ms_per_frame": 0.21015072830905637,
+            "ms_per_profiled_second": 17.411937557392104
+          }
+        }
+      }
+    },
+    "historical_kemu_android16": {
+      "description": "Kemu original 0.7.1, Android 16",
+      "reference_json": "windows-vulkan-90hz-scoped-kemu.json",
+      "runs": [
+        {
+          "lap": "1",
+          "game_frames": 3432,
+          "profiled_duration_ms": 38126,
+          "game_fps": 90.01731102135027,
+          "zero_profile_rows_excluded": 1,
+          "scopes": {
+            "main_loop": {
+              "total_us": 38126545,
+              "ms_per_frame": 11.10913315850816,
+              "ms_per_profiled_second": 1000.0142947070241
+            },
+            "irr_driver_update": {
+              "total_us": 36092911,
+              "ms_per_frame": 10.51658245920746,
+              "ms_per_profiled_second": 946.6744741121545
+            },
+            "update_race": {
+              "total_us": 1905623,
+              "ms_per_frame": 0.5552514568764569,
+              "ms_per_profiled_second": 49.98224308870587
+            },
+            "world_update": {
+              "total_us": 1232832,
+              "ms_per_frame": 0.3592167832167832,
+              "ms_per_profiled_second": 32.33572889891413
+            },
+            "world_graphics_weather": {
+              "total_us": 1121,
+              "ms_per_frame": 0.00032663170163170166,
+              "ms_per_profiled_second": 0.029402507475213766
+            },
+            "world_graphics_camera": {
+              "total_us": 18464,
+              "ms_per_frame": 0.00537995337995338,
+              "ms_per_profiled_second": 0.484288936683628
+            },
+            "input_gui": {
+              "total_us": 8151,
+              "ms_per_frame": 0.002375,
+              "ms_per_profiled_second": 0.21379111367570686
+            },
+            "music": {
+              "total_us": 2676,
+              "ms_per_frame": 0.0007797202797202797,
+              "ms_per_profiled_second": 0.07018832292923464
+            },
+            "database_polling": {
+              "total_us": 9751,
+              "ms_per_frame": 0.0028412004662004666,
+              "ms_per_profiled_second": 0.2557572260399727
+            },
+            "protocol_manager": {
+              "total_us": 920,
+              "ms_per_frame": 0.00026806526806526807,
+              "ms_per_profiled_second": 0.024130514609452865
+            },
+            "update_race_unassigned": {
+              "total_us": 653206,
+              "ms_per_frame": 0.19032808857808856,
+              "ms_per_profiled_second": 17.1328227456329
+            },
+            "outside_renderer_and_race": {
+              "total_us": 128011,
+              "ms_per_frame": 0.03729924242424242,
+              "ms_per_profiled_second": 3.3575775061637727
+            },
+            "main_loop_unassigned": {
+              "total_us": 106513,
+              "ms_per_frame": 0.03103525641025641,
+              "ms_per_profiled_second": 2.793710328909406
+            }
+          },
+          "game_report_sha256": "19fc5724c8315aedff9b921f9deac1372ac826033c72b7a1fbef5c4b9b75a0ba",
+          "frame_profile_sha256": "69f14326539682bddb5b7621e73cd0e21e9f9d0255fb539b797c9ac39097fb04"
+        },
+        {
+          "lap": "2",
+          "game_frames": 3433,
+          "profiled_duration_ms": 38137,
+          "game_fps": 90.017568240816,
+          "zero_profile_rows_excluded": 1,
+          "scopes": {
+            "main_loop": {
+              "total_us": 38137509,
+              "ms_per_frame": 11.109090882609962,
+              "ms_per_profiled_second": 1000.0133466187692
+            },
+            "irr_driver_update": {
+              "total_us": 36146797,
+              "ms_per_frame": 10.529215554908244,
+              "ms_per_profiled_second": 947.8143797362142
+            },
+            "update_race": {
+              "total_us": 1869175,
+              "ms_per_frame": 0.5444727643460531,
+              "ms_per_profiled_second": 49.01211421978656
+            },
+            "world_update": {
+              "total_us": 1197251,
+              "ms_per_frame": 0.3487477424992718,
+              "ms_per_profiled_second": 31.393423709258727
+            },
+            "world_graphics_weather": {
+              "total_us": 1006,
+              "ms_per_frame": 0.0002930381590445674,
+              "ms_per_profiled_second": 0.026378582478957444
+            },
+            "world_graphics_camera": {
+              "total_us": 17010,
+              "ms_per_frame": 0.00495484998543548,
+              "ms_per_profiled_second": 0.44602354668694444
+            },
+            "input_gui": {
+              "total_us": 7573,
+              "ms_per_frame": 0.0022059423244975237,
+              "ms_per_profiled_second": 0.19857356373076016
+            },
+            "music": {
+              "total_us": 2007,
+              "ms_per_frame": 0.0005846198660064084,
+              "ms_per_profiled_second": 0.052626058683168574
+            },
+            "database_polling": {
+              "total_us": 10696,
+              "ms_per_frame": 0.0031156422953684823,
+              "ms_per_profiled_second": 0.280462542937305
+            },
+            "protocol_manager": {
+              "total_us": 1024,
+              "ms_per_frame": 0.00029828138654238275,
+              "ms_per_profiled_second": 0.026850565068044157
+            },
+            "update_race_unassigned": {
+              "total_us": 653908,
+              "ms_per_frame": 0.19047713370230118,
+              "ms_per_profiled_second": 17.14628838136193
+            },
+            "outside_renderer_and_race": {
+              "total_us": 121537,
+              "ms_per_frame": 0.0354025633556656,
+              "ms_per_profiled_second": 3.18685266276844
+            },
+            "main_loop_unassigned": {
+              "total_us": 100237,
+              "ms_per_frame": 0.029198077483250803,
+              "ms_per_profiled_second": 2.6283399323491623
+            }
+          },
+          "game_report_sha256": "abfa3c471990a37ada6b71a64984a97ed13863c31dfbe7ac1a6a48c06c9b7b92",
+          "frame_profile_sha256": "23bd3750c7f7addcad915c15013921777639c001333256799c71ed51f52f939e"
+        }
+      ],
+      "pooled": {
+        "game_frames": 6865,
+        "profiled_duration_ms": 76263,
+        "game_fps": 90.0174396496335,
+        "scopes": {
+          "main_loop": {
+            "total_us": 76264054,
+            "ms_per_frame": 11.109112017479971,
+            "ms_per_profiled_second": 1000.0138205945216
+          },
+          "irr_driver_update": {
+            "total_us": 72239708,
+            "ms_per_frame": 10.522899927166787,
+            "ms_per_profiled_second": 947.2445091328691
+          },
+          "update_race": {
+            "total_us": 3774798,
+            "ms_per_frame": 0.5498613255644574,
+            "ms_per_profiled_second": 49.49710868966602
+          },
+          "world_update": {
+            "total_us": 2430083,
+            "ms_per_frame": 0.35398150036416604,
+            "ms_per_profiled_second": 31.86450834611804
+          },
+          "world_graphics_weather": {
+            "total_us": 2127,
+            "ms_per_frame": 0.0003098324836125273,
+            "ms_per_profiled_second": 0.02789032689508674
+          },
+          "world_graphics_camera": {
+            "total_us": 35474,
+            "ms_per_frame": 0.005167370721048798,
+            "ms_per_profiled_second": 0.46515348202929335
+          },
+          "input_gui": {
+            "total_us": 15724,
+            "ms_per_frame": 0.002290458849235251,
+            "ms_per_profiled_second": 0.20618124123100323
+          },
+          "music": {
+            "total_us": 4683,
+            "ms_per_frame": 0.0006821558630735616,
+            "ms_per_profiled_second": 0.061405924235867985
+          },
+          "database_polling": {
+            "total_us": 20447,
+            "ms_per_frame": 0.0029784413692643843,
+            "ms_per_profiled_second": 0.2681116662077285
+          },
+          "protocol_manager": {
+            "total_us": 1944,
+            "ms_per_frame": 0.0002831755280407866,
+            "ms_per_profiled_second": 0.025490736005664608
+          },
+          "update_race_unassigned": {
+            "total_us": 1307114,
+            "ms_per_frame": 0.19040262199563,
+            "ms_per_profiled_second": 17.139556534623605
+          },
+          "outside_renderer_and_race": {
+            "total_us": 249548,
+            "ms_per_frame": 0.036350764748725416,
+            "ms_per_profiled_second": 3.2722027719864153
+          },
+          "main_loop_unassigned": {
+            "total_us": 206750,
+            "ms_per_frame": 0.030116533139111435,
+            "ms_per_profiled_second": 2.711013204306151
+          }
+        }
+      }
+    },
+    "historical_pie64_android9": {
+      "description": "BlueStacks 5.22.166.1003 Pie64, Android 9",
+      "reference_json": "windows-vulkan-90hz-scoped-pie64.json",
+      "runs": [
+        {
+          "lap": "1",
+          "game_frames": 3432,
+          "profiled_duration_ms": 38127,
+          "game_fps": 90.01495003540798,
+          "zero_profile_rows_excluded": 1,
+          "scopes": {
+            "main_loop": {
+              "total_us": 38127168,
+              "ms_per_frame": 11.109314685314684,
+              "ms_per_profiled_second": 1000.0044063262255
+            },
+            "irr_driver_update": {
+              "total_us": 36488039,
+              "ms_per_frame": 10.631712995337995,
+              "ms_per_profiled_second": 957.0131140661473
+            },
+            "update_race": {
+              "total_us": 1519379,
+              "ms_per_frame": 0.44270949883449884,
+              "ms_per_profiled_second": 39.85047341778792
+            },
+            "world_update": {
+              "total_us": 1005134,
+              "ms_per_frame": 0.29287121212121214,
+              "ms_per_profiled_second": 26.36278752590028
+            },
+            "world_graphics_weather": {
+              "total_us": 1249,
+              "ms_per_frame": 0.00036392773892773893,
+              "ms_per_profiled_second": 0.03275893723607942
+            },
+            "world_graphics_camera": {
+              "total_us": 17918,
+              "ms_per_frame": 0.005220862470862471,
+              "ms_per_profiled_second": 0.46995567445642195
+            },
+            "input_gui": {
+              "total_us": 4486,
+              "ms_per_frame": 0.001307109557109557,
+              "ms_per_profiled_second": 0.11765940147402104
+            },
+            "music": {
+              "total_us": 5314,
+              "ms_per_frame": 0.0015483682983682984,
+              "ms_per_profiled_second": 0.13937629501403206
+            },
+            "database_polling": {
+              "total_us": 9490,
+              "ms_per_frame": 0.002765151515151515,
+              "ms_per_profiled_second": 0.2489049754766963
+            },
+            "protocol_manager": {
+              "total_us": 2051,
+              "ms_per_frame": 0.0005976107226107226,
+              "ms_per_profiled_second": 0.05379389933642825
+            },
+            "update_race_unassigned": {
+              "total_us": 495078,
+              "ms_per_frame": 0.1442534965034965,
+              "ms_per_profiled_second": 12.984971280195138
+            },
+            "outside_renderer_and_race": {
+              "total_us": 119750,
+              "ms_per_frame": 0.034892191142191144,
+              "ms_per_profiled_second": 3.1408188422902406
+            },
+            "main_loop_unassigned": {
+              "total_us": 98409,
+              "ms_per_frame": 0.02867395104895105,
+              "ms_per_profiled_second": 2.581084270989063
+            }
+          },
+          "game_report_sha256": "7783ecc03d3320761df57cbacf91e28c20986ec73a968d861b5abbe52bf5a5a4",
+          "frame_profile_sha256": "a45fb39349d636d2e8909fa45a03307de1c245b7984dfa559056ac9e5e49bedb"
+        },
+        {
+          "lap": "2",
+          "game_frames": 3430,
+          "profiled_duration_ms": 38125,
+          "game_fps": 89.9672131147541,
+          "zero_profile_rows_excluded": 1,
+          "scopes": {
+            "main_loop": {
+              "total_us": 38125899,
+              "ms_per_frame": 11.115422448979592,
+              "ms_per_profiled_second": 1000.0235803278689
+            },
+            "irr_driver_update": {
+              "total_us": 36547998,
+              "ms_per_frame": 10.655393002915453,
+              "ms_per_profiled_second": 958.6360131147541
+            },
+            "update_race": {
+              "total_us": 1459786,
+              "ms_per_frame": 0.4255935860058309,
+              "ms_per_profiled_second": 38.28946885245902
+            },
+            "world_update": {
+              "total_us": 991497,
+              "ms_per_frame": 0.2890661807580175,
+              "ms_per_profiled_second": 26.00647868852459
+            },
+            "world_graphics_weather": {
+              "total_us": 907,
+              "ms_per_frame": 0.0002644314868804665,
+              "ms_per_profiled_second": 0.02379016393442623
+            },
+            "world_graphics_camera": {
+              "total_us": 17274,
+              "ms_per_frame": 0.005036151603498542,
+              "ms_per_profiled_second": 0.4530885245901639
+            },
+            "input_gui": {
+              "total_us": 2770,
+              "ms_per_frame": 0.0008075801749271136,
+              "ms_per_profiled_second": 0.07265573770491804
+            },
+            "music": {
+              "total_us": 6351,
+              "ms_per_frame": 0.001851603498542274,
+              "ms_per_profiled_second": 0.16658360655737706
+            },
+            "database_polling": {
+              "total_us": 8930,
+              "ms_per_frame": 0.0026034985422740526,
+              "ms_per_profiled_second": 0.2342295081967213
+            },
+            "protocol_manager": {
+              "total_us": 881,
+              "ms_per_frame": 0.00025685131195335274,
+              "ms_per_profiled_second": 0.023108196721311477
+            },
+            "update_race_unassigned": {
+              "total_us": 450108,
+              "ms_per_frame": 0.13122682215743442,
+              "ms_per_profiled_second": 11.806111475409836
+            },
+            "outside_renderer_and_race": {
+              "total_us": 118115,
+              "ms_per_frame": 0.03443586005830904,
+              "ms_per_profiled_second": 3.0980983606557375
+            },
+            "main_loop_unassigned": {
+              "total_us": 99183,
+              "ms_per_frame": 0.028916326530612244,
+              "ms_per_profiled_second": 2.60152131147541
+            }
+          },
+          "game_report_sha256": "990e926726ff33e329f0a949f557523e1ee188246a51a3cf00711a07b41f2cbe",
+          "frame_profile_sha256": "85322a980a015686cdd33a0a74daed4494869a7918fe322770a3d6f48ea6a7a1"
+        }
+      ],
+      "pooled": {
+        "game_frames": 6862,
+        "profiled_duration_ms": 76252,
+        "game_fps": 89.9910822011226,
+        "scopes": {
+          "main_loop": {
+            "total_us": 76253067,
+            "ms_per_frame": 11.11236767706208,
+            "ms_per_profiled_second": 1000.0139930755914
+          },
+          "irr_driver_update": {
+            "total_us": 73036037,
+            "ms_per_frame": 10.643549548236665,
+            "ms_per_profiled_second": 957.824542307087
+          },
+          "update_race": {
+            "total_us": 2979165,
+            "ms_per_frame": 0.43415403672398717,
+            "ms_per_profiled_second": 39.06999160677753
+          },
+          "world_update": {
+            "total_us": 1996631,
+            "ms_per_frame": 0.29096925094724574,
+            "ms_per_profiled_second": 26.184637779992656
+          },
+          "world_graphics_weather": {
+            "total_us": 2156,
+            "ms_per_frame": 0.0003141941125036433,
+            "ms_per_profiled_second": 0.02827466820542412
+          },
+          "world_graphics_camera": {
+            "total_us": 35192,
+            "ms_per_frame": 0.005128533955115127,
+            "ms_per_profiled_second": 0.46152232072601374
+          },
+          "input_gui": {
+            "total_us": 7256,
+            "ms_per_frame": 0.0010574176624890703,
+            "ms_per_profiled_second": 0.09515815978597282
+          },
+          "music": {
+            "total_us": 11665,
+            "ms_per_frame": 0.0016999417079568639,
+            "ms_per_profiled_second": 0.15297959397786287
+          },
+          "database_polling": {
+            "total_us": 18420,
+            "ms_per_frame": 0.002684348586417954,
+            "ms_per_profiled_second": 0.24156743429680533
+          },
+          "protocol_manager": {
+            "total_us": 2932,
+            "ms_per_frame": 0.0004272806761877004,
+            "ms_per_profiled_second": 0.03845145045375859
+          },
+          "update_race_unassigned": {
+            "total_us": 945186,
+            "ms_per_frame": 0.1377420577091227,
+            "ms_per_profiled_second": 12.395556837853434
+          },
+          "outside_renderer_and_race": {
+            "total_us": 237865,
+            "ms_per_frame": 0.03466409210142815,
+            "ms_per_profiled_second": 3.1194591617269056
+          },
+          "main_loop_unassigned": {
+            "total_us": 197592,
+            "ms_per_frame": 0.028795103468376566,
+            "ms_per_profiled_second": 2.591302523212506
+          }
+        }
+      }
+    },
+    "sdk_android16": {
+      "description": "RustEmuDroid 0.21.1, Android SDK Emulator 37.3.10, Android 16 Google APIs r7",
+      "reference_json": "windows-sdk-android16-vs17.json",
+      "runs": [
+        {
+          "lap": "16/1",
+          "game_frames": 3179,
+          "profiled_duration_ms": 38046,
+          "game_fps": 83.55674709562109,
+          "zero_profile_rows_excluded": 1,
+          "scopes": {
+            "main_loop": {
+              "total_us": 38046479,
+              "ms_per_frame": 11.96806511481598,
+              "ms_per_profiled_second": 1000.0125900226042
+            },
+            "irr_driver_update": {
+              "total_us": 33822018,
+              "ms_per_frame": 10.639200377477195,
+              "ms_per_profiled_second": 888.9769752404983
+            },
+            "update_race": {
+              "total_us": 3353454,
+              "ms_per_frame": 1.0548770053475938,
+              "ms_per_profiled_second": 88.14209115281501
+            },
+            "world_update": {
+              "total_us": 2240708,
+              "ms_per_frame": 0.7048468071720666,
+              "ms_per_profiled_second": 58.894706408032384
+            },
+            "world_graphics_weather": {
+              "total_us": 35350,
+              "ms_per_frame": 0.011119849009122365,
+              "ms_per_profiled_second": 0.9291384113967303
+            },
+            "world_graphics_camera": {
+              "total_us": 53423,
+              "ms_per_frame": 0.0168049701163888,
+              "ms_per_profiled_second": 1.4041686379645693
+            },
+            "input_gui": {
+              "total_us": 80930,
+              "ms_per_frame": 0.025457691097829506,
+              "ms_per_profiled_second": 2.1271618566997845
+            },
+            "music": {
+              "total_us": 37337,
+              "ms_per_frame": 0.011744888329663417,
+              "ms_per_profiled_second": 0.9813646638279977
+            },
+            "database_polling": {
+              "total_us": 48468,
+              "ms_per_frame": 0.01524630386914124,
+              "ms_per_profiled_second": 1.2739315565368239
+            },
+            "protocol_manager": {
+              "total_us": 49404,
+              "ms_per_frame": 0.015540736080528469,
+              "ms_per_profiled_second": 1.2985333543605109
+            },
+            "update_race_unassigned": {
+              "total_us": 1023973,
+              "ms_per_frame": 0.32210537905001574,
+              "ms_per_profiled_second": 26.914077695421334
+            },
+            "outside_renderer_and_race": {
+              "total_us": 871007,
+              "ms_per_frame": 0.2739877319911922,
+              "ms_per_profiled_second": 22.893523629290858
+            },
+            "main_loop_unassigned": {
+              "total_us": 654868,
+              "ms_per_frame": 0.20599811261402956,
+              "ms_per_profiled_second": 17.21253219786574
+            }
+          },
+          "game_report_sha256": "9bc0a9618a2b96f7d4abc97b807af5361b07e25706580e1514bae8b70695bafa",
+          "frame_profile_sha256": "33b5849aa1843ae01b432deddb1276756a4b5b6d98698305a39d6c9f2c039dcc"
+        },
+        {
+          "lap": "16/2",
+          "game_frames": 3190,
+          "profiled_duration_ms": 38074,
+          "game_fps": 83.78420969690603,
+          "zero_profile_rows_excluded": 1,
+          "scopes": {
+            "main_loop": {
+              "total_us": 38074882,
+              "ms_per_frame": 11.935699686520376,
+              "ms_per_profiled_second": 1000.0231654147187
+            },
+            "irr_driver_update": {
+              "total_us": 34030719,
+              "ms_per_frame": 10.667936990595612,
+              "ms_per_profiled_second": 893.8046698534433
+            },
+            "update_race": {
+              "total_us": 3211450,
+              "ms_per_frame": 1.0067241379310345,
+              "ms_per_profiled_second": 84.34758627935074
+            },
+            "world_update": {
+              "total_us": 2142028,
+              "ms_per_frame": 0.6714821316614421,
+              "ms_per_profiled_second": 56.25959972684772
+            },
+            "world_graphics_weather": {
+              "total_us": 36167,
+              "ms_per_frame": 0.011337617554858934,
+              "ms_per_profiled_second": 0.9499133266796239
+            },
+            "world_graphics_camera": {
+              "total_us": 50212,
+              "ms_per_frame": 0.015740438871473354,
+              "ms_per_profiled_second": 1.3188002311288543
+            },
+            "input_gui": {
+              "total_us": 71464,
+              "ms_per_frame": 0.022402507836990593,
+              "ms_per_profiled_second": 1.8769764143510006
+            },
+            "music": {
+              "total_us": 33994,
+              "ms_per_frame": 0.010656426332288402,
+              "ms_per_profiled_second": 0.8928402584440825
+            },
+            "database_polling": {
+              "total_us": 41042,
+              "ms_per_frame": 0.012865830721003136,
+              "ms_per_profiled_second": 1.0779534590534223
+            },
+            "protocol_manager": {
+              "total_us": 45284,
+              "ms_per_frame": 0.014195611285266457,
+              "ms_per_profiled_second": 1.1893680727005305
+            },
+            "update_race_unassigned": {
+              "total_us": 983043,
+              "ms_per_frame": 0.3081639498432602,
+              "ms_per_profiled_second": 25.819272994694543
+            },
+            "outside_renderer_and_race": {
+              "total_us": 832713,
+              "ms_per_frame": 0.26103855799373044,
+              "ms_per_profiled_second": 21.87090928192467
+            },
+            "main_loop_unassigned": {
+              "total_us": 640929,
+              "ms_per_frame": 0.2009181818181818,
+              "ms_per_profiled_second": 16.833771077375637
+            }
+          },
+          "game_report_sha256": "ef21c16bc79c81e5bad593e5af09c51bbfa94e8d50d96acd18b0f442bf533609",
+          "frame_profile_sha256": "76e6b125fc592f0d492bb8fa8bb2ae232791ef73611e78145ec5cb4075d036a7"
+        }
+      ],
+      "pooled": {
+        "game_frames": 6369,
+        "profiled_duration_ms": 76120,
+        "game_fps": 83.67052023121387,
+        "scopes": {
+          "main_loop": {
+            "total_us": 76121361,
+            "ms_per_frame": 11.951854451248233,
+            "ms_per_profiled_second": 1000.0178796636889
+          },
+          "irr_driver_update": {
+            "total_us": 67852737,
+            "ms_per_frame": 10.653593499764483,
+            "ms_per_profiled_second": 891.3917104571728
+          },
+          "update_race": {
+            "total_us": 6564904,
+            "ms_per_frame": 1.0307589888522533,
+            "ms_per_profiled_second": 86.244140830268
+          },
+          "world_update": {
+            "total_us": 4382736,
+            "ms_per_frame": 0.688135657089025,
+            "ms_per_profiled_second": 57.576668418286914
+          },
+          "world_graphics_weather": {
+            "total_us": 71517,
+            "ms_per_frame": 0.011228921337729627,
+            "ms_per_profiled_second": 0.939529689963216
+          },
+          "world_graphics_camera": {
+            "total_us": 103635,
+            "ms_per_frame": 0.016271785209609042,
+            "ms_per_profiled_second": 1.3614687335785602
+          },
+          "input_gui": {
+            "total_us": 152394,
+            "ms_per_frame": 0.023927461139896373,
+            "ms_per_profiled_second": 2.0020231213872832
+          },
+          "music": {
+            "total_us": 71331,
+            "ms_per_frame": 0.01119971738106453,
+            "ms_per_profiled_second": 0.9370861797162375
+          },
+          "database_polling": {
+            "total_us": 89510,
+            "ms_per_frame": 0.014054011618778459,
+            "ms_per_profiled_second": 1.1759064634787177
+          },
+          "protocol_manager": {
+            "total_us": 94688,
+            "ms_per_frame": 0.014867012089810018,
+            "ms_per_profiled_second": 1.2439306358381503
+          },
+          "update_race_unassigned": {
+            "total_us": 2007016,
+            "ms_per_frame": 0.31512262521588946,
+            "ms_per_profiled_second": 26.366473988439306
+          },
+          "outside_renderer_and_race": {
+            "total_us": 1703720,
+            "ms_per_frame": 0.26750196263149634,
+            "ms_per_profiled_second": 22.38202837624803
+          },
+          "main_loop_unassigned": {
+            "total_us": 1295797,
+            "ms_per_frame": 0.20345376040194693,
+            "ms_per_profiled_second": 17.02308197582764
+          }
+        }
+      }
+    },
+    "sdk_android17": {
+      "description": "RustEmuDroid 0.21.1, Android SDK Emulator 37.3.10, Android 17 Google Play r7",
+      "reference_json": "windows-sdk-android16-vs17.json",
+      "runs": [
+        {
+          "lap": "17/1",
+          "game_frames": 3255,
+          "profiled_duration_ms": 38062,
+          "game_fps": 85.51836477326468,
+          "zero_profile_rows_excluded": 1,
+          "scopes": {
+            "main_loop": {
+              "total_us": 38062095,
+              "ms_per_frame": 11.69342396313364,
+              "ms_per_profiled_second": 1000.0024959276969
+            },
+            "irr_driver_update": {
+              "total_us": 33980121,
+              "ms_per_frame": 10.43936129032258,
+              "ms_per_profiled_second": 892.7571068257055
+            },
+            "update_race": {
+              "total_us": 3241076,
+              "ms_per_frame": 0.9957222734254992,
+              "ms_per_profiled_second": 85.15254059166622
+            },
+            "world_update": {
+              "total_us": 2271761,
+              "ms_per_frame": 0.6979296466973887,
+              "ms_per_profiled_second": 59.68580211234302
+            },
+            "world_graphics_weather": {
+              "total_us": 32595,
+              "ms_per_frame": 0.010013824884792626,
+              "ms_per_profiled_second": 0.8563659292732909
+            },
+            "world_graphics_camera": {
+              "total_us": 47258,
+              "ms_per_frame": 0.014518586789554531,
+              "ms_per_profiled_second": 1.2416058010614262
+            },
+            "input_gui": {
+              "total_us": 74413,
+              "ms_per_frame": 0.022861136712749617,
+              "ms_per_profiled_second": 1.9550470285323944
+            },
+            "music": {
+              "total_us": 37318,
+              "ms_per_frame": 0.011464823348694317,
+              "ms_per_profiled_second": 0.9804529451946824
+            },
+            "database_polling": {
+              "total_us": 43949,
+              "ms_per_frame": 0.01350199692780338,
+              "ms_per_profiled_second": 1.1546686984393884
+            },
+            "protocol_manager": {
+              "total_us": 48791,
+              "ms_per_frame": 0.014989554531490014,
+              "ms_per_profiled_second": 1.2818821922127055
+            },
+            "update_race_unassigned": {
+              "total_us": 889462,
+              "ms_per_frame": 0.2732602150537634,
+              "ms_per_profiled_second": 23.36876674898849
+            },
+            "outside_renderer_and_race": {
+              "total_us": 840898,
+              "ms_per_frame": 0.25834039938556064,
+              "ms_per_profiled_second": 22.092848510325258
+            },
+            "main_loop_unassigned": {
+              "total_us": 636427,
+              "ms_per_frame": 0.19552288786482336,
+              "ms_per_profiled_second": 16.72079764594609
+            }
+          },
+          "game_report_sha256": "6fde10ab0c4a42f473e5ef315b8891df59b8c0c8a2b2fa89a64c65c03c9f974f",
+          "frame_profile_sha256": "13e79651109f4e00c5d0d67fd67d37bf1c649e782ba4247fe97b178cfc7d65a0"
+        },
+        {
+          "lap": "17/2",
+          "game_frames": 3262,
+          "profiled_duration_ms": 38062,
+          "game_fps": 85.70227523514266,
+          "zero_profile_rows_excluded": 1,
+          "scopes": {
+            "main_loop": {
+              "total_us": 38062079,
+              "ms_per_frame": 11.668325873697118,
+              "ms_per_profiled_second": 1000.0020755609269
+            },
+            "irr_driver_update": {
+              "total_us": 33990376,
+              "ms_per_frame": 10.420103004291844,
+              "ms_per_profiled_second": 893.0265356523566
+            },
+            "update_race": {
+              "total_us": 3257960,
+              "ms_per_frame": 0.9987614960147149,
+              "ms_per_profiled_second": 85.59613262571594
+            },
+            "world_update": {
+              "total_us": 2277888,
+              "ms_per_frame": 0.6983102391171061,
+              "ms_per_profiled_second": 59.84677631233251
+            },
+            "world_graphics_weather": {
+              "total_us": 31664,
+              "ms_per_frame": 0.009706928264868178,
+              "ms_per_profiled_second": 0.8319058378435185
+            },
+            "world_graphics_camera": {
+              "total_us": 51437,
+              "ms_per_frame": 0.015768546903740036,
+              "ms_per_profiled_second": 1.3514003468025853
+            },
+            "input_gui": {
+              "total_us": 72169,
+              "ms_per_frame": 0.022124156958920907,
+              "ms_per_profiled_second": 1.8960905890389366
+            },
+            "music": {
+              "total_us": 35581,
+              "ms_per_frame": 0.010907725321888412,
+              "ms_per_profiled_second": 0.9348168777258158
+            },
+            "database_polling": {
+              "total_us": 41394,
+              "ms_per_frame": 0.01268976088289393,
+              "ms_per_profiled_second": 1.0875413798539226
+            },
+            "protocol_manager": {
+              "total_us": 46713,
+              "ms_per_frame": 0.014320355610055182,
+              "ms_per_profiled_second": 1.2272870579580684
+            },
+            "update_race_unassigned": {
+              "total_us": 896971,
+              "ms_per_frame": 0.2749757817290006,
+              "ms_per_profiled_second": 23.566050128737324
+            },
+            "outside_renderer_and_race": {
+              "total_us": 813743,
+              "ms_per_frame": 0.24946137339055796,
+              "ms_per_profiled_second": 21.37940728285429
+            },
+            "main_loop_unassigned": {
+              "total_us": 617886,
+              "ms_per_frame": 0.1894193746167995,
+              "ms_per_profiled_second": 16.233671378277545
+            }
+          },
+          "game_report_sha256": "747e57ea66260a1ffb1452890b85f19199f31bc755a07c6a0c8cbe63cf9c1a6a",
+          "frame_profile_sha256": "dfc3023347b6eb8e7736c0db37e1152abbdaf43e190a8f36f38682302534d10d"
+        }
+      ],
+      "pooled": {
+        "game_frames": 6517,
+        "profiled_duration_ms": 76124,
+        "game_fps": 85.61032000420367,
+        "scopes": {
+          "main_loop": {
+            "total_us": 76124174,
+            "ms_per_frame": 11.680861439312567,
+            "ms_per_profiled_second": 1000.002285744312
+          },
+          "irr_driver_update": {
+            "total_us": 67970497,
+            "ms_per_frame": 10.429721804511278,
+            "ms_per_profiled_second": 892.8918212390311
+          },
+          "update_race": {
+            "total_us": 6499036,
+            "ms_per_frame": 0.9972435169556544,
+            "ms_per_profiled_second": 85.37433660869108
+          },
+          "world_update": {
+            "total_us": 4549649,
+            "ms_per_frame": 0.6981201473070431,
+            "ms_per_profiled_second": 59.76628921233777
+          },
+          "world_graphics_weather": {
+            "total_us": 64259,
+            "ms_per_frame": 0.009860211753874483,
+            "ms_per_profiled_second": 0.8441358835584047
+          },
+          "world_graphics_camera": {
+            "total_us": 98695,
+            "ms_per_frame": 0.015144238146386374,
+            "ms_per_profiled_second": 1.2965030739320056
+          },
+          "input_gui": {
+            "total_us": 146582,
+            "ms_per_frame": 0.02249225103575265,
+            "ms_per_profiled_second": 1.9255688087856655
+          },
+          "music": {
+            "total_us": 72899,
+            "ms_per_frame": 0.011185975141936474,
+            "ms_per_profiled_second": 0.957634911460249
+          },
+          "database_polling": {
+            "total_us": 85343,
+            "ms_per_frame": 0.013095442688353536,
+            "ms_per_profiled_second": 1.1211050391466555
+          },
+          "protocol_manager": {
+            "total_us": 95504,
+            "ms_per_frame": 0.014654595672855607,
+            "ms_per_profiled_second": 1.254584625085387
+          },
+          "update_race_unassigned": {
+            "total_us": 1786433,
+            "ms_per_frame": 0.2741189197483505,
+            "ms_per_profiled_second": 23.467408438862908
+          },
+          "outside_renderer_and_race": {
+            "total_us": 1654641,
+            "ms_per_frame": 0.2538961178456345,
+            "ms_per_profiled_second": 21.736127896589775
+          },
+          "main_loop_unassigned": {
+            "total_us": 1254313,
+            "ms_per_frame": 0.19246785330673624,
+            "ms_per_profiled_second": 16.477234512111817
+          }
+        }
+      }
+    }
+  }
+}

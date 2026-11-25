@@ -124,6 +124,8 @@ A paired BlueStacks export uses `--engine "BlueStacks 5 Pie64" --android 9` with
 
 For an instrumentation baseline, use `--mode baseline --compare-scoped path/to/scoped.json` on two completed runs from the same engine and ABI. The baseline must have the same package and game settings, signed build assets matching the scoped APK, and neither optional phase columns nor the present-mode log. The exporter records scoped-minus-baseline differences in game FPS, SurfaceView rate where measured in both, and P95 elapsed times for `Main loop` and `IrrDriver update`. It pairs runs by ordinal across the two batches. This design cannot separate instrumentation cost from run-to-run or batch differences. The baseline's actual Vulkan present mode is unobserved with the diagnostic log disabled.
 
+The same CPU profiles also expose the work outside the graphics update. The race-update scope accounts for 0.601 ms of the 0.960 ms per-frame difference between the original Android 17 and Kemu batches. [Scope accounting, replay totals and source locations](windows-race-update-scopes.md)
+
 ### Android 17 instrumentation baseline
 
 The x86-64 baseline APK (`def3b0fd211c91eee4d91cfabae41283ed339c3fef203f3f9b0432f48e5807cd`) used the same signing certificate and all 5,577 assets matched by SHA-256. The APK's ELF, renderer log and profiler exports contained no optional Vulkan instrumentation. On RustEmuDroid 0.18.1 the game's own reports recorded the same 21 graphics fields and the RTX Vulkan driver as the scoped runs.
