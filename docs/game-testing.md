@@ -6,6 +6,8 @@ For the first prototype, the current release and the two other players under the
 
 ## FPS comparisons on the Windows test PC
 
+On the same v0.21.1 Rust frontend with a fitted 800 × 450 window, removing detailed SuperTuxKart CPU profiler scopes gave **85.93 game FPS on Android 17 and 90.01 on Kemu Android 16**. Both rendered at 1600 × 900 and 90 Hz. The remaining 4.08 FPS difference includes the runtime and Android image. [Eight same-APK replays and Android presentations](../benchmarks/stk-1.5/windows-profiler-overhead.md)
+
 We also measured memory at the Android Home screen with all three players configured for 8 GiB. The median Windows working sets of the guest-hosting processes were 1.67 GiB for BlueStacks Pie64, 3.04 GiB for Kemu and 5.73 GiB for RustEmuDroid's Android 17 QEMU. RustEmuDroid's separate desktop UI used 118 MiB. The samples were taken at different times after boot. [Process counters, boot ages and measurement script](../benchmarks/windows-home-memory/README.md)
 
 | Scene and setting | GPU | RustEmuDroid | BlueStacks Pie64 | Measurement |

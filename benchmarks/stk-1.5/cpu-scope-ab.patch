@@ -1,0 +1,259 @@
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -288,6 +288,7 @@
+ #include "utils/log.hpp"
+ #include "mini_glm.hpp"
+ #include "utils/profiler.hpp"
++#include "utils/qa_frame_totals.hpp"
+ #include "utils/stk_process.hpp"
+ #include "utils/string_utils.hpp"
+ #include "utils/translation.hpp"
+@@ -1751,6 +1752,11 @@
+         Log::verbose("main", "Benchmark mode requested from command-line");
+         UserConfigParams::m_no_start_screen = true;
+         UserConfigParams::m_benchmark = true;
++        if (CommandLine::has("--qa-frame-totals-only"))
++        {
++            StkQaCpu::frame_totals_only.store(true, std::memory_order_relaxed);
++            Log::info("Profiler", "STK_QA_FRAME_TOTALS_ONLY active");
++        }
+     }   // --benchmark
+     
+     if(CommandLine::has("--unlock-all"))
+--- a/src/main_loop.cpp
++++ b/src/main_loop.cpp
+@@ -54,6 +54,7 @@
+ #include "states_screens/main_menu_screen.hpp"
+ #include "states_screens/state_manager.hpp"
+ #include "utils/profiler.hpp"
++#include "utils/qa_frame_totals.hpp"
+ #include "utils/string_utils.hpp"
+ #include "utils/time.hpp"
+ #include "utils/translation.hpp"
+@@ -454,7 +455,12 @@
+         }
+ #endif
+ 
+-        PROFILER_PUSH_CPU_MARKER("Main loop", 0xFF, 0x00, 0xF7);
++        const bool frame_totals_only =
++            StkQaCpu::frame_totals_only.load(std::memory_order_relaxed);
++        if (frame_totals_only)
++            StkQaCpu::beginFrame();
++        else
++            PROFILER_PUSH_CPU_MARKER("Main loop", 0xFF, 0x00, 0xF7);
+         TimePoint frame_start = std::chrono::steady_clock::now();
+ 
+         left_over_time += getLimitedDt();
+@@ -735,7 +741,10 @@
+             }
+         }
+ 
+-        PROFILER_POP_CPU_MARKER();   // MainLoop pop
++        if (frame_totals_only)
++            StkQaCpu::endFrame();
++        else
++            PROFILER_POP_CPU_MARKER();   // MainLoop pop
+         PROFILER_SYNC_FRAME();
+     }  // while !m_abort
+ 
+--- a/src/utils/profiler.cpp
++++ b/src/utils/profiler.cpp
+@@ -16,6 +16,7 @@
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ 
+ #include "profiler.hpp"
++#include "utils/qa_frame_totals.hpp"
+ 
+ #include "config/user_config.hpp"
+ #include "graphics/glwrap.hpp"
+@@ -82,6 +83,37 @@
+ #endif
+ // --- End portable precise timer ---
+ 
++namespace StkQaCpu
++{
++    std::atomic<bool> frame_totals_only{false};
++
++    // Used only on the main thread. Keep the order for the frame CSV;
++    // computeStableFPS sorts its own copy just as it does for regular scopes.
++    static std::vector<int> frame_times_us;
++    static double begin_ms = 0.0;
++    static bool record_frame = false;
++    static bool have_begin = false;
++
++    void beginFrame()
++    {
++        have_begin = record_frame && UserConfigParams::m_profiler_enabled;
++        if (have_begin)
++            begin_ms = getTimeMilliseconds();
++    }
++
++    void endFrame()
++    {
++        // Profiling starts and stops during the race update. Skip any frame
++        // whose beginning or end falls outside that interval.
++        if (!have_begin || !UserConfigParams::m_profiler_enabled)
++            return;
++        const int elapsed_us = int((getTimeMilliseconds() - begin_ms) * 1000);
++        if (elapsed_us > 0)
++            frame_times_us.push_back(elapsed_us);
++        have_begin = false;
++    }
++}
++
+ //-----------------------------------------------------------------------------
+ Profiler::Profiler()
+ {
+@@ -168,6 +200,9 @@
+          m_freeze_state == FROZEN || m_freeze_state == WAITING_FOR_UNFREEZE )
+         return;
+ 
++    if (StkQaCpu::frame_totals_only.load(std::memory_order_relaxed))
++        return;
++
+     // We need to look before getting the thread id (since this might
+     // be a new thread which changes the structure).
+     m_lock.lock();
+@@ -203,6 +238,9 @@
+     if( !UserConfigParams::m_profiler_enabled ||
+         m_freeze_state == FROZEN || m_freeze_state == WAITING_FOR_UNFREEZE )
+         return;
++    if (StkQaCpu::frame_totals_only.load(std::memory_order_relaxed))
++        return;
++
+     double now = getTimeMilliseconds();
+ 
+     m_lock.lock();
+@@ -232,6 +270,20 @@
+  */
+ void Profiler::activate()
+ {
++    if (StkQaCpu::frame_totals_only.load(std::memory_order_relaxed))
++    {
++        if (!UserConfigParams::m_profiler_enabled)
++        {
++            StkQaCpu::frame_times_us.clear();
++            StkQaCpu::frame_times_us.reserve(m_max_frames);
++            StkQaCpu::record_frame = false;
++            StkQaCpu::have_begin = false;
++            m_freeze_state = WAITING_FOR_UNFREEZE;
++        }
++        UserConfigParams::m_profiler_enabled = true;
++        return;
++    }
++
+     // If the profiler is not already turned on, reset to avoid data
+     // from multiple profiling sessions from merging in one report
+     if (!UserConfigParams::m_profiler_enabled)
+@@ -268,6 +320,16 @@
+     // Don't do anything when frozen
+     if(!UserConfigParams::m_profiler_enabled || m_freeze_state == FROZEN)
+         return;
++
++    if (StkQaCpu::frame_totals_only.load(std::memory_order_relaxed))
++    {
++        if (m_freeze_state == WAITING_FOR_FREEZE)
++            m_freeze_state = FROZEN;
++        else if (m_freeze_state == WAITING_FOR_UNFREEZE)
++            m_freeze_state = UNFROZEN;
++        StkQaCpu::record_frame = m_freeze_state == UNFROZEN;
++        return;
++    }
+ 
+     // Avoid using several times getTimeMilliseconds(),
+     // which would yield different results
+@@ -591,26 +653,36 @@
+     //       is produced, the rest of the computations are unchanged.
+     m_lock.lock();
+ 
+-    ThreadData &td = m_all_threads_data[0];
+-    int start = m_has_wrapped_around ? m_current_frame + 1 : 0;
+-    if (start > m_max_frames) start -= m_max_frames;
+-    // Remove any old data if needed
+-    m_frame_times.clear();
+-    m_total_frametime = 0;
+-
+-    while (start != m_current_frame)
+-    {
+-        // The overall duration of a frame is recorded in the outermost
+-        // marker event, which is always the 1st event in the list.
+-        const EventData &ed = td.m_all_event_data[td.m_ordered_headings[0]];
+-        int frame_microseconds = int(ed.getMarker(start).getDuration()*1000);
+-        // A spurious instant frame is recorded at the beginning of the recording
+-        if (frame_microseconds > 0)
+-            m_frame_times.push_back(frame_microseconds);
+-        m_total_frametime += frame_microseconds;
+-
+-        start = (start + 1) % m_max_frames;
+-    }   // while start != m_current_frame
++    if (StkQaCpu::frame_totals_only.load(std::memory_order_relaxed))
++    {
++        m_frame_times = StkQaCpu::frame_times_us;
++        m_total_frametime = 0;
++        for (int elapsed_us : m_frame_times)
++            m_total_frametime += elapsed_us;
++    }
++    else
++    {
++        ThreadData &td = m_all_threads_data[0];
++        int start = m_has_wrapped_around ? m_current_frame + 1 : 0;
++        if (start > m_max_frames) start -= m_max_frames;
++        // Remove any old data if needed
++        m_frame_times.clear();
++        m_total_frametime = 0;
++
++        while (start != m_current_frame)
++        {
++            // The overall duration of a frame is recorded in the outermost
++            // marker event, which is always the 1st event in the list.
++            const EventData &ed = td.m_all_event_data[td.m_ordered_headings[0]];
++            int frame_microseconds = int(ed.getMarker(start).getDuration()*1000);
++            // A spurious instant frame is recorded at the beginning of the recording
++            if (frame_microseconds > 0)
++                m_frame_times.push_back(frame_microseconds);
++            m_total_frametime += frame_microseconds;
++
++            start = (start + 1) % m_max_frames;
++        }   // while start != m_current_frame
++    }
+ 
+     m_total_frames = m_frame_times.size();
+ 
+@@ -757,8 +829,18 @@
+     }
+     f.close();
+ 
+-    // 2: Save per-thread CPU data
+-    for (int thread_id = 0; thread_id < m_threads_used; thread_id++)
++    // 2: Save the same frame CSV schema, with only the outer timing column
++    // when the scope-free benchmark was requested.
++    if (StkQaCpu::frame_totals_only.load(std::memory_order_relaxed))
++    {
++        std::ofstream f(FileUtils::getPortableWritingPath(base_name +
++            ".profile-" + (Track::getCurrentTrack() != NULL ? Track::getCurrentTrack()->getIdent() : "menu") +
++            "-cpu-0.csv"));
++        f << "#  \"Main loop(1)\",   \n";
++        for (int elapsed_us : StkQaCpu::frame_times_us)
++            f << elapsed_us << ", \n";
++    }
++    else for (int thread_id = 0; thread_id < m_threads_used; thread_id++)
+     {
+         std::ofstream f(FileUtils::getPortableWritingPath(base_name +
+             ".profile-" + (Track::getCurrentTrack() != NULL ? Track::getCurrentTrack()->getIdent() : "menu") +
+--- /dev/null
++++ b/src/utils/qa_frame_totals.hpp
+@@ -0,0 +1,14 @@
++// QA-only frame accounting mode for the existing Black Forest benchmark.
++#ifndef STK_QA_FRAME_TOTALS_HPP
++#define STK_QA_FRAME_TOTALS_HPP
++
++#include <atomic>
++
++namespace StkQaCpu
++{
++    extern std::atomic<bool> frame_totals_only;
++    void beginFrame();
++    void endFrame();
++}
++
++#endif

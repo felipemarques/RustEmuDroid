@@ -1,0 +1,548 @@
+{
+  "scope": "STK 1.5 Black Forest native x86-64 benchmark, High Vulkan FIFO",
+  "app_executable_sha256": "513fc67688ba6c5e48a57f0db097ffc6c7fcf5358b5133c5f1d2ce2ae51de949",
+  "app_release": "0.21.1",
+  "qa_apk": {
+    "sha256": "af154c0079f8a822303231076c0e6edb71235005c7839b8109378895b9f5e002",
+    "signer_sha256": "4ee9e02425d4ed6d6f3fac9b736ae606f1db20c2aa1d5edf9eff5425c64e60c3",
+    "source_sha": "1fb491f507216c5d181ccd85f29ff08eca003827",
+    "source_patch_sha256": "666b148123f1f9e5e59f9a69fa80aa1dac6bc3284dff29332ad32cc40ae269e5",
+    "prior_scoped_apk_sha256": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e",
+    "matching_asset_files": 5577,
+    "matching_entries_outside_libmain_and_signature": 5600
+  },
+  "workload": {
+    "host_gpu": "NVIDIA GeForce RTX 5070 Ti",
+    "native_android_size_px": [
+      1600,
+      900
+    ],
+    "observed_frame_transport_px": [
+      800,
+      450
+    ],
+    "android_refresh_hz": 90,
+    "graphics": {
+      "Resolution width": "1600",
+      "Resolution height": "900",
+      "Render resolution": "1",
+      "Dynamic lighting": "1",
+      "Particle effects": "2",
+      "Animated characters": "1",
+      "Geometry Detail": "4",
+      "Bloom": "1",
+      "Glow": "1",
+      "Light Shaft": "1",
+      "Anti-Aliasing (MLAA)": "0",
+      "SSAO": "1",
+      "Anisotropic Filtering": "16",
+      "Shadow Resolution": "1024",
+      "Light scattering": "0",
+      "Degraded IBL": "0",
+      "Motion Blur": "0",
+      "Depth of Field": "0",
+      "Texture compression": "1",
+      "HD Textures": "0",
+      "HQ Mipmap": "0"
+    },
+    "game_fps_preference": 90,
+    "game_vsync": true
+  },
+  "sdk17": {
+    "engine": "Android Emulator 37.3.10",
+    "qemu_sha256": "fae5ffdf64cf8cbd350af1aa726e407c5dce7f335821787cd2b15a5c1671dcf8",
+    "launch_flags": {
+      "a": "--benchmark",
+      "b": "--benchmark --qa-frame-totals-only"
+    },
+    "runs": [
+      {
+        "order": 1,
+        "arm": "a",
+        "game": {
+          "frames": 3264,
+          "duration_ms": 38068,
+          "fps": 85.74130503309867
+        },
+        "android_surfaceview": {
+          "duration_s": 20.01895075,
+          "presentations": 1704,
+          "presentations_per_second": 85.11934622747398,
+          "p99_interval_ms": 23.3827,
+          "max_interval_ms": 26.2985
+        },
+        "panel": {
+          "captured_size_px": [
+            800,
+            450
+          ],
+          "processed_frames": 1602,
+          "counter_duration_ms": 19161,
+          "processed_frames_per_second": 83.60732738374824,
+          "complete_counter_intervals": 19
+        },
+        "windows_cpu_ms_per_second": {
+          "qemu": 2229.9198123557994,
+          "presenter": 215.03204906980454
+        },
+        "cpu_csv_columns": 26,
+        "cpu_csv_rows": 3265,
+        "sha256": {
+          "game_report": "75148d0908c470f87d47b5a4f01ac4c23617b1a5e7baa950b3c46c6d3819d0fd",
+          "cpu_csv": "f4dc72184ede1855c6c5ebb357fb0081737cb3ff337c3d4538fd8b3d099e23dc",
+          "surface_and_panel_receipt": "aecf18ea9677dc32bf028bdbaa4ad538ada1f2724e32194592da974b84a6aae6"
+        }
+      },
+      {
+        "order": 2,
+        "arm": "b",
+        "game": {
+          "frames": 3276,
+          "duration_ms": 38090,
+          "fps": 86.00682593856655
+        },
+        "android_surfaceview": {
+          "duration_s": 20.0235051,
+          "presentations": 1721,
+          "presentations_per_second": 85.9489880220821,
+          "p99_interval_ms": 22.9617,
+          "max_interval_ms": 45.1454
+        },
+        "panel": {
+          "captured_size_px": [
+            800,
+            450
+          ],
+          "processed_frames": 1607,
+          "counter_duration_ms": 19141,
+          "processed_frames_per_second": 83.95590617000157,
+          "complete_counter_intervals": 19
+        },
+        "windows_cpu_ms_per_second": {
+          "qemu": 2337.8806440836374,
+          "presenter": 255.16988032230176
+        },
+        "cpu_csv_columns": 1,
+        "cpu_csv_rows": 3276,
+        "sha256": {
+          "game_report": "f2a538a13c3343e869246c8992e796e1ba7e51edd899e407060e99dd8ec6c3b6",
+          "cpu_csv": "e5559053cae8a9279979b2e212eb9a3a5f15b8a1378f4bdc0a906155c1cc0bb4",
+          "surface_and_panel_receipt": "58f398273ddbb286706358938b7f4ae160018c6ce198f6791a55c46ecbb40550"
+        }
+      },
+      {
+        "order": 3,
+        "arm": "b",
+        "game": {
+          "frames": 3271,
+          "duration_ms": 38099,
+          "fps": 85.85527179191055
+        },
+        "android_surfaceview": {
+          "duration_s": 20.02371325,
+          "presentations": 1717,
+          "presentations_per_second": 85.74833141899892,
+          "p99_interval_ms": 22.7319,
+          "max_interval_ms": 26.3593
+        },
+        "panel": {
+          "captured_size_px": [
+            800,
+            450
+          ],
+          "processed_frames": 1582,
+          "counter_duration_ms": 19113,
+          "processed_frames_per_second": 82.77088892376916,
+          "complete_counter_intervals": 19
+        },
+        "windows_cpu_ms_per_second": {
+          "qemu": 2328.1102669606,
+          "presenter": 254.3864834860238
+        },
+        "cpu_csv_columns": 1,
+        "cpu_csv_rows": 3271,
+        "sha256": {
+          "game_report": "df357eb75b1ff7b588a4f133e8e1dd0803c71c7b485da28c8ce145fd18436b3f",
+          "cpu_csv": "123d2251fa7ad11967f9c7e1bfb20bd4eb62de1a397bebcdea120081854fbf31",
+          "surface_and_panel_receipt": "eb212c1d236384698a9b16e94ec9097c045a638eef36e1d53b758142f459f9e8"
+        }
+      },
+      {
+        "order": 4,
+        "arm": "a",
+        "game": {
+          "frames": 3237,
+          "duration_ms": 38070,
+          "fps": 85.02758077226163
+        },
+        "android_surfaceview": {
+          "duration_s": 20.0223135,
+          "presentations": 1695,
+          "presentations_per_second": 84.65555191711488,
+          "p99_interval_ms": 23.4554,
+          "max_interval_ms": 32.7938
+        },
+        "panel": {
+          "captured_size_px": [
+            800,
+            450
+          ],
+          "processed_frames": 1584,
+          "counter_duration_ms": 19169,
+          "processed_frames_per_second": 82.63341854035161,
+          "complete_counter_intervals": 19
+        },
+        "windows_cpu_ms_per_second": {
+          "qemu": 2266.216828539819,
+          "presenter": 261.8148097621186
+        },
+        "cpu_csv_columns": 26,
+        "cpu_csv_rows": 3238,
+        "sha256": {
+          "game_report": "e84aa0fb0644ad01b92e2acd41ac3a82225d5a678d4f99eb14277429f9c5340a",
+          "cpu_csv": "b0f78af710e1bb213decd7a845bd82b5ec6cc16478a469787c5cef1938bf6a1e",
+          "surface_and_panel_receipt": "676b735630a9ff0c0b54ce20bd196ef9795ab5cc672cfa78ca2822174e167767"
+        }
+      }
+    ],
+    "pooled_by_arm": {
+      "a": {
+        "game_fps": 85.38443352859282,
+        "surfaceview_presentations_per_second": 84.88742959708122,
+        "panel_frames_per_second": 83.12027132794157,
+        "windows_cpu_ms_per_second": {
+          "qemu": 2248.0698445978765,
+          "presenter": 238.4253938735214
+        }
+      },
+      "b": {
+        "game_fps": 85.93103991389833,
+        "surfaceview_presentations_per_second": 85.84865919907269,
+        "panel_frames_per_second": 83.36383123333508,
+        "windows_cpu_ms_per_second": {
+          "qemu": 2332.995430130792,
+          "presenter": 254.77817986826543
+        }
+      }
+    },
+    "gate": {
+      "a_fps": 85.38443352859282,
+      "b_fps": 85.93103991389833,
+      "b_minus_a_fps": 0.546606385305509,
+      "largest_same_arm_spread_fps": 0.71372426083704,
+      "b_minus_adjacent_a": [
+        0.26552090546788065,
+        0.827691019648924
+      ],
+      "material_gain": false
+    }
+  },
+  "restored": true,
+  "supplemental_clock_alignment": {
+    "sdk17": {
+      "probe_sha256": "3714a30fe76cb9199965ca42c0c85a717a22af371499bc2de4b8d50b6014067e",
+      "receipt_sha256": "b185c1b51f4579fc14fedb2a5b79c71e1ea35d6cc34c821e7af72a7e976dff6f",
+      "guest_refresh_hz": 90,
+      "summary_source_sha256": "549ebad0f712214db2740dd4b0b36a02418b012fcf574aa2b167683cce1eec96",
+      "summary": {
+        "allowed_cpus": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "guest_raw_minus_host_rate_bounds_ppm_by_cpu": {
+          "0": [
+            -808.2047877120413,
+            299.03095735761553
+          ],
+          "1": [
+            -893.2527839067284,
+            214.1255453742552
+          ],
+          "2": [
+            -853.167259661669,
+            260.04695566950176
+          ],
+          "3": [
+            -844.8565426548704,
+            262.1892075194143
+          ]
+        },
+        "sampled_regressions": [],
+        "max_host_batch_round_trip_ms": 7.321,
+        "ordered_tsc_offset_bounds_cycles_relative_to_first_cpu": {
+          "0": [
+            0,
+            0
+          ],
+          "1": [
+            -7485662441,
+            -7485196320
+          ],
+          "2": [
+            -7490097199,
+            -7488170546
+          ],
+          "3": [
+            -7495511482,
+            -7492607080
+          ]
+        },
+        "estimated_tsc_ticks_per_ns": 3.9925898817968424,
+        "per_round_spread_of_time_adjusted_tsc_offsets_ns": [
+          1877051376.9012651,
+          1877051713.6765935,
+          1877052097.4008536,
+          1877072185.3294485,
+          1876991785.22301,
+          1877061930.3896685,
+          1877050979.3433306,
+          1877053027.462468,
+          1877050942.4631793
+        ],
+        "largest_guest_clock_bracket_ns": 86500
+      }
+    },
+    "kemu16": {
+      "probe_sha256": "3714a30fe76cb9199965ca42c0c85a717a22af371499bc2de4b8d50b6014067e",
+      "receipt_sha256": "0f6aa2c7f1c5628a72a7a5a9472d9caaa6eb3122a72ddd4ba32804336c994e8a",
+      "guest_refresh_hz": 90,
+      "summary_source_sha256": "549ebad0f712214db2740dd4b0b36a02418b012fcf574aa2b167683cce1eec96",
+      "summary": {
+        "allowed_cpus": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "guest_raw_minus_host_rate_bounds_ppm_by_cpu": {
+          "0": [
+            -210.60673852690837,
+            239.24530182828363
+          ],
+          "1": [
+            -206.7943886778778,
+            243.05425275317205
+          ],
+          "2": [
+            -204.08882594358246,
+            245.75853805730574
+          ],
+          "3": [
+            -202.41748638361034,
+            247.44073324245443
+          ]
+        },
+        "sampled_regressions": [],
+        "max_host_batch_round_trip_ms": 2.4841,
+        "ordered_tsc_offset_bounds_cycles_relative_to_first_cpu": {
+          "0": [
+            0,
+            0
+          ],
+          "1": [
+            -426721,
+            336801
+          ],
+          "2": [
+            -823000,
+            635762
+          ],
+          "3": [
+            -1032121,
+            955561
+          ]
+        },
+        "estimated_tsc_ticks_per_ns": 3.9925827441155057,
+        "per_round_spread_of_time_adjusted_tsc_offsets_ns": [
+          44.949526441283524,
+          15.398166697297711,
+          10.753733811085112,
+          10.036185223725624,
+          0.22126443369779736,
+          10.095447660336504,
+          15.203852122882381,
+          9.734789204390836,
+          10.10979280747415
+        ],
+        "largest_guest_clock_bracket_ns": 131
+      }
+    }
+  },
+  "kemu16": {
+    "engine": "Kemu 0.7.1",
+    "player": "RustEmuDroid native panel",
+    "qemu_sha256": "9b6dd661855a65266fb8982cdea913fb189f9e967821cb621f51b85fd96ad3ea",
+    "runs": [
+      {
+        "order": 1,
+        "arm": "a",
+        "game": {
+          "frames": 3433,
+          "duration_ms": 38137,
+          "fps": 90.017568240816
+        },
+        "android_surfaceview": {
+          "duration_s": 20.01825905,
+          "presentations": 1802,
+          "presentations_per_second": 90.01781800800505,
+          "p99_interval_ms": 13.408654,
+          "max_interval_ms": 15.358029
+        },
+        "panel": {
+          "captured_size_px": [
+            800,
+            450
+          ],
+          "processed_frames": 1656,
+          "counter_duration_ms": 19123,
+          "processed_frames_per_second": 86.59729121999686,
+          "complete_counter_intervals": 19
+        },
+        "windows_cpu_ms_per_second": {
+          "qemu": 1303.4957552914673,
+          "presenter": 251.33304486835482
+        },
+        "cpu_csv_columns": 26,
+        "cpu_csv_rows": 3434,
+        "sha256": {
+          "game_report": "37ebf468e79ec8ec93997df8a0bc68ad6274da32b83255d30518b2f7f97b13db",
+          "cpu_csv": "03679a34a683f52ac54112125b65f90f58b08fdae678d3fa0705490461a360dc",
+          "surface_and_panel_receipt": "e725d68fac6771e9395681cafbbef577c3222cafa0582685074452c011699952"
+        }
+      },
+      {
+        "order": 2,
+        "arm": "b",
+        "game": {
+          "frames": 3432,
+          "duration_ms": 38130,
+          "fps": 90.0078678206137
+        },
+        "android_surfaceview": {
+          "duration_s": 20.0191642,
+          "presentations": 1802,
+          "presentations_per_second": 90.01374792659925,
+          "p99_interval_ms": 13.650693,
+          "max_interval_ms": 15.004222
+        },
+        "panel": {
+          "captured_size_px": [
+            800,
+            450
+          ],
+          "processed_frames": 1652,
+          "counter_duration_ms": 19111,
+          "processed_frames_per_second": 86.44236303699441,
+          "complete_counter_intervals": 19
+        },
+        "windows_cpu_ms_per_second": {
+          "qemu": 1295.241901257796,
+          "presenter": 230.2481239451545
+        },
+        "cpu_csv_columns": 1,
+        "cpu_csv_rows": 3432,
+        "sha256": {
+          "game_report": "9eaf342dfd000ff85eeec69f95d23770d4c36131591216e35eef2d5b9192dbcd",
+          "cpu_csv": "bfde463423005e9498bf5b861e24043acec7c6bdee9413833f44e2cc30733df5",
+          "surface_and_panel_receipt": "7a6b9c15a62b3fa77384d9040a15d984f068d486cf8d9036f834332a12eddbb6"
+        }
+      },
+      {
+        "order": 3,
+        "arm": "b",
+        "game": {
+          "frames": 3433,
+          "duration_ms": 38139,
+          "fps": 90.01284774115734
+        },
+        "android_surfaceview": {
+          "duration_s": 20.01787995,
+          "presentations": 1802,
+          "presentations_per_second": 90.01952277169092,
+          "p99_interval_ms": 13.417461,
+          "max_interval_ms": 14.612035
+        },
+        "panel": {
+          "captured_size_px": [
+            800,
+            450
+          ],
+          "processed_frames": 1660,
+          "counter_duration_ms": 19110,
+          "processed_frames_per_second": 86.86551543694401,
+          "complete_counter_intervals": 19
+        },
+        "windows_cpu_ms_per_second": {
+          "qemu": 1372.60665308366,
+          "presenter": 230.26360990840092
+        },
+        "cpu_csv_columns": 1,
+        "cpu_csv_rows": 3433,
+        "sha256": {
+          "game_report": "05c8a8677d6ece871bb2eb8433ed5c04649a136485a9dd700a473415055f5b3a",
+          "cpu_csv": "9d399b8a1156d08c24893bc00fa8e1c2a38156928acabc5f51b09640ec775821",
+          "surface_and_panel_receipt": "418995c3ab55a243a78830aa5d9d59deba256a27fb80caf4dcb2c6a6307c2a72"
+        }
+      },
+      {
+        "order": 4,
+        "arm": "a",
+        "game": {
+          "frames": 3433,
+          "duration_ms": 38137,
+          "fps": 90.017568240816
+        },
+        "android_surfaceview": {
+          "duration_s": 20.01721165,
+          "presentations": 1802,
+          "presentations_per_second": 90.02252818763597,
+          "p99_interval_ms": 13.548483,
+          "max_interval_ms": 15.038586
+        },
+        "panel": {
+          "captured_size_px": [
+            800,
+            450
+          ],
+          "processed_frames": 1684,
+          "counter_duration_ms": 19169,
+          "processed_frames_per_second": 87.8501747613334,
+          "complete_counter_intervals": 19
+        },
+        "windows_cpu_ms_per_second": {
+          "qemu": 1291.0799941509335,
+          "presenter": 275.93781774296224
+        },
+        "cpu_csv_columns": 26,
+        "cpu_csv_rows": 3434,
+        "sha256": {
+          "game_report": "c61945261ffc5875fbfcb55840c874f7181b62d340ccac0582a984d5bc0837ea",
+          "cpu_csv": "06be5f25922479a1cf2e3f397ff2d407e5291826a3ec5e4728e1f23e0ece72f6",
+          "surface_and_panel_receipt": "e807632ab814adba6fc38c5a136a7c3a4e92a653463debc308d326f10d6f4cad"
+        }
+      }
+    ],
+    "pooled_by_arm": {
+      "a": {
+        "game_fps": 90.017568240816,
+        "surfaceview_presentations_per_second": 90.0201730362071,
+        "panel_frames_per_second": 87.22448553222605,
+        "windows_cpu_ms_per_second": {
+          "qemu": 1297.2880371305337,
+          "presenter": 263.6351094530781
+        }
+      },
+      "b": {
+        "game_fps": 90.01035807470926,
+        "surfaceview_presentations_per_second": 90.01663525652656,
+        "panel_frames_per_second": 86.65393370136836,
+        "windows_cpu_ms_per_second": {
+          "qemu": 1333.923036373803,
+          "presenter": 230.2558666784096
+        }
+      }
+    }
+  }
+}

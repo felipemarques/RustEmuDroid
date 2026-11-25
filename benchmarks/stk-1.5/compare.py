@@ -15,6 +15,8 @@ TIMINGS = f"{DIRECTORY}/stdout.log.profile-black_forest-cpu-0.csv"
 CONFIG = f"{DIRECTORY}/config.xml"
 QA_PACKAGE = "org.rustemudroid.qa.stkvulkan"
 QA_DIRECTORY = f"/sdcard/Android/data/{QA_PACKAGE}/files/stk-vulkan-qa/home/supertuxkart/config-0.10"
+FRAME_TOTALS_OPTION = "--qa-frame-totals-only"
+FRAME_TOTALS_MARKER = "STK_QA_FRAME_TOTALS_ONLY active"
 
 VIDEO = dict(width="1600", height="900", real_width="1600", real_height="900",
              fullscreen="true", render_driver="opengl", max_fps="60", scale_rtts_factor="1.000000",
@@ -32,13 +34,45 @@ def run(args, serial, *cmd, check=True):
                           timeout=30).stdout
 
 
+def frame_totals_pending(timings, frames, duration):
+    """Check the frame-only CSV, returning a reason to retry a possibly partial file."""
+    if not timings.startswith(b"#") or not timings.endswith(b"\n"):
+        return "waiting for a complete frame-totals CSV"
+
+    def single_column(row):
+        fields = [field.strip() for field in row]
+        if fields and not fields[-1]:
+            fields.pop()  # STK exports one trailing comma even in the single-column mode.
+        return fields[0] if len(fields) == 1 else None
+
+    rows = csv.reader(io.StringIO(timings[1:].decode("utf-8")), skipinitialspace=True)
+    if single_column(next(rows, [])) != "Main loop(1)":
+        raise ValueError("Expected a single Main loop(1) column for QA frame totals")
+    count = total_us = 0
+    for row in rows:
+        value = single_column(row)
+        elapsed = int(value) if value and value.isascii() and value.isdecimal() else 0
+        if elapsed <= 0:
+            raise ValueError("Expected one positive integer duration per QA frame")
+        count += 1
+        total_us += elapsed
+    measured_ms = total_us // 1000
+    if count != frames or measured_ms != duration:
+        return f"frame totals CSV has {count} rows and {measured_ms} ms, expected {frames} rows and {duration} ms"
+    return None
+
+
 def replay(args, name, serial, preset, dest, *, fps_limit=None, game_vsync=True):
+    standalone_qa = getattr(args, "standalone_vulkan_qa", False)
+    frame_totals_only = getattr(args, "qa_frame_totals_only", False)
+    if frame_totals_only and not standalone_qa:
+        raise ValueError(f"{FRAME_TOTALS_OPTION} requires --standalone-vulkan-qa")
     if name == "BlueStacks":
         if not run(args, serial, "shell", "getprop", "init.svc.bstsvcmgrtest").strip():
             raise RuntimeError(f"Expected BlueStacks on {serial}")
     elif run(args, serial, "emu", "avd", "name").splitlines()[0].decode().strip().lower() != name.lower():
         raise RuntimeError(f"Unexpected AVD on {serial}")
-    if getattr(args, "standalone_vulkan_qa", False):
+    if standalone_qa:
         package, directory = QA_PACKAGE, QA_DIRECTORY
         report = f"{directory}/stdout.log.perf-report-black_forest.csv"
         timings_path = f"{directory}/stdout.log.profile-black_forest-cpu-0.csv"
@@ -70,13 +104,16 @@ def replay(args, name, serial, preset, dest, *, fps_limit=None, game_vsync=True)
                            "shadows_resolution": "1024", "Degraded_IBL": "false"})
     if preset in ("vulkan", "high-vulkan"):
         video.set("render_driver", "vulkan")
-    tree.find("commandline").set("value", "--benchmark")
+    benchmark = f"--benchmark {FRAME_TOTALS_OPTION}" if frame_totals_only else "--benchmark"
+    tree.find("commandline").set("value", benchmark)
     config = dest / "benchmark.xml"
     tree.write(config, encoding="utf-8", xml_declaration=True)
     try:
         run(args, serial, "push", str(config), config_path)
-        if not game_vsync and run(args, serial, "exec-out", "cat", config_path) != config.read_bytes():
-            raise RuntimeError(f"Could not verify the VSync-off game configuration on {name}")
+        if frame_totals_only or not game_vsync:
+            if run(args, serial, "exec-out", "cat", config_path) != config.read_bytes():
+                mode = "QA frame-totals-only" if frame_totals_only else "VSync-off"
+                raise RuntimeError(f"Could not verify the {mode} game configuration on {name}")
         def stamp(path):
             return run(args, serial, "shell", "stat", "-c", "%s:%Y", path, check=False).strip()
 
@@ -107,12 +144,23 @@ def replay(args, name, serial, preset, dest, *, fps_limit=None, game_vsync=True)
                            "stk qa vulkan vkpresentmodekhr"))]
                 if preset in ("vulkan", "high-vulkan") and not any("Vulkan" in line for line in driver):
                     raise ValueError(f"The game did not confirm its Vulkan renderer on {name}")
-                (dest / "renderer.txt").write_text("\n".join(driver) + "\n", encoding="utf-8")
+                if not frame_totals_only:
+                    (dest / "renderer.txt").write_text("\n".join(driver) + "\n", encoding="utf-8")
                 timings = run(args, serial, "exec-out", "cat", timings_path)
                 if not timings.startswith(b"#") or abs(len(timings.splitlines()) - 1 - frames) > 2:
                     # The game may still be flushing per-frame records after writing the summary.
                     last_read = f"{len(timings.splitlines()) - 1} timing rows for {frames} frames"
                     continue
+                if frame_totals_only:
+                    mode_marker = next((line for line in log.splitlines()
+                                        if line.rstrip().endswith(FRAME_TOTALS_MARKER)), None)
+                    if mode_marker is None:
+                        raise ValueError(f"Game did not report {FRAME_TOTALS_MARKER} on {name}")
+                    pending = frame_totals_pending(timings, frames, duration)
+                    if pending:
+                        last_read = pending
+                        continue
+                    (dest / "renderer.txt").write_text("\n".join([*driver, mode_marker]) + "\n", encoding="utf-8")
                 (dest / "quadros.csv").write_bytes(timings)
                 (dest / "report.csv").write_bytes(data)
                 return dict(engine=name, abi=abi, preset=preset, start=start, end=time.time(),
@@ -144,7 +192,11 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--standalone-vulkan-qa", action="store_true",
                    help="Use the separate STK Vulkan QA package and its own configuration")
+    p.add_argument(FRAME_TOTALS_OPTION, action="store_true",
+                   help="Measure only main-loop frame totals in the standalone QA package")
     args = p.parse_args()
+    if args.qa_frame_totals_only and not args.standalone_vulkan_qa:
+        p.error(f"{FRAME_TOTALS_OPTION} requires --standalone-vulkan-qa")
     engines = [(name, serial) for name, serial in
                [("Kemu", args.kemu), ("RustEmuDroid", args.rust), ("BlueStacks", args.bluestacks)]
                if serial]
