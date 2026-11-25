@@ -219,6 +219,7 @@ fn title_bar_layout_and_window_actions() {
             amd_uma_vulkan_by_profile: Default::default(),
             show_fps: true,
             android_fps: false,
+            adaptive_video: false,
             animate_mascot: true,
             locale: Locale::default(),
         };
@@ -391,6 +392,16 @@ fn settings_save_android_surface_fps_without_restarting_play() {
             );
             point
         };
+        let adapt = seek(
+            &tick(vec![]),
+            locale.pick(
+                "Ajustar o vídeo ao tamanho da janela",
+                "Fit video frames to the window",
+                "Ajustar el vídeo al tamaño de la ventana",
+            ),
+        );
+        tick(vec![Event::PointerMoved(adapt), button(adapt, true)]);
+        tick(vec![button(adapt, false)]);
         let combo = seek(&tick(vec![]), default);
         tick(vec![Event::PointerMoved(combo), button(combo, true)]);
         tick(vec![button(combo, false)]);
@@ -407,6 +418,7 @@ fn settings_save_android_surface_fps_without_restarting_play() {
         assert!(app.task.is_none());
         let saved = LaunchConfig::load(None, dir.path().into(), None, &prefs);
         assert!(saved.android_fps && saved.show_fps);
+        assert!(saved.adaptive_video);
     }
 }
 

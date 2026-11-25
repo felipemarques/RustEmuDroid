@@ -1,8 +1,9 @@
-"""Exercise Home scrolling, the profile shortcut and Android frame counting on Linux."""
+"""Exercise Home scrolling, profiles, Android frame counting and capture on Linux."""
 import json
 import os
 from pathlib import Path
 import re
+import struct
 import subprocess
 import tempfile
 import time
@@ -22,6 +23,63 @@ def wait_for(description, check, timeout=60):
             return value
         time.sleep(0.5)
     raise RuntimeError(f"Timed out waiting for {description}")
+
+
+def window_size(window):
+    geometry = dict(line.split("=", 1) for line in
+        run("xdotool", "getwindowgeometry", "--shell", window).splitlines() if "=" in line)
+    return int(geometry["WIDTH"]), int(geometry["HEIGHT"])
+
+
+def latest_frame_size(log_path, offset=0):
+    with log_path.open("rb") as log:
+        log.seek(offset)
+        samples = re.findall(rb"(?m)^display_frames=[1-9][0-9]* interval_ms=[1-9][0-9]* size=([0-9]+)x([0-9]+)\r?\n",
+                             log.read())
+    return tuple(map(int, samples[-1])) if samples else None
+
+
+def png_size(header):
+    if len(header) < 24 or header[:16] != b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR":
+        raise ValueError("Invalid PNG signature or IHDR")
+    width, height = struct.unpack(">II", header[16:24])
+    if not width or not height:
+        raise ValueError("PNG has an empty IHDR extent")
+    return width, height
+
+
+def check_adaptive_capture(window, log_path, captures, native):
+    before_resize = wait_for("initial desktop frame statistics", lambda: latest_frame_size(log_path), 20)
+    offset = log_path.stat().st_size
+    # The launcher has a 610 x 510 minimum in logical points. This physical window
+    # still has clearly fewer fitted pixels than either orientation of the guest.
+    run("xdotool", "windowsize", "--sync", window, "620", "520")
+    client = window_size(window)
+
+    def reduced_size():
+        size = latest_frame_size(log_path, offset)
+        if size and size != before_resize and all(0 < edge < original and edge <= bound + 16
+                for edge, original, bound in zip(size, native, client)):
+            return size
+
+    reduced = wait_for("a new reduced video raster after resizing", reduced_size, 25)
+    existing = set(captures.glob("*.png"))
+    run("xdotool", "windowfocus", "--sync", window)
+    run("xdotool", "key", "--clearmodifiers", "ctrl+shift+s")
+
+    def exported_png():
+        new_files = set(captures.glob("*.png")) - existing
+        assert len(new_files) <= 1, "One screenshot shortcut exported multiple PNGs"
+        return next(iter(new_files), None)
+
+    screenshot = wait_for("the PNG exported by Ctrl+Shift+S", exported_png, 25)
+    with screenshot.open("rb") as image:
+        actual = png_size(image.read(24))
+    assert actual == native, f"Expected native PNG {native}, got {actual} from reduced raster {reduced}"
+    offset = log_path.stat().st_size
+    wait_for("reduced video to return after PNG export", lambda: latest_frame_size(log_path, offset) == reduced, 25)
+    print(f"Adaptive video: client {client[0]}x{client[1]}, reduced {reduced[0]}x{reduced[1]}, "
+          f"Ctrl+Shift+S PNG IHDR {actual[0]}x{actual[1]}, reduced video resumed", flush=True)
 
 
 def build_fixtures(work, sdk):
@@ -63,6 +121,7 @@ def build_fixtures(work, sdk):
 
 def main():
     temp = Path(os.environ["RUNNER_TEMP"])
+    report = temp / "boot-report"
     app = temp / "rustemudroid"
     state = temp / "profile"
     adb = app / "runtime/platform-tools/adb"
@@ -72,6 +131,7 @@ def main():
         fixtures = list(build_fixtures(Path(tmp), Path(os.environ["ANDROID_HOME"])))
         env = {k: v for k, v in os.environ.items() if k not in ("ANDROID_HOME", "ANDROID_SDK_ROOT", "ANDROID_AVD_HOME", "ANDROID_USER_HOME", "WAYLAND_DISPLAY")}
         env["HOME"] = str(temp / "guest-home")
+        env["RUSTEMUDROID_FRAME_STATS"] = "1"
         def adb_run(*args):
             return run(adb, *args, env=env)
         assert adb_run("devices").splitlines() == ["List of devices attached"], "Requires an idle runner"
@@ -81,12 +141,25 @@ def main():
         settings = [line for line in config.read_text().splitlines() if line.partition("=")[0].strip() not in values]
         settings.extend(f"{key}={value}" for key, value in values.items())
         config.write_text("\n".join(settings) + "\n")
+        prefs = state / "launcher.json"
+        launcher = {
+            "sdk": "", "state": str(state), "image": "", "gpu": "Auto",
+            "hardware": {"adapter": "", "camera": "Profile", "webcam_index": 0},
+            "show_fps": True,
+        }
+        if prefs.is_file():
+            launcher.update(json.loads(prefs.read_text()))
+        launcher["adaptive_video"] = True
+        prefs.write_text(json.dumps(launcher) + "\n")
         game = "org.rustemudroid.qa.games"
         maps = avd / "touch-maps.json"
         with maps.open("x") as output:
             empty = {"buttons": {}, "stick": None}
             json.dump({game: {"active": "On foot", "layouts": {"Driving": empty, "On foot": empty}}}, output)
-        client = subprocess.Popen([app / "rustemudroid", "--lang", "en-us", "--state-dir", state, "ui", "--gpu", "swiftshader"], env=env)
+        desktop_log = report / "home-wheel-desktop.txt"
+        with desktop_log.open("wb") as log:
+            client = subprocess.Popen([app / "rustemudroid", "--lang", "en-us", "--state-dir", state,
+                "ui", "--gpu", "swiftshader"], env=env, stdout=log, stderr=subprocess.STDOUT)
         serial = None
         last_tree = None
         seen = {}
@@ -112,10 +185,8 @@ def main():
                 assert "Success" in guest("install", "-r", apk)
             window = run("xdotool", "search", "--onlyvisible", "--name", "^RustEmuDroid").splitlines()[-1]
             run("xdotool", "windowfocus", "--sync", window)
-            geometry = dict(line.split("=", 1) for line in
-                run("xdotool", "getwindowgeometry", "--shell", window).splitlines() if "=" in line)
-            run("xdotool", "mousemove", "--window", window,
-                str(int(geometry["WIDTH"]) // 2), str(int(geometry["HEIGHT"]) * 3 // 5))
+            width, height = window_size(window)
+            run("xdotool", "mousemove", "--window", window, str(width // 2), str(height * 3 // 5))
             system_waits = 0
             def cards(kind):
                 nonlocal system_waits, last_tree
@@ -171,9 +242,13 @@ def main():
                          RUSTEMUDROID_TEST_AVD=str(avd), RUSTEMUDROID_TEST_PACKAGE=game))
             assert "1 passed; 0 failed" in counter and "counter disabled and cleared" in counter, counter
             print(counter, flush=True)
+            native = png_size(subprocess.check_output([adb, "-s", serial, "exec-out", "screencap", "-p"],
+                                                      env=env, timeout=35))
+            assert native in ((540, 960), (960, 540)), f"Unexpected Android screenshot size {native}"
+            check_adaptive_capture(window, desktop_log, state / "captures", native)
         except Exception:
+            print("Desktop log tail:", desktop_log.read_text(errors="replace")[-3500:], flush=True)
             if serial:
-                report = temp / "boot-report"
                 names = guest("shell", "cmd", "package", "query-activities", "--brief", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER")
                 print("Fixture launcher activities:", "\n".join(s for s in names.splitlines() if "org.rustemudroid.qa" in s)[:3000], flush=True)
                 if last_tree:

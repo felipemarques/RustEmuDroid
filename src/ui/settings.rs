@@ -27,6 +27,8 @@ pub(super) struct LaunchConfig {
     pub show_fps: bool,
     #[serde(default)]
     pub android_fps: bool,
+    #[serde(default)]
+    pub adaptive_video: bool,
     #[serde(default = "super::mascot::enabled_by_default")]
     pub animate_mascot: bool,
     #[serde(default)]
@@ -79,6 +81,7 @@ impl LaunchConfig {
                 amd_uma_vulkan_by_profile: BTreeMap::new(),
                 show_fps: true,
                 android_fps: false,
+                adaptive_video: false,
                 animate_mascot: true,
                 locale: Locale::default(),
             });
@@ -594,6 +597,15 @@ impl Launcher {
                             draft.set_amd_uma_vulkan(enabled);
                         }
                     }
+                    ui.checkbox(&mut draft.adaptive_video, locale.pick(
+                        "Ajustar o vídeo ao tamanho da janela",
+                        "Fit video frames to the window",
+                        "Ajustar el vídeo al tamaño de la ventana",
+                    )).on_hover_text(locale.pick(
+                        "Reduz a transferência de pixels em janelas menores. O jogo, as capturas e o replay usam a resolução do Android.",
+                        "Transfers fewer pixels in smaller windows. Games, captures, and replay use the Android resolution.",
+                        "Transfiere menos píxeles en ventanas pequeñas. Los juegos, las capturas y la repetición usan la resolución de Android.",
+                    ));
                     let label = theme::label(ui, locale.pick("Taxa de atualização do Android", "Android refresh rate", "Frecuencia de actualización de Android"));
                     let default_rate = locale.pick("Usar a taxa do perfil", "Use profile refresh rate", "Usar la frecuencia del perfil");
                     let selected_rate = draft.hardware.refresh_rate.map(|hz| format!("{hz} Hz")).unwrap_or_else(|| default_rate.to_owned());

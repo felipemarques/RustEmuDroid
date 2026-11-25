@@ -4,6 +4,8 @@ use eframe::App;
 use std::{cell::Cell, io::Write, path::Path, rc::Rc, time::Instant};
 use winit::platform::windows::EventLoopBuilderExtWindows;
 
+#[path = "adaptive_video_test.rs"]
+mod adaptive_video_test;
 #[path = "mapping_preview_test.rs"]
 mod mapping_preview_test;
 #[path = "rolling_replay_test.rs"]

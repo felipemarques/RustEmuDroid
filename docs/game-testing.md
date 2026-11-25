@@ -6,7 +6,7 @@ The RustEmuDroid runs used Android Emulator 37.3.10 with the Android 17 Google P
 
 | Scene and setting | GPU | RustEmuDroid | BlueStacks Pie64 | Measurement |
 |---|---|---:|---:|---|
-| SuperTuxKart Black Forest, High, 90 Hz, identical x86-64 test APK | RTX 5070 Ti | 82.85 FPS | 89.99 FPS | Game profiler. The Android game surface presented 81.73 and 89.95 frames/s in two 20-second windows per engine. [Matched APK and Vulkan timings](../benchmarks/stk-1.5/vulkan-end-scene.md#windows-results-at-90-hz) |
+| SuperTuxKart Black Forest, High, 90 Hz, identical x86-64 test APK | RTX 5070 Ti | 82.85 FPS | 89.99 FPS | Game profiler. Kemu v0.7.1 reached 90.02 FPS. Android presented 81.73/s on RustEmuDroid, 89.95/s on BlueStacks and 90.07/s on Kemu. Two replays per player. [Matched APK and Vulkan timings](../benchmarks/stk-1.5/vulkan-end-scene.md#windows-results-at-90-hz) |
 | SuperTuxKart Black Forest, High, 90 Hz, stock packages | RTX 5070 Ti | 82.40 FPS | 90.03 FPS | Game profiler, Vulkan on both. Two replays per player matched on all 21 graphics fields. [Replays and guest presentations](#bluestacks-and-rustemudroid-at-90-hz-on-the-rtx-5070-ti) |
 | PUBG Lobby and Inventory, Balanced/High | RTX 5070 Ti | 25.20 FPS | 29.58 FPS | Android presentations. The first Inventory close paused for 1.60–1.68 s on v0.18.0 and 0.17 s on Pie64. [Retest and chart](#pubg-inventory-retest-with-rustemudroid-v0180) |
 | PUBG Training Grounds, Smooth/High, camera pans | RTX 5070 Ti | 29.29 FPS | 29.98 FPS | Android presentations. The slowest 1% averaged 14.63 and 20.00 FPS, respectively. [Training route](#pubg-training-grounds-on-the-rtx-5070-ti) |

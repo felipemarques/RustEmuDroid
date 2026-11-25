@@ -97,7 +97,9 @@ impl Launcher {
     }
 
     pub(super) fn record_tool(&self) -> Tool {
-        if matches!(self.capture.mode(), Some(Mode::Video)) {
+        if matches!(self.capture.mode(), Some(Mode::Video))
+            || self.pending_captures.contains(&Tool::RecordVideo)
+        {
             Tool::StopRecording
         } else {
             Tool::RecordVideo
@@ -107,6 +109,7 @@ impl Launcher {
     pub(super) fn show_capture_tools(&mut self, ui: &mut egui::Ui, interactive: bool) -> bool {
         let locale = self.config.locale;
         let record = self.record_tool();
+        let available = interactive && self.capture_source_available();
         ui.separator();
         for tool in [
             Tool::Screenshot,
@@ -114,11 +117,13 @@ impl Launcher {
             Tool::AnimatedClip,
             Tool::AnimatedGif,
         ] {
-            let ready = interactive
-                && self.display.as_ref().and_then(Display::shot).is_some()
-                && (tool == Tool::Screenshot
-                    || tool == Tool::StopRecording
-                    || !self.capture.busy());
+            let ready = if tool == Tool::StopRecording {
+                interactive
+            } else {
+                available
+                    && (tool == Tool::Screenshot
+                        || (!self.capture.busy() && self.pending_captures.is_empty()))
+            };
             ui.add_enabled_ui(ready, |ui| {
                 if tool.button(ui, locale) {
                     self.capture_action(tool);
@@ -156,11 +161,34 @@ impl Launcher {
                 return;
             }
             Tool::StopRecording => {
+                self.pending_captures.retain(|t| *t != Tool::RecordVideo);
                 self.capture.stop();
                 Ok(())
             }
             _ => {
-                let Some(shot) = self.display.as_ref().and_then(Display::shot) else {
+                if tool != Tool::Screenshot
+                    && (self.capture.busy() || !self.pending_captures.is_empty())
+                {
+                    return;
+                }
+                let Some(display) = self
+                    .display
+                    .as_mut()
+                    .filter(|d| d.shot().is_some() && d.stream_available())
+                else {
+                    return;
+                };
+                display.set_adaptive_video(false);
+                let Some(shot) = display.native_shot() else {
+                    if self.pending_captures.len() < 3 {
+                        self.pending_captures.push(tool);
+                    } else {
+                        self.capture_failed(self.config.locale.pick(
+                            "Aguarde as capturas pendentes.",
+                            "Wait for pending captures to finish.",
+                            "Espera a que terminen las capturas pendientes.",
+                        ));
+                    }
                     return;
                 };
                 match tool {
@@ -185,6 +213,55 @@ impl Launcher {
 
     fn capture_failed(&mut self, details: impl Into<String>) {
         self.capture_notice = Some((CaptureEvent::Failed(details.into()), Instant::now()));
+    }
+
+    fn capture_source_available(&self) -> bool {
+        self.display
+            .as_ref()
+            .is_some_and(|d| d.shot().is_some() && d.stream_available())
+    }
+
+    pub(super) fn poll_native_captures(&mut self, ctx: &egui::Context) {
+        let waiting_for_capture = !self.pending_captures.is_empty() || self.capture.replay_armed();
+        let recording = self.capture.mode().is_some();
+        if !waiting_for_capture && !recording {
+            self.native_frame_wait = None;
+            return;
+        }
+        if self
+            .display
+            .as_ref()
+            .and_then(Display::native_shot)
+            .is_some()
+        {
+            self.native_frame_wait = None;
+            for tool in std::mem::take(&mut self.pending_captures) {
+                self.capture_action(tool);
+            }
+            return;
+        }
+        let waiting = self
+            .native_frame_wait
+            .get_or_insert_with(Instant::now)
+            .elapsed();
+        let timeout = Duration::from_secs(5);
+        if waiting < timeout && self.display.as_ref().is_some_and(Display::stream_available) {
+            ctx.request_repaint_after(timeout - waiting);
+            return;
+        }
+        if recording {
+            // Finish the partial recording instead of encoding the last frame indefinitely.
+            self.capture.stop();
+        }
+        if waiting_for_capture {
+            self.pending_captures.clear();
+            self.set_replay_armed(false);
+            self.capture_failed(self.config.locale.pick(
+                "O Android não enviou uma imagem na resolução original para a captura.",
+                "Android did not deliver a full-resolution frame for capture.",
+                "Android no envió una imagen a resolución completa para la captura.",
+            ));
+        }
     }
 
     fn replay_state(&self) -> ReplayState {
@@ -242,12 +319,7 @@ impl Launcher {
                 ui.separator();
                 if ui
                     .add_enabled(
-                        armed
-                            || self
-                                .display
-                                .as_ref()
-                                .and_then(Display::replay_shot)
-                                .is_some(),
+                        armed || self.capture_source_available(),
                         egui::Button::new(label),
                     )
                     .clicked()
@@ -278,12 +350,9 @@ impl Launcher {
         if !self.capture.replay_armed() {
             return;
         }
-        if let Some(shot) = self.display.as_ref().and_then(Display::replay_shot) {
+        if let Some(shot) = self.display.as_ref().and_then(Display::native_shot) {
             self.capture.update_replay(shot);
             ctx.request_repaint_after(Duration::from_millis(100));
-        } else {
-            self.set_replay_armed(false);
-            self.capture_failed(self.replay_source_unavailable());
         }
     }
 
@@ -297,12 +366,7 @@ impl Launcher {
 
     fn save_replay(&mut self, path: &Path) {
         let locale = self.config.locale;
-        let details = if self
-            .display
-            .as_ref()
-            .and_then(Display::replay_shot)
-            .is_none()
-        {
+        let details = if !self.capture_source_available() {
             self.set_replay_armed(false);
             self.replay_source_unavailable()
         } else if !self.capture.replay_armed() {
@@ -415,4 +479,41 @@ fn open_capture_dir(path: &Path) -> std::io::Result<()> {
     let opener = "xdg-open";
     Command::new(opener).arg(path).spawn()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::LaunchConfig;
+
+    #[test]
+    fn a_blank_live_stream_keeps_replay_and_queued_recording_until_timeout() {
+        let ctx = egui::Context::default();
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = dir.path().join("launcher.json");
+        let config = LaunchConfig::load(None, dir.path().into(), None, &prefs);
+        let brand = ctx.load_texture(
+            "test",
+            egui::ColorImage::filled([1, 1], PANEL),
+            Default::default(),
+        );
+        let mut app = Launcher::new(brand, config, prefs, false);
+        app.display = Some(Display::empty_for_capture_wait_test());
+        app.set_replay_armed(true);
+        app.pending_captures.push(Tool::RecordVideo);
+
+        app.poll_native_captures(&ctx);
+        assert!(app.capture.replay_armed());
+        assert_eq!(app.pending_captures.len(), 1);
+        assert!(app.capture_notice.is_none());
+
+        app.native_frame_wait = Some(Instant::now() - Duration::from_secs(5));
+        app.poll_native_captures(&ctx);
+        assert!(!app.capture.replay_armed());
+        assert!(app.pending_captures.is_empty());
+        assert!(matches!(
+            app.capture_notice,
+            Some((CaptureEvent::Failed(_), _))
+        ));
+    }
 }

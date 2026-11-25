@@ -164,6 +164,8 @@ struct Launcher {
     stop_after_tilt: Option<std::time::Instant>,
     display: Option<Display>,
     capture: Capture,
+    pending_captures: Vec<Tool>,
+    native_frame_wait: Option<std::time::Instant>,
     capture_notice: Option<(CaptureEvent, std::time::Instant)>,
     controls: Option<Controls>,
     help_open: bool,
@@ -220,6 +222,8 @@ impl Launcher {
             stop_after_tilt: None,
             display: None,
             capture: Capture::default(),
+            pending_captures: Vec::new(),
+            native_frame_wait: None,
             capture_notice: None,
             controls: None,
             help_open: false,
@@ -376,6 +380,8 @@ impl Launcher {
             });
         self.stop_after_tilt = None;
         self.display = None;
+        self.pending_captures.clear();
+        self.native_frame_wait = None;
         self.set_replay_armed(false);
         self.capture.stop();
         self.controls = None;
@@ -408,6 +414,8 @@ impl Launcher {
     }
 
     fn request_stop(&mut self) {
+        self.pending_captures.clear();
+        self.native_frame_wait = None;
         if self.stopping() {
             return;
         }
@@ -695,6 +703,10 @@ impl Launcher {
                 && !egui::Popup::is_id_open(ctx, replay_popup_id())
                 && !self.stopping()
                 && !resizing;
+            let adapt_video = self.config.adaptive_video
+                && self.pending_captures.is_empty()
+                && self.capture.mode().is_none()
+                && !self.capture.replay_armed();
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
                 .show(ctx, |ui| {
@@ -702,6 +714,7 @@ impl Launcher {
                         && let Some(display) = &mut self.display
                     {
                         let rotation = display.rotation();
+                        display.set_adaptive_video(adapt_video);
                         display.show(ui, interactive, locale);
                         if let Some(controls) = &mut self.controls {
                             controls.library_wheel(
@@ -713,13 +726,16 @@ impl Launcher {
                         if rotation != display.rotation() {
                             self.capture.reset_replay();
                         }
-                        if let Some(shot) = display.take_new_shot() {
+                        if self.capture.mode().is_some()
+                            && let Some(shot) = display.take_new_native_shot()
+                        {
                             self.capture.update(shot);
                         }
                     } else {
                         self.show_boot(ui, ctx);
                     }
                 });
+            self.poll_native_captures(ctx);
             self.sample_replay(ctx);
             if save_replay {
                 self.capture_action(Tool::SaveReplay);

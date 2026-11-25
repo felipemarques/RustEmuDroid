@@ -1,4 +1,5 @@
 //! Android Emulator's EmulatorController protocol (the subset used by this view).
+mod adaptive_video;
 #[cfg(test)]
 mod live_input_test;
 pub(crate) mod mapping;
@@ -20,7 +21,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tonic::{
     Request,
     client::Grpc,
@@ -44,6 +45,13 @@ struct Format {
     width: u32,
     #[prost(uint32, tag = "4")]
     height: u32,
+    #[prost(uint32, tag = "5")]
+    display: u32,
+    // Folded geometry and a resizable mode disqualify the display from reduction.
+    #[prost(message, optional, tag = "7")]
+    folded_display: Option<Empty>,
+    #[prost(int32, optional, tag = "8")]
+    display_mode: Option<i32>,
 }
 #[derive(Clone, PartialEq, Message)]
 struct Rotation {
@@ -176,6 +184,8 @@ async fn deliver(
 #[derive(Default)]
 struct Shared {
     latest: Option<Frame>,
+    source: adaptive_video::Source,
+    blank: bool,
     error: Option<String>,
 }
 
@@ -187,6 +197,7 @@ async fn stream(
     state: Arc<Mutex<Shared>>,
     mut input: mpsc::UnboundedReceiver<Input>,
     tilt: tilt::Worker,
+    video_requests: watch::Receiver<adaptive_video::Request>,
 ) -> DisplayResult<()> {
     let deadline = Instant::now() + Duration::from_secs(90);
     let token = loop {
@@ -217,41 +228,15 @@ async fn stream(
     };
     let mut control = Grpc::new(channel.clone());
     let sensor = channel.clone();
-    let mut video = Grpc::new(channel).max_decoding_message_size(64 * 1024 * 1024);
-    video.ready().await?;
-    let request = authorized(
-        Format {
-            format: 1,
-            ..Default::default()
-        },
-        &token,
-    );
-    let mut frames = video
-        .server_streaming(
-            request,
-            PathAndQuery::from_static(
-                "/android.emulation.control.EmulatorController/streamScreenshot",
-            ),
-            ProstCodec::<Format, Frame>::default(),
-        )
-        .await?
-        .into_inner();
+    let video = Grpc::new(channel).max_decoding_message_size(64 * 1024 * 1024);
     let inputs = async {
         while let Some(event) = input.recv().await {
             deliver(event, &mut control, &token).await?
         }
         Ok(())
     };
-    let video = async {
-        while let Some(frame) = frames.message().await? {
-            if frame.pixels.is_empty() {
-                continue;
-            }
-            state.lock().unwrap().latest = Some(frame);
-            ctx.request_repaint();
-        }
-        Err("O motor encerrou o fluxo de vídeo.".into())
-    };
+    let fixed_raster = adaptive_video::fixed_raster(&avd);
+    let video = adaptive_video::run(video, &token, &ctx, &state, video_requests, fixed_raster);
     let (cancel_tilt, tilt_shutdown) = tokio::sync::oneshot::channel();
     let session = async {
         let result = tokio::select! { result=inputs=>result, result=video=>result };
@@ -270,6 +255,11 @@ pub struct Display {
     native_texture: Option<native_texture::NativeTexture>,
     shot: Option<Shot>,
     shot_changed: bool,
+    video_preference: Option<adaptive_video::Preference>,
+    shot_source: adaptive_video::Source,
+    native_display: Option<adaptive_video::NativeDisplay>,
+    stream_failed: bool,
+    // The input coordinate space, independent of the Shot's transport raster.
     size: [usize; 2],
     rotation: i32,
     contact: Option<(i32, i32)>,
@@ -290,6 +280,7 @@ impl Display {
         let ctx = ctx.clone();
         let mappings = avd.join("touch-maps.json");
         let (tilt, tilt_worker) = tilt::Tilt::channel();
+        let (video_preference, video_requests) = adaptive_video::Preference::new();
         std::thread::spawn(move || {
             let result = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -304,6 +295,7 @@ impl Display {
                         shared.clone(),
                         rx,
                         tilt_worker,
+                        video_requests,
                     ))
                 });
             if let Err(e) = result {
@@ -313,6 +305,7 @@ impl Display {
         });
         let mut display = Self::new(state, input);
         display.tilt = Some(tilt);
+        display.video_preference = Some(video_preference);
         display.mapping.load(mappings);
         display
     }
@@ -325,6 +318,10 @@ impl Display {
             native_texture: None,
             shot: None,
             shot_changed: false,
+            video_preference: None,
+            shot_source: adaptive_video::Source::default(),
+            native_display: None,
+            stream_failed: false,
             size: [1, 1],
             rotation: 0,
             contact: None,
@@ -337,6 +334,15 @@ impl Display {
             fps: 0.0,
             tilt: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn empty_for_capture_wait_test() -> Self {
+        let state = Shared {
+            blank: true,
+            ..Default::default()
+        };
+        Self::new(Arc::new(Mutex::new(state)), mpsc::unbounded_channel().0)
     }
     pub(crate) fn enable_native_texture(&mut self, gl: Option<&eframe::glow::Context>) {
         if native_texture::supported(gl) {
@@ -358,9 +364,32 @@ impl Display {
         self.shot.as_ref()
     }
 
-    pub(crate) fn replay_shot(&self) -> Option<&Shot> {
-        self.shot()
-            .filter(|_| self.state.lock().unwrap().error.is_none())
+    pub(crate) fn set_adaptive_video(&mut self, enabled: bool) {
+        if let Some(preference) = &mut self.video_preference {
+            preference.set_enabled(enabled);
+        }
+    }
+
+    pub(crate) fn stream_available(&self) -> bool {
+        !self.stream_failed
+    }
+
+    pub(crate) fn native_shot(&self) -> Option<&Shot> {
+        self.shot().filter(|_| {
+            if !self.has_current_native_raster() {
+                return false;
+            }
+            let state = self.state.lock().unwrap();
+            state.error.is_none()
+                && !state.blank
+                && state.source.visibility_epoch == self.shot_source.visibility_epoch
+        })
+    }
+
+    fn has_current_native_raster(&self) -> bool {
+        self.video_preference
+            .as_ref()
+            .is_none_or(|preference| preference.accepts_native(self.shot_source))
     }
 
     pub(crate) fn rotation(&self) -> i32 {
@@ -371,6 +400,14 @@ impl Display {
         std::mem::take(&mut self.shot_changed)
             .then_some(self.shot.as_ref())
             .flatten()
+    }
+
+    pub(crate) fn take_new_native_shot(&mut self) -> Option<&Shot> {
+        if self.shot_changed && self.native_shot().is_none() {
+            self.shot_changed = false;
+            return None;
+        }
+        self.take_new_shot()
     }
     fn key(&self, key: &str, event: i32) {
         let _ = self.input.send(Input::Key(Keyboard {
@@ -455,7 +492,7 @@ impl Display {
             self.key(&key, 1)
         }
     }
-    fn upload(&mut self, ctx: &egui::Context, frame: Frame) {
+    fn upload(&mut self, ctx: &egui::Context, frame: Frame, source: adaptive_video::Source) {
         let Some(format) = frame.format else { return };
         let size = [format.width as usize, format.height as usize];
         if size.contains(&0)
@@ -464,15 +501,25 @@ impl Display {
         {
             return;
         }
-        let same_size = self.size == size;
-        let rotation = format.rotation.unwrap_or_default().value;
-        if !same_size || self.rotation != rotation {
-            // The held tilt can cause rotation. Lift coordinate-dependent contacts only.
-            let released = self.mapping.release_contacts();
-            self.release_contacts(released);
+        let same_raster = self
+            .shot
+            .as_ref()
+            .is_some_and(|shot| (shot.width, shot.height) == (format.width, format.height));
+        if !source.scaled {
+            let rotation = format
+                .rotation
+                .as_ref()
+                .map_or(0, |rotation| rotation.value);
+            if self.size != size || self.rotation != rotation {
+                // Release held input when the native coordinate space changes.
+                let released = self.mapping.release_contacts();
+                self.release_contacts(released);
+            }
+            self.size = size;
+            self.rotation = rotation;
+            self.native_display = adaptive_video::NativeDisplay::conventional(&format);
         }
-        self.size = size;
-        self.rotation = rotation;
+        self.shot_source = source;
         // Capture the same pixels and orientation sent to the desktop texture.
         self.shot = Some(Shot {
             width: format.width,
@@ -492,7 +539,7 @@ impl Display {
             bytemuck::cast_slice_mut(&mut pixels).copy_from_slice(&shot.pixels);
             let image = ColorImage::new(size, pixels);
             if let Some(texture) = &mut self.texture {
-                if same_size {
+                if same_raster {
                     texture.set_partial([0, 0], image, TextureOptions::LINEAR)
                 } else {
                     texture.set(image, TextureOptions::LINEAR)
@@ -575,13 +622,14 @@ impl Display {
     }
 
     fn show_game(&mut self, ui: &mut egui::Ui, interactive: bool, locale: Locale) {
-        let (frame, error) = {
+        let (frame, source, error) = {
             let mut shared = self.state.lock().unwrap();
-            (shared.latest.take(), shared.error.clone())
+            (shared.latest.take(), shared.source, shared.error.clone())
         };
         if let Some(frame) = frame {
-            self.upload(ui.ctx(), frame)
+            self.upload(ui.ctx(), frame, source)
         }
+        self.stream_failed = error.is_some();
         if let Some(error) = error {
             ui.colored_label(
                 egui::Color32::LIGHT_RED,
@@ -606,15 +654,25 @@ impl Display {
         let size = Vec2::new(self.size[0] as f32, self.size[1] as f32);
         let outer = ui.available_rect_before_wrap();
         // In fullscreen the edge bars cover the guest. Revealing tools never scales its image.
-        let viewport = ui.input(|i| {
-            if i.viewport().fullscreen == Some(true) {
-                i.content_rect()
-            } else {
-                outer
-            }
+        let (viewport, windowed) = ui.input(|i| {
+            let fullscreen = i.viewport().fullscreen == Some(true);
+            let viewport = if fullscreen { i.content_rect() } else { outer };
+            (
+                viewport,
+                !fullscreen && i.viewport().minimized != Some(true),
+            )
         });
         let scale = (viewport.width() / size.x).min(viewport.height() / size.y);
         let rect = Rect::from_center_size(viewport.center(), size * scale);
+        if let Some(preference) = &mut self.video_preference {
+            preference.update(
+                ui.ctx(),
+                rect,
+                windowed && ui.is_rect_visible(rect),
+                self.native_display,
+                self.shot_source,
+            );
+        }
         if ui.is_rect_visible(rect)
             && let (Some(native), Some(shot)) = (&self.native_texture, &self.shot)
         {
@@ -911,7 +969,7 @@ mod tests {
                     format: 1,
                     width: 160,
                     height: 90,
-                    rotation: None,
+                    ..Default::default()
                 }),
                 pixels: vec![255; 160 * 90 * 4].into(),
             });
@@ -1124,7 +1182,7 @@ mod tests {
                 format: 1,
                 width: 16,
                 height: 9,
-                rotation: None,
+                ..Default::default()
             }),
             pixels,
         });
