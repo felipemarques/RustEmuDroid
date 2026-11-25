@@ -11,7 +11,7 @@ import subprocess
 import time
 import first_use
 
-from build import ABIS, ACTIVITY, GOLDEN, digest
+from build import ABIS, ACTIVITY, digest, workload, workload_options
 
 ORDER = ("x86_64", "arm64-v8a", "arm64-v8a", "x86_64")
 COLUMNS = ["wall_ns", "thread_cpu_ns", "minor_faults", "major_faults"]
@@ -58,7 +58,7 @@ def collect(args, report):
 
     receipt = args.build_dir / "build-receipt.json"
     build = json.loads(receipt.read_text(encoding="utf-8"))
-    golden = first_use.golden() if args.first_use else GOLDEN
+    _, golden = workload(args)
     report.update(build_receipt_sha256=digest(receipt), golden=golden)
     if build["golden"] != golden:
         raise RuntimeError("The build receipt does not match this fixture's workloads")
@@ -115,6 +115,11 @@ def collect(args, report):
                         "repeat_median_wall_ns": median(row[0] for row in repeats),
                         "repeat_median_cpu_ns": median(row[1] for row in repeats),
                     }
+            elif args.page_touch:
+                if result["page_bytes"] <= 0 or result["page_bytes"] & (result["page_bytes"] - 1):
+                    raise RuntimeError("Invalid native page size")
+                record["statistics"] = dict(validate_samples(result, task, args.samples)
+                                            for task in ("resident", "discarded"))
             else:
                 record["statistics"] = dict(validate_samples(result, task, args.samples)
                                             for task in ("arithmetic", "memory"))
@@ -161,7 +166,7 @@ def main():
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--samples", type=int, default=7, choices=range(1, 10), metavar="1..9")
-    parser.add_argument("--first-use", action="store_true", help="Use the matching first-traversal APKs")
+    workload_options(parser)
     parser.add_argument("--quiet-seconds", type=int, default=15, choices=range(5, 121), metavar="5..120")
     parser.add_argument("--execute", action="store_true", help="Install, run and remove the two fixture APKs")
     args = parser.parse_args()

@@ -76,3 +76,26 @@ python -B benchmarks/native-bridge/export_first_use.py native.json pie64.json --
 ```
 
 The build checks with `llvm-nm` that the 4,096 generated functions have distinct addresses in each library. Every visit follows the same permutation and must return the reference digest for its group. The exporter verifies both guests used the same build receipt and both fixture packages were removed after each run. First use means the first traversal of that group in the process. Persistent caches and guest memory retain their normal behavior across launches. [Generator and reference results](first_use.py) · [Timed traversal](first_use.c)
+
+## Cost of touching discarded anonymous pages
+
+During the first PUBG Inventory close on Android 17, the game thread recorded 61,824 minor faults in 1.431 seconds of sampled time. The fixture measures writes to 61,440 distinct anonymous pages in a private mapping, 240 MiB with a 4 KiB page size. It writes one byte per page, reads it back and accumulates a checksum. The resident control uses previously touched pages. The other condition calls `madvise(MADV_DONTNEED)` once on the mapping before timing, which lets Linux supply fresh zero-filled pages on demand. [PUBG trace](../../docs/game-testing.md#first-inventory-close-on-the-published-v0190-windows-build) · [Linux madvise](https://man7.org/linux/man-pages/man2/madvise.2.html)
+
+Both conditions measure wall time, thread CPU time, minor faults and major faults in one uninterrupted traversal on the same thread. Allocation, prefaulting and discard happen before timing. Conditions alternate order between samples. The fixture reports the guest page size and checks every sample against the expected sum of 1,873,920. In an earlier Android 17 pilot that reused a small mapping, the fixture rejected the first timing run and emitted no valid samples. The results below use the larger contiguous mapping. [Timed code](page_touch.c) · [Linux per-thread counters](https://man7.org/linux/man-pages/man2/getrusage.2.html)
+
+On the Ryzen 9 8945HS, the same two signed APKs ran on Android 17 Google Play in the RustEmuDroid lab and in BlueStacks 5.22.166.1003 Pie64 on Android 9. Both guests reported 4 KiB pages and had four vCPUs and 8 GiB configured. Each row averages the medians of two fresh processes, with three samples per condition in each process. The table uses wall time for the resident baseline. In two short resident trials on Android 17 the thread clock exceeded elapsed time by 0.456 and 0.175 ms. All samples are available for comparison. [48 individual measurements](page-touch-results.csv)
+
+| Guest | App code | Resident wall time (ms) | After discard, wall time (ms) | After discard, thread CPU (ms) |
+|---|---|---:|---:|---:|
+| Android 17 Google Play | x86-64 | 1.73 | 95.95 | 95.74 |
+| Android 17 Google Play | ARM64 | 1.36 | 89.42 | 88.93 |
+| BlueStacks Pie64 | x86-64 | 1.01 | 44.80 | 44.79 |
+| BlueStacks Pie64 | ARM64 | 1.02 | 39.97 | 39.97 |
+
+Every traversal after discard produced exactly 61,440 minor faults. Resident traversals produced zero to two. All 48 trials had zero major faults. The Android 17 ARM64 test took about 89 ms of thread CPU to handle these writes, compared with the 1,120 ms of game-thread CPU previously observed around a PUBG Inventory close with a similar fault count. The game trace leaves the faulting mappings and the intervening game work unidentified. These results describe whole guest configurations and one pattern of memory access. The two processes per ABI also showed timing variation within a guest. [PUBG first-close measurement](../../docs/game-testing.md#first-inventory-close-on-the-published-v0190-windows-build)
+
+To reproduce, add `--page-touch` to both the build and the runner commands above. Use a fresh build directory for the pair of APKs and the same directory on both guests. Run the collector against each verified serial with `--samples 3`, a matching SDK and a separate output file. Export all recorded samples with the command below.
+
+```sh
+python -B benchmarks/native-bridge/export_page_touch.py android17.json pie64.json --csv page-touch-results.csv
+```

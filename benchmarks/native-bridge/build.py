@@ -26,6 +26,20 @@ GOLDEN = {"warmups": 2, "arithmetic_rounds": 6_000_000, "memory_rounds": 1_048_5
           "memory_words": 262_144, "arith_digest": "b6fae11725cce32b", "memory_digest": "00fffe953f9f42b0"}
 
 
+def workload(args):
+    if args.first_use:
+        return "first_use.c", first_use.golden()
+    if args.page_touch:
+        return "page_touch.c", {"pages": 1024, "passes": 60, "touch_digest": 1024 * sum(range(1, 61))}
+    return "bench.c", GOLDEN
+
+
+def workload_options(parser):
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--first-use", action="store_true", help="Use the first code-traversal workload")
+    group.add_argument("--page-touch", action="store_true", help="Measure writes to resident and discarded pages")
+
+
 def digest(path):
     return sha256(path.read_bytes()).hexdigest()
 
@@ -52,7 +66,7 @@ def main():
     parser.add_argument("--sdk", type=Path, required=True)
     parser.add_argument("--jdk", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--first-use", action="store_true", help="Build the code-traversal workload")
+    workload_options(parser)
     parser.add_argument("--ndk", default="30.0.14904198")
     parser.add_argument("--build-tools", default="37.0.0")
     parser.add_argument("--platform", default="android-37.0")
@@ -91,7 +105,8 @@ def main():
             "--output", work, *sorted(classes.rglob("*.class")))
         dex = work / "classes.dex"
         dex_hash = digest(dex)
-        c_source = SOURCE / ("first_use.c" if args.first_use else "bench.c")
+        source_name, golden = workload(args)
+        c_source = SOURCE / source_name
         sources = [c_source, SOURCE / "timing.h", SOURCE / "BenchActivity.java"]
         if args.first_use:
             first_use.generate(work)
@@ -128,7 +143,7 @@ def main():
                 raise RuntimeError(f"Unexpected APK manifest or ABI for {abi}")
             packages[abi] = {"apk": apk.name, "sha256": digest(apk), "elf_sha256": digest(native),
                              "package": package, "activity": ACTIVITY, "target": target}
-    receipt = {"packages": packages, "golden": first_use.golden() if args.first_use else GOLDEN,
+    receipt = {"packages": packages, "golden": golden,
                "compiler": run(clang, "--version").splitlines()[0],
                "flags": FLAGS, "ndk": args.ndk, "build_tools": args.build_tools, "platform": args.platform,
                "dex_sha256": dex_hash, "sources": source_hashes}

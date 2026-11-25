@@ -28,6 +28,12 @@ The published v0.18.1 Windows client also recovered when the player closed first
 
 After the x86-64 replay pair, we tested PNG capture in the v0.19.0 Windows client against the same running Pie64 instance. Two camera-button clicks and one **Ctrl+Shift+S** produced three distinct filenames in the selected profile's captures folder. On a static 1600 × 900 Android screen, all three files had identical pixels to ADB screenshots taken before and after the actions. The toolbar displayed the saved filename. [Capture instructions](../README.md#open-an-installed-bluestacks-instance-on-windows)
 
+#### Scrolling and game focus
+
+In v0.21.1, move the mouse over the preview and turn the wheel to scroll Android. Click the game to activate its control profile. A mapped wheel direction then runs the assigned game action once. An unmapped direction still scrolls. The controls menu and editor receive their own wheel input.
+
+We exercised the v0.21.1 Windows test build with a real Android 9 `ScrollView` and a wheel direction mapped to a clickable target. Before the click, one egui wheel event moved the Android scroll offset from 1080 to 984. After the game took focus, the same wheel input produced one target click and the offset stayed at 984. After losing and regaining window focus, hovering and turning the wheel moved the offset from 984 to 888. The guest reported one event at each step. The fixture was removed and the restored Pie64 instance returned to its Home. [Panel regression tests](../src/ui/blue_mirror/tests.rs) · [Live Windows test driver](../src/ui/blue_mirror/live_mapping_test.rs)
+
 #### Installing an APK in the preview
 
 The Windows v0.21.0 toolbar has an **Install APK** button between the camera and folder icons. On the restored Pie64 instance we clicked the actual button, supplied a signed, permission-free test APK and verified that its installed bytes matched the local file by SHA-256. The Android 9 package manager confirmed installation. We checked that the test package was absent before the run, uninstalled it afterward, and returned to the same Android Home. The primary instance stayed closed.
