@@ -33,6 +33,8 @@ Pooling frames and durations gave 59.954 game FPS with the preview closed and 59
 
 ## PUBG MOBILE
 
+One Windows launch of PUBG MOBILE 4.7.0 (build 21718) on v0.15.0 exited before reaching the lobby. Android started the requested splash activity and the process initialized ANGLE over Vulkan on the RTX 5070 Ti. Android then recorded a native crash (SIGSEGV, SEGV_ACCERR) in that process. Three subsequent fresh processes on the same Android 17 installation reached the lobby and completed the Inventory route. The logs establish when the failure occurred. Its underlying cause remains unknown. [Inventory runs on this build](#does-lowering-the-android-display-resolution-help-pubg-inventory)
+
 The stationary test sampled the same Showroom view for about 18 seconds per run. Only guest display resolution changed between the three samples.
 
 | Run | Guest display | Guest presentations per second | Median interval | P95 interval |
