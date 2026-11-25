@@ -11,6 +11,8 @@ Starting in v0.13.0, both packaged clients preview each supported image from the
 
 Pushes that keep the Cargo version, pull requests, and manual workflow runs produce Actions artifacts. If a build or publish step fails, rerun the failed jobs. The publish step can resume an incomplete draft for the same commit.
 
+Write version-specific notes in `docs/releases/vX.Y.Z.md`. Link to manuals and test results relative to that file. On publication, the workflow converts those links to GitHub URLs pinned to the tested commit, including any section anchors.
+
 ## Manual tag fallback
 
 If the automatic release was skipped, use the version from the intended release commit to create and push a matching annotated tag. This triggers the same build matrix and publishes both verified archives.
