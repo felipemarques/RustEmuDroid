@@ -517,6 +517,18 @@ Reducing the display pixel count by 36% left the first-close pause between the t
 
 The route opened Inventory at seconds 0, 12, 24 and 36 and closed it seven seconds after each open. Counts use the 48-second window, excluding its right endpoint. For the first close we took the largest interval whose two presentations fell between seconds 7 (inclusive) and 12 (exclusive), then compared readiness for those same buffers. The CSV includes one extra sample on each side of every run. The collector checked the foreground app and surface, and screenshots confirmed Lobby and Inventory. A native game crash before reaching the lobby and startup promotions before the first Inventory tap produced no timed samples. All rows above are complete routes.
 
+### Does reducing the game's own render surface help PUBG Inventory?
+
+On the RTX 5070 Ti, the Android 17 display stayed at 1600 × 900 and 60 Hz. In the standard Android game mode, PUBG 4.7.0 (21718) drew the lobby to a **1280 × 720** SurfaceView. We used Android's per-package backbuffer setting for the next runs and kept the existing in-game graphics preferences throughout. With an Android scale of 80%, the activity window changed to 1280 × 720 and the game surface stayed at 1280 × 720. At 70%, the activity window measured 1120 × 630 and the game buffer **1120 × 624**, 24.2% fewer pixels than the standard game buffer. We matched the visible game layer's current buffer ID to its texture dimensions in SurfaceFlinger. [Android backbuffer resizing](https://developer.android.com/games/optimize/adpf/gamemode/gamemode-interventions#windowmanager-backbuffer-resizing)
+
+| Accepted 48-second route | Game buffer | Presentations | Presentations/s | First Inventory close | Intervals over 250 ms |
+|---|---|---:|---:|---:|---:|
+| Standard, first pass | 1280 × 720 | 1,199 | 24.98 | 1,634 ms | 12 |
+| Standard, return from 80% | 1280 × 720 | 1,207 | 25.15 | 1,632 ms | 11 |
+| Custom, 70% | 1120 × 624 | 1,203 | 25.06 | 1,634 ms | 12 |
+
+The two standard passes together and the reduced-buffer pass both averaged **25.06 presentations/s**. On each first close, the buffer-ready gap was within 2 ms of the presentation gap. Reducing the measured buffer size did not improve this inventory route. The custom result covers one complete run. We excluded startup notices and a first Inventory screenshot that the original full-size visual reference rejected. The accepted run used a visually verified reference from the scaled Inventory screen. We restored Android's standard mode and verified that the package had no remaining intervention. [Per-run counters and buffer checks](../benchmarks/pubg-mobile/windows-per-app-render-scale.json) · [Relative presentation and buffer-ready timestamps](../benchmarks/pubg-mobile/windows-per-app-render-scale-frames.csv)
+
 ### Does shared-memory video improve PUBG Inventory FPS?
 
 We repeated the same 48-second route four times on Android 17 with the RTX 5070 Ti at 1600 × 900, 320 dpi and 60 Hz. The same experimental v0.17.0 client and VM stayed open. Each pass started a fresh PUBG MOBILE 4.7.0 process with the Lobby preset at Balanced/High. We opened Inventory at 0, 12, 24 and 36 seconds and closed it seven seconds after each opening. Android FPS below counts new presentations of the game's SurfaceView.

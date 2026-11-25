@@ -1,0 +1,108 @@
+{
+  "guest": "Android 17 Google Play x86-64",
+  "game": "PUBG MOBILE 4.7.0 (21718), arm64-v8a",
+  "gpu": "NVIDIA GeForce RTX 5070 Ti",
+  "display": "1600x900, 60 Hz",
+  "game_graphics": "Existing in-game settings left unchanged throughout. No in-game switch to the Custom Lobby preset for this experiment.",
+  "runs": [
+    {
+      "run": "standard-a",
+      "game_mode": "standard",
+      "android_scale": null,
+      "activity_buffers": [
+        "1600x900"
+      ],
+      "active_game_buffer": "1280x720",
+      "route": {
+        "seconds": 48.0,
+        "presentations": 1199,
+        "hz": 24.979166666666668,
+        "p50_ms": 33.419,
+        "p95_ms": 50.6022,
+        "p99_ms": 249.1544,
+        "max_ms": 1633.6423,
+        "over_100_ms": 19,
+        "over_250_ms": 12,
+        "first_close_ms": 1633.6423,
+        "first_close_ready_gap_ms": 1633.2699
+      }
+    },
+    {
+      "run": "custom-b",
+      "game_mode": "custom",
+      "android_scale": 0.8,
+      "activity_buffers": [
+        "1280x720"
+      ],
+      "active_game_buffer": "1280x720",
+      "route": null,
+      "observation": "Activity changed size. The active game buffer matched the standard run, so this setting was excluded from the timing comparison."
+    },
+    {
+      "run": "standard-a2",
+      "game_mode": "standard",
+      "android_scale": null,
+      "activity_buffers": [
+        "1600x900"
+      ],
+      "active_game_buffer": "1280x720",
+      "route": {
+        "seconds": 48.0,
+        "presentations": 1207,
+        "hz": 25.145833333333332,
+        "p50_ms": 33.3946,
+        "p95_ms": 50.8596,
+        "p99_ms": 131.9615,
+        "max_ms": 1632.2628,
+        "over_100_ms": 18,
+        "over_250_ms": 11,
+        "first_close_ms": 1632.2628,
+        "first_close_ready_gap_ms": 1633.6241
+      }
+    },
+    {
+      "run": "custom70",
+      "game_mode": "custom",
+      "android_scale": 0.7,
+      "activity_buffers": [
+        "1120x630"
+      ],
+      "active_game_buffer": "1120x624",
+      "route": null,
+      "observation": "Game buffer size confirmed in the lobby. Optional notices interrupted route validation before timing."
+    },
+    {
+      "run": "custom70-final",
+      "game_mode": "custom",
+      "android_scale": 0.7,
+      "activity_buffers": [
+        "1120x630"
+      ],
+      "active_game_buffer": "1120x624",
+      "route": null,
+      "observation": "First Inventory opening reached a scaled layout that the original screenshot reference did not match. No complete route was counted."
+    },
+    {
+      "run": "custom70-replay",
+      "game_mode": "custom",
+      "android_scale": 0.7,
+      "activity_buffers": [
+        "1120x630"
+      ],
+      "active_game_buffer": "1120x624",
+      "route": {
+        "seconds": 48.0,
+        "presentations": 1203,
+        "hz": 25.0625,
+        "p50_ms": 33.4206,
+        "p95_ms": 50.4683,
+        "p99_ms": 154.2948,
+        "max_ms": 1634.1017,
+        "over_100_ms": 19,
+        "over_250_ms": 12,
+        "first_close_ms": 1634.1017,
+        "first_close_ready_gap_ms": 1634.2837
+      }
+    }
+  ]
+}
