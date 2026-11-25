@@ -1,6 +1,6 @@
 # Desempenho do RustEmuDroid, Kemu e BlueStacks no Windows
 
-**Relatório de 25 de novembro de 2026.** O primeiro protótipo entregou **45,86 FPS** no replay Black Forest do SuperTuxKart. Ainda na v0.1.0, o RustEmuDroid passou a **59,98 FPS** no perfil Original, próximo dos **59,90** do Kemu. Mais tarde, com o jogo em qualidade Alta e a tela Android a 90 Hz, a interface Rust chegou a **90,02 FPS** usando o motor e a imagem Android 16 do Kemu. Na rodada atual, com a v0.21.1 e Android 17 Google Play, medimos **85,62 FPS** contra **90,02 no Kemu** e **89,99 no BlueStacks**. [English](performance-history.md) · [PDF em português](../output/pdf/comparativo-de-desempenho-2026-11-25.pdf)
+**Relatório de 25 de novembro de 2026.** O primeiro protótipo entregou **45,86 FPS** no replay Black Forest do SuperTuxKart. Ainda na v0.1.0, o RustEmuDroid passou a **59,98 FPS** no perfil Original, próximo dos **59,90** do Kemu. Mais tarde, com o jogo em qualidade Alta e a tela Android a 90 Hz, a interface Rust chegou a **90,02 FPS** usando o motor e a imagem Android 16 do Kemu. Com o perfil próprio Android 17 Google Play, a v0.21.1 marcou **85,62 FPS**, ao lado de **90,02 no Kemu** e **89,99 no BlueStacks**. [PDF em português](../output/pdf/comparativo-de-desempenho-2026-11-25.pdf) · [English](performance-history.md)
 
 Na mesma **janela Rust da v0.21.1**, uma compilação experimental do motor Android com o relógio virtual corrigido elevou o jogo de **85,65 para 87,46 FPS (+2,11%)** em quatro corridas. A proporção dos intervalos de apresentação do Android acima de 16,667 ms caiu de **5,08% para 3,18%**. A versão publicada ainda usa a configuração habitual do motor. [Resultados por corrida e tempos de quadro](../benchmarks/stk-1.5/windows-whpx-clock-kart.md)
 
@@ -32,7 +32,7 @@ No perfil Original a 60, a mudança de configuração do protótipo para o paine
 
 O perfil gráfico também explica como foi possível ver **perto de 30 FPS** no kart. Em Alta, o Android 17 do Rust marcou **14,00** com o tradutor OpenGL ES padrão, **25,36** com ANGLE e **56,15** com Vulkan direto naquele ensaio de 23/11. Nas versões v0.2.4 a v0.7.0, o mesmo replay em Alta com Vulkan já sustentava **59,94 a 60,03 FPS** com alvo de 60. Essas corridas preservam o contexto da observação de 24–30 FPS durante o jogo. [Experimento de renderização](../benchmarks/stk-1.5/README.md#home-do-android-e-imagem-google-play) · [Comparação entre versões](game-testing.md#supertuxkart-release-comparison)
 
-## Rodada atual a 90 Hz
+## Comparação dos três emuladores a 90 Hz com a v0.21.1
 
 | Player e Android | FPS do jogo | Apresentações do Android/s | P99 por corrida (ms) | Área do jogo na janela Windows |
 |---|---:|---:|---:|---:|

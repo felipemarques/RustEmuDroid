@@ -1,10 +1,10 @@
-# Current Windows comparison across three Android players
+# Windows 90 Hz comparison with RustEmuDroid v0.21.1, Kemu and BlueStacks
 
 Each player ran two newly measured SuperTuxKart 1.5 Black Forest High Vulkan replays at 1600 × 900 on the RTX 5070 Ti. The three used the same signed x86-64 QA APK, four guest vCPUs, all 21 graphics fields, Vulkan FIFO and a verified 90 Hz Android display. The QA fixture uses a separate package and save directory. The 90 FPS game preference is recorded in the XML, and the STK benchmark skips its software frame limiter.
 
 RustEmuDroid used Android 17 Google Play through Android Emulator 37.3.10. Original Qt Kemu used its Android 16 image, and the official BlueStacks player used Android 9 Pie64.
 
-| Player (current build) | Game frames / time | Game FPS | Android SurfaceView/s | Surface p99 |
+| Player and tested version | Game frames / time | Game FPS | Android SurfaceView/s | Surface p99 |
 | --- | ---: | ---: | ---: | ---: |
 | RustEmuDroid 0.21.1 / 1 | 3,265 / 38.075 s | 85.75 | 85.42 | 23.51 ms |
 | RustEmuDroid 0.21.1 / 2 | 3,254 / 38.062 s | 85.49 | 85.06 | 23.24 ms |

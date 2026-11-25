@@ -1,6 +1,6 @@
 # RustEmuDroid, Kemu and BlueStacks performance on Windows
 
-**November 25, 2026.** The first RustEmuDroid prototype delivered **45.86 FPS** in SuperTuxKart's Black Forest replay. By the end of the initial v0.1.0 integration, it reached **59.98 FPS** on the Original preset, alongside Kemu at **59.90**. At High quality and 90 Hz, the Rust frontend later reached **90.02 FPS** with Kemu's Android 16 image and engine. In the new v0.21.1 comparison the Android 17 Google Play profile delivered **85.62 FPS**, alongside **90.02 for Kemu** and **89.99 for BlueStacks**. [Português brasileiro](performance-history.pt-BR.md) · [Portuguese PDF](../output/pdf/comparativo-de-desempenho-2026-11-25.pdf)
+**November 25, 2026.** The first RustEmuDroid prototype delivered **45.86 FPS** in SuperTuxKart's Black Forest replay. By the end of the initial v0.1.0 integration, it reached **59.98 FPS** on the Original preset, alongside Kemu at **59.90**. At High quality and 90 Hz, the Rust frontend later reached **90.02 FPS** with Kemu's Android 16 image and engine. With its own Android 17 Google Play profile, Rust v0.21.1 measured **85.62 FPS** alongside **90.02 for Kemu** and **89.99 for BlueStacks**. [English PDF summary](../output/pdf/windows-performance-2026-11-25.pdf) · [Português brasileiro](performance-history.pt-BR.md)
 
 With the same **v0.21.1 Rust window** and a separately rebuilt Android engine, a Windows virtual clock fix improved the game from **85.65 to 87.46 FPS (+2.11%)** in four cold-boot replays. Android presentation gaps over 16.667 ms fell from **5.08% to 3.18%**. The release still ships with its regular runtime setup. [Per-lap results and frame traces](../benchmarks/stk-1.5/windows-whpx-clock-kart.md)
 
@@ -32,7 +32,7 @@ With a 60 FPS target on Original, the integrated prototype delivered **14.12 mor
 
 On Nov 23 the Rust Android 17 profile on High scored **14.00 FPS** with the default OpenGL ES translator, **25.36** with ANGLE and **56.15** with direct Vulkan. Measurements around 25–29 FPS in those early High configurations give context to the user's 24–30 FPS observation. By v0.2.4 through v0.7.0, the High/Vulkan replay delivered **59.94–60.03 FPS** at the 60 target. [Renderer comparison](../benchmarks/stk-1.5/README.md#home-do-android-e-imagem-google-play) · [Release comparison](game-testing.md#supertuxkart-release-comparison)
 
-## Current 90 Hz replay
+## Three-player 90 Hz baseline with v0.21.1
 
 | Player and Android | Game FPS | Android presentations/s | P99 per run (ms) | Game area in the Windows window |
 |---|---:|---:|---:|---:|
