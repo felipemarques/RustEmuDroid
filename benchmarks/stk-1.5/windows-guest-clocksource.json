@@ -128,5 +128,165 @@
       "raw_serial_sha256": "9a8de9c650a2007276f01aaf563630919bd9fcb0de61720c3431e049e24f7a82"
     }
   },
-  "pit_override_test": "skipped_stock_sdk_selected_hpet"
+  "pit_override_test": "skipped_stock_sdk_selected_hpet",
+  "sdk_37_4_2": {
+    "date": "2026-11-25",
+    "profile": "same Android 17 Google Play API 37.0 x86-64 revision 7 AVD",
+    "image_fingerprint": "google/sdk_gphone64_x86_64/emu64xa:17/CE2A.260420.051.A2/16418371:user/release-keys",
+    "engine": "Android emulator version 37.4.2.0 (build_id 16982698) (CL:N/A)",
+    "qemu_sha256": "bd1f54de26d35b25195530ea7ae7249d4919b2f925c564e5d4df4408dd04166c",
+    "catalog": "https://dl.google.com/android/repository/repository2-3.xml",
+    "catalog_channel": "channel-2",
+    "archive": "https://dl.google.com/android/repository/emulator-windows_x64-16982698.zip",
+    "catalog_archive_sha1": "7c3653178d1c61e073b2c245ece357eda7dd4a03",
+    "downloaded_archive_sha256": "bbcf2c400eef89950b947069cc006e421b1e9188c2a9f72e798ed9cba000f9e8",
+    "renderer": "Selecting Vulkan device: NVIDIA GeForce RTX 5070 Ti, Version: 1.4.341",
+    "diagnostic_console_sha256": "fdc625fc912b4052602d798068081596fc717bae5dfc4e65c96fc92dcec152a9",
+    "clocksource_argument": [
+      "pit"
+    ],
+    "observed_tsc_warp_cycles": 8427190359,
+    "tsc_status": [
+      "[    0.899298] tsc: Marking TSC unstable due to check_tsc_sync_source failed"
+    ],
+    "last_clock": "hpet",
+    "switch_at_boot_seconds": 1.52853,
+    "clock_cost_probe_sha256": "c1334fdf3c9c1eec19a903f993b9e8970b0ace819d8478af49df954f54b9e5e8",
+    "clock_cost_median_thread_cpu_ns_per_call": {
+      "libc_gettimeofday": 9240.049375,
+      "syscall_gettimeofday": 9792.589475,
+      "libc_clock_monotonic": 10079.8392
+    },
+    "clock_cost_batches": [
+      {
+        "batch": 1,
+        "method": "libc_gettimeofday",
+        "calls": 20000,
+        "elapsed_ns": 254314000,
+        "thread_cpu_ns": 207408209
+      },
+      {
+        "batch": 1,
+        "method": "syscall_gettimeofday",
+        "calls": 20000,
+        "elapsed_ns": 260395100,
+        "thread_cpu_ns": 216553891
+      },
+      {
+        "batch": 1,
+        "method": "libc_clock_monotonic",
+        "calls": 20000,
+        "elapsed_ns": 223710900,
+        "thread_cpu_ns": 201353024
+      },
+      {
+        "batch": 2,
+        "method": "syscall_gettimeofday",
+        "calls": 20000,
+        "elapsed_ns": 253614200,
+        "thread_cpu_ns": 203416417
+      },
+      {
+        "batch": 2,
+        "method": "libc_clock_monotonic",
+        "calls": 20000,
+        "elapsed_ns": 236783700,
+        "thread_cpu_ns": 201840544
+      },
+      {
+        "batch": 2,
+        "method": "libc_gettimeofday",
+        "calls": 20000,
+        "elapsed_ns": 207284400,
+        "thread_cpu_ns": 177201643
+      },
+      {
+        "batch": 3,
+        "method": "libc_clock_monotonic",
+        "calls": 20000,
+        "elapsed_ns": 255617800,
+        "thread_cpu_ns": 209631424
+      },
+      {
+        "batch": 3,
+        "method": "libc_gettimeofday",
+        "calls": 20000,
+        "elapsed_ns": 291058300,
+        "thread_cpu_ns": 185790891
+      },
+      {
+        "batch": 3,
+        "method": "syscall_gettimeofday",
+        "calls": 20000,
+        "elapsed_ns": 218468900,
+        "thread_cpu_ns": 186946372
+      },
+      {
+        "batch": 4,
+        "method": "libc_gettimeofday",
+        "calls": 20000,
+        "elapsed_ns": 211967200,
+        "thread_cpu_ns": 183811084
+      },
+      {
+        "batch": 4,
+        "method": "syscall_gettimeofday",
+        "calls": 20000,
+        "elapsed_ns": 266448500,
+        "thread_cpu_ns": 190595761
+      },
+      {
+        "batch": 4,
+        "method": "libc_clock_monotonic",
+        "calls": 20000,
+        "elapsed_ns": 232951700,
+        "thread_cpu_ns": 194534630
+      },
+      {
+        "batch": 5,
+        "method": "syscall_gettimeofday",
+        "calls": 20000,
+        "elapsed_ns": 214726900,
+        "thread_cpu_ns": 194813112
+      },
+      {
+        "batch": 5,
+        "method": "libc_clock_monotonic",
+        "calls": 20000,
+        "elapsed_ns": 205202500,
+        "thread_cpu_ns": 177623318
+      },
+      {
+        "batch": 5,
+        "method": "libc_gettimeofday",
+        "calls": 20000,
+        "elapsed_ns": 223455100,
+        "thread_cpu_ns": 177739356
+      },
+      {
+        "batch": 6,
+        "method": "libc_clock_monotonic",
+        "calls": 20000,
+        "elapsed_ns": 288631200,
+        "thread_cpu_ns": 212235358
+      },
+      {
+        "batch": 6,
+        "method": "libc_gettimeofday",
+        "calls": 20000,
+        "elapsed_ns": 347357600,
+        "thread_cpu_ns": 185869403
+      },
+      {
+        "batch": 6,
+        "method": "syscall_gettimeofday",
+        "calls": 20000,
+        "elapsed_ns": 280752100,
+        "thread_cpu_ns": 196890467
+      }
+    ],
+    "clock_cost_csv_sha256": "234bae004854b6539c02673ccbcec6247534f03d595384ae7392b6b665d240ed",
+    "game_timed": false,
+    "single_habitual_home_restored": true
+  }
 }
