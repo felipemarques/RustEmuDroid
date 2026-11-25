@@ -67,36 +67,44 @@ A signed, optimized x86-64 QA APK was built from the pinned source. Offline chec
 
 ## Windows results at 90 Hz
 
-RustEmuDroid 0.18.1 ran the standalone x86-64 QA APK in an Android 17 Google Play AVD. BlueStacks 5.22.166.1003 ran the exact same APK as x86-64 on a separate Pie64 lab instance with Android 9. Both used a GeForce RTX 5070 Ti. The four Black Forest replays used High/Vulkan, 1600×900 at render scale 1, the 90 FPS game preference and game VSync. Android reported an active 90 Hz mode during each replay. STK reported Vulkan 1.3 and FIFO (`VkPresentModeKHR=2`) on both engines. RustEmuDroid reported Goldfish GFXStream driver `26.0.65.35`, while BlueStacks reported NVIDIA driver `610.88.0.0`. The 21 exported graphics fields matched across the four runs and matched the earlier stock x86-64 runs A1 and A2 at 90 Hz. The guest Android versions, display density and graphics implementations differ.
+RustEmuDroid 0.18.1 on Android 17 Google Play, Kemu 0.7.1 on Android 16, and BlueStacks 5.22.166.1003 Pie64 on Android 9 ran the same signed x86-64 QA APK on an RTX 5070 Ti. Each player completed two measured Black Forest replays in a separate batch with High/Vulkan, 1600 × 900, 100% render scale, the 90 FPS game preference and game VSync. All six runs matched the 21 reported graphics fields, verified active 90 Hz in Android and logged Vulkan 1.3 and FIFO (VkPresentModeKHR=2). The desktop frontend, Android build, display density and graphics implementation differ.
+
+The original Kemu launcher and Qt frontend ran from a verified copy of the v0.7.1 distribution with a fresh AVD. The standard boot stopped before Android completed startup. The successful retry used user-mode WHPX APIC and the Kemu XSAVE compatibility switch together. The 90 Hz setting selected the physical guest mode, and Android initially rendered at 45 Hz. The same minimum-refresh and default-game policy settings used in the Rust reference brought Kemu's Android render and SurfaceFlinger timing to 90 Hz. The test restored those settings and removed the QA APK.
+
+STK reported Goldfish GFXStream driver 26.0.65.35 on RustEmuDroid, the virtual Adreno (TM) 830 driver 512.849.1 on Kemu, and NVIDIA driver 610.88.0.0 on Pie64. Kemu's host gfxstream log selected the RTX 5070 Ti with NVIDIA driver 610.88. NVIDIA's WDDM process listing confirmed that QEMU used that GPU during warm-up.
 
 | Engine and replay | STK frames | STK duration | STK FPS | Android SurfaceView presentations | SurfaceView rate | SurfaceView P99 interval |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | RustEmuDroid 1 | 3,159 | 38.157 s | 82.790 | 1,626 in 20.024 s | 81.204/s | 23.850 ms |
 | RustEmuDroid 2 | 3,157 | 38.073 s | 82.920 | 1,647 in 20.022 s | 82.258/s | 23.483 ms |
+| Kemu 1 | 3,432 | 38.126 s | 90.017 | 1,803 in 20.018 s | 90.069/s | 12.810 ms |
+| Kemu 2 | 3,433 | 38.137 s | 90.018 | 1,803 in 20.019 s | 90.064/s | 12.749 ms |
 | BlueStacks 1 | 3,432 | 38.127 s | 90.015 | 1,801 in 20.018 s | 89.967/s | 11.111 ms |
 | BlueStacks 2 | 3,430 | 38.125 s | 89.967 | 1,801 in 20.026 s | 89.931/s | 11.111 ms |
 
-STK FPS divides its frame count by the full replay duration. The Android rate uses a separate, approximately 20-second window of presentation timestamps for the foreground QA game's SurfaceView. That rate describes Android's compositor and does not measure frames shown by the Windows launcher or physical monitor.
+Pooling frames and durations gives **82.85 game FPS and 81.73 Android presentations/s** for RustEmuDroid, **90.02 and 90.07/s** for Kemu, and **89.99 and 89.95/s** for BlueStacks. STK FPS covers the full replay. The Android rate covers a separate window of about 20 seconds on the foreground game's SurfaceView. Differences of a few hundredths around 90/s in these finite windows do not establish a rate above 90 Hz. Android presentations, Windows panel throughput and physical scanout measure different stages.
 
-The table pools both passes per engine. Each mean divides total scope duration by all positive `Main loop` samples, including frames where a child scope recorded zero duration.
+The table pools both passes per player. Each mean divides total scope duration by all positive `Main loop` samples, including frames where a child scope recorded zero duration.
 
-| CPU-thread elapsed time per frame | RustEmuDroid | BlueStacks |
-| --- | ---: | ---: |
-| `Main loop` | 12.069 ms | 11.112 ms |
-| `IrrDriver update` | 10.636 ms | 10.644 ms |
-| `drawAll()` | 7.083 ms | 2.178 ms |
-| `VK endScene` | 3.171 ms | 8.301 ms |
-| `acquire` | 1.881 ms | 7.506 ms |
-| `record` | 0.403 ms | 0.144 ms |
-| `submit` | 0.082 ms | 0.074 ms |
-| `present` | 0.361 ms | 0.452 ms |
-| `Main loop` minus `IrrDriver update` | 1.433 ms | 0.469 ms |
+| CPU-thread elapsed time per frame | RustEmuDroid | Kemu | BlueStacks |
+| --- | ---: | ---: | ---: |
+| `Main loop` | 12.069 ms | 11.109 ms | 11.112 ms |
+| `IrrDriver update` | 10.636 ms | 10.523 ms | 10.644 ms |
+| `drawAll()` | 7.083 ms | 3.044 ms | 2.178 ms |
+| `VK endScene` | 3.171 ms | 7.298 ms | 8.301 ms |
+| `acquire` | 1.881 ms | 6.736 ms | 7.506 ms |
+| `record` | 0.403 ms | 0.279 ms | 0.144 ms |
+| `submit` | 0.082 ms | 0.066 ms | 0.074 ms |
+| `present` | 0.361 ms | 0.077 ms | 0.452 ms |
+| `Main loop` minus `IrrDriver update` | 1.433 ms | 0.586 ms | 0.469 ms |
 
-BlueStacks spent more elapsed time in `vkAcquireNextImageKHR` and less in `drawAll()`. Total `IrrDriver update` differed by only 0.007 ms per frame, while the rest of `Main loop` averaged 0.964 ms more on RustEmuDroid. The acquire interval includes waiting for a swapchain image and cannot establish GPU execution time or a GPU bottleneck. The tests ran as two samples per engine in separate batches.
+Kemu and BlueStacks spent 6.74–7.51 ms in `vkAcquireNextImageKHR` and 2.18–3.04 ms in `drawAll()`. RustEmuDroid spent 1.88 ms and 7.08 ms in those scopes, respectively. Full graphics-update times were within 0.13 ms across the three players. The main loop outside the graphics update averaged 1.43 ms on RustEmuDroid, 0.59 ms on Kemu and 0.47 ms on BlueStacks. The acquire scope includes waiting for a swapchain image. These CPU-thread intervals and separate replay batches leave GPU execution time and the cause of the FPS gap unresolved.
 
-The APK has SHA-256 `dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e`. The data include game-report digests, all reported graphics fields and all phase summaries. [RustEmuDroid data](windows-vulkan-90hz-scoped-native.json) · [BlueStacks Pie64 data](windows-vulkan-90hz-scoped-pie64.json)
+The APK has SHA-256 `dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e`. The data include game-report digests, all reported graphics fields and phase summaries. [RustEmuDroid data](windows-vulkan-90hz-scoped-native.json) · [Kemu data](windows-vulkan-90hz-scoped-kemu.json) · [BlueStacks Pie64 data](windows-vulkan-90hz-scoped-pie64.json)
 
-To regenerate the aggregate from private QA evidence, place the operator's receipt (`apk-receipt.json` for RustEmuDroid or `receipt.json` for BlueStacks) and `results.json` beside the two `lap-N` directories. Each lap needs its game report, CPU profile, renderer log and active-display receipt. Include the optional `presentations.json` only for a valid SurfaceView capture. The exporter verifies the APK scope, ABI reported by the runner, replay duration, effective 90 Hz, Vulkan evidence and matching graphics fields. It omits timestamps, process IDs, layers and local paths.
+The Kemu export includes relative SurfaceView timestamps. Divide the number of retained presentations by the recorded polling duration for the rate. Sort consecutive timestamp differences and take the entry at floor(0.99 × (N − 1)) in the zero-indexed list of N gaps for P99.
+
+To regenerate the RustEmuDroid and Pie64 aggregates from private QA evidence, place the operator's receipt (`apk-receipt.json` for RustEmuDroid or `receipt.json` for BlueStacks) and `results.json` beside the two `lap-N` directories. Each lap needs its game report, CPU profile, renderer log and active-display receipt. Include the optional `presentations.json` only for a valid SurfaceView capture. The exporter verifies the APK scope, ABI reported by the runner, replay duration, effective 90 Hz, Vulkan evidence and matching graphics fields. It omits timestamps, process IDs, layers and local paths.
 
 ```sh
 python benchmarks/stk-1.5/export-vulkan-end-scene.py /path/to/qa-run \
@@ -144,3 +152,30 @@ A private Windows client based on v0.18.1 could cancel and resume the `streamScr
 | A2 | On | 83.52 | 81.88 | 23.31 ms | 75.39 |
 
 Across both runs in each state, pausing the video stream raised game throughput from **83.86 to 84.75 FPS** and Android presentations from **82.20 to 83.27/s**. Windows CPU time fell from **514 to 24 ms per second** for the Rust launcher and from **2,675 to 1,941 ms per second** for QEMU. The counters sum all threads for each process. No new video frames reached the panel in either paused run. In this scene, removing video delivery saved about 1.22 CPU seconds per elapsed second across both processes, while the Android game surface remained below 90 presentations/s. Frame delivery to the panel resumed for the final replay. [Per-replay measurements, hashes and controls](windows-90hz-stream-subscription.json)
+
+### Matching the screenshot stream to the Windows panel
+
+A separate private v0.18.1 candidate switched the inline `streamScreenshot` request between the full 1600 × 900 image and a resolution sized to the panel. The four measured Black Forest replays followed a full, scaled, scaled, full sequence after one excluded full-size warm-up. The same Android 17 Google Play AVD stayed up throughout on the RTX 5070 Ti. The signed, instrumented x86-64 APK, High preset, all 21 reported graphics fields, Vulkan FIFO, 1600 × 900 Android display and 90 Hz active refresh matched across the runs. The request changed the delivered screenshot dimensions. The game and Android kept their original render and display settings.
+
+The non-maximized window had a 1080 × 680 physical client area at 96 DPI. The game filled a fixed 1034 × 582 pixel rectangle inside it. The candidate rounded the request up to the smallest 16:9 size that covered that rectangle, capped at the native size. The scaled request and actual RGBA response were both 1040 × 585, six pixels wider and three pixels taller than the fitted rectangle. The full response contained 5,760,000 image bytes per frame and the scaled response contained 2,433,600.
+
+| Replay | Screenshot size | STK FPS | Android presentations/s | Android P99 interval | Received frames/s | Panel frames/s | Received RGBA MiB/s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A1 | 1600 × 900 | 82.990 | 80.607 | 23.822 ms | 79.690 | 74.283 | 437.753 |
+| B1 | 1040 × 585 | 84.807 | 83.268 | 24.098 ms | 83.094 | 80.422 | 192.849 |
+| B2 | 1040 × 585 | 83.966 | 82.162 | 23.630 ms | 81.833 | 79.270 | 189.924 |
+| A2 | 1600 × 900 | 82.948 | 80.460 | 23.704 ms | 79.764 | 73.754 | 438.156 |
+
+| Pooled metric | Full | Scaled |
+| --- | ---: | ---: |
+| STK FPS | 82.969 | 84.386 |
+| Android presentations/s | 80.534 | 82.715 |
+| Received frames/s | 79.727 | 82.464 |
+| Panel frames/s | 74.018 | 79.846 |
+| Received RGBA MiB/s | 437.955 | 191.388 |
+| QEMU CPU ms/s | 2,664.94 | 2,319.10 |
+| Rust launcher CPU ms/s | 493.38 | 337.93 |
+
+The panel processed 5.83 more frames/s while the stream carried 56.3% fewer image bytes per second. QEMU CPU time fell 13.0% and launcher CPU time fell 31.5%. Android presentations rose by 2.18/s and remained below 90/s, with similar P99 intervals. Counts are weighted by their own observation durations. STK covers the full replay. SurfaceFlinger and GetProcessTimes share an approximately 20-second window, and the stream and panel counters cover their own complete intervals inside that window. Received bytes are decoded RGBA payload, excluding gRPC framing and metadata. Panel frames count frames accepted by the launcher, and Windows scan-out and image quality were outside this test. These four passes cover one window size at one DPI and do not establish the result for larger windows or other workloads. The candidate was private and the packaged v0.19.0 Home was restored after the experiment. [Per-replay measurements, geometry and hashes](windows-90hz-stream-resolution.json)
+
+The panel-sized transport experiment covers the Rust launcher. The original Kemu and Pie64 replays used their native frontends. [Three-player replay comparison](#windows-results-at-90-hz)
