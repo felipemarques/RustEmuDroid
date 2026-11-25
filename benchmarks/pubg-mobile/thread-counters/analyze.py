@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 STAT = re.compile(r"^(\d+) \((.*)\) (.*)$")
+MEMORY_FIELDS = ("VmRSS", "RssAnon", "RssFile", "RssShmem", "VmSwap")
 
 
 def load(path):
@@ -28,6 +29,14 @@ def load(path):
             current["tasks"][role] = tuple(
                 int(fields[i - 3]) for i in (22, 10, 12, 14, 15)
             )
+        elif line.startswith("M "):
+            _, field, value, unit = line.split()
+            if current is None or field not in MEMORY_FIELDS or unit != "kB" or not value.isdecimal():
+                raise ValueError("Invalid process memory row")
+            memory = current.setdefault("memory_kib", {})
+            if field in memory:
+                raise ValueError("Duplicate process memory row")
+            memory[field] = int(value)
         elif line.startswith("E "):
             _, i, end = line.split()
             if int(i) != len(snapshots) or current is None:
@@ -35,6 +44,10 @@ def load(path):
             current["end"] = float(end)
             if current["end"] < current["start"] or "process" not in current["tasks"]:
                 raise ValueError("Unreadable process or bad bounds")
+            if "memory_kib" in current and set(current["memory_kib"]) != set(MEMORY_FIELDS):
+                raise ValueError("Incomplete process memory counters")
+            if snapshots and ("memory_kib" in current) != ("memory_kib" in snapshots[0]):
+                raise ValueError("Process memory coverage changed during sampling")
             snapshots.append(current)
             current = None
     if current is not None or len(snapshots) < 2:
@@ -67,15 +80,23 @@ def summarize(pairs, samples):
                     delta,
                 )
             )
-        result.append(
-            dict(
-                window=label,
-                window_s=[start, end],
-                covered_s=[a["start"], b["end"]],
-                samples=len(inside),
-                stats=stats,
-            )
+        row = dict(
+            window=label,
+            window_s=[start, end],
+            covered_s=[a["start"], b["end"]],
+            samples=len(inside),
+            stats=stats,
         )
+        if "memory_kib" in a and "process" in stats:
+            row["process_memory_kib"] = {
+                field: {
+                    "first": a["memory_kib"][field],
+                    "last": b["memory_kib"][field],
+                    "peak": max(s["memory_kib"][field] for s in inside),
+                }
+                for field in MEMORY_FIELDS
+            }
+        result.append(row)
     return result
 
 

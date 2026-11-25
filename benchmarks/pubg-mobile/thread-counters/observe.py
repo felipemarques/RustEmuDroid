@@ -58,18 +58,25 @@ def collect(args):
         try:
             text("push", str(args.bin), remote)
             text("shell", "chmod", "700", remote)
-            delay = [] if args.interval_ms is None else [str(args.interval_ms)]
+            options = []
+            if args.interval_ms is not None or args.memory:
+                options.append(str(interval_ms))
+            if args.memory:
+                options.append("--memory")
             timeout = args.samples * (interval_ms / 1000 + 0.025) + 15
             subprocess.run(
-                [*prefix, "exec-out", remote, pids[0], str(args.samples), *delay],
+                [*prefix, "exec-out", remote, pids[0], str(args.samples), *options],
                 stdout=dest,
                 timeout=timeout,
                 check=True,
             )
         finally:
             text("shell", "rm", "-f", remote)
-    if len(load(args.out)) != args.samples:
+    samples = load(args.out)
+    if len(samples) != args.samples:
         raise RuntimeError("The observer did not return every requested sample")
+    if args.memory and not all("memory_kib" in sample for sample in samples):
+        raise RuntimeError("Requested process memory counters were missing")
     print(
         f"observed {pids[0]} host monotonic {begin}..{time.monotonic_ns()}", flush=True
     )
@@ -86,6 +93,7 @@ if __name__ == "__main__":
     p.add_argument("--expected-pid", type=int)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--samples", type=int, default=270, metavar="2..3600")
+    p.add_argument("--memory", action="store_true", help="also sample process RSS classes and swap")
     p.add_argument(
         "--interval-ms",
         type=int,

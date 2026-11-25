@@ -109,6 +109,8 @@ def counters(interval, samples, labels, origin, ticks):
         coverage_fraction=covered_ns / (end - start),
         counters=dict(sorted(totals.items())),
     )
+    if "process_memory_kib" in sampled:
+        report["process_memory_kib"] = sampled["process_memory_kib"]
     return report
 
 

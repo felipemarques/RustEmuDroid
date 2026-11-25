@@ -13,6 +13,8 @@ DIRECTORY = f"/sdcard/Android/data/{PACKAGE}/files/supertuxkart/home/supertuxkar
 REPORT = f"{DIRECTORY}/stdout.log.perf-report-black_forest.csv"
 TIMINGS = f"{DIRECTORY}/stdout.log.profile-black_forest-cpu-0.csv"
 CONFIG = f"{DIRECTORY}/config.xml"
+QA_PACKAGE = "org.rustemudroid.qa.stkvulkan"
+QA_DIRECTORY = f"/sdcard/Android/data/{QA_PACKAGE}/files/stk-vulkan-qa/home/supertuxkart/config-0.10"
 
 VIDEO = dict(width="1600", height="900", real_width="1600", real_height="900",
              fullscreen="true", render_driver="opengl", max_fps="60", scale_rtts_factor="1.000000",
@@ -36,17 +38,25 @@ def replay(args, name, serial, preset, dest, *, fps_limit=None):
             raise RuntimeError(f"Expected BlueStacks on {serial}")
     elif run(args, serial, "emu", "avd", "name").splitlines()[0].decode().strip().lower() != name.lower():
         raise RuntimeError(f"Unexpected AVD on {serial}")
-    package = run(args, serial, "shell", "dumpsys", "package", PACKAGE).decode().splitlines()
-    props = dict(line.strip().split("=", 1) for line in package
+    if getattr(args, "standalone_vulkan_qa", False):
+        package, directory = QA_PACKAGE, QA_DIRECTORY
+        report = f"{directory}/stdout.log.perf-report-black_forest.csv"
+        timings_path = f"{directory}/stdout.log.profile-black_forest-cpu-0.csv"
+        config_path = f"{directory}/config.xml"
+    else:
+        package, directory = PACKAGE, DIRECTORY
+        report, timings_path, config_path = REPORT, TIMINGS, CONFIG
+    package_info = run(args, serial, "shell", "dumpsys", "package", package).decode().splitlines()
+    props = dict(line.strip().split("=", 1) for line in package_info
                  if line.strip().startswith(("versionName=", "primaryCpuAbi=")))
     abi = props.get("primaryCpuAbi")
     valid_abis = ("armeabi-v7a", "arm64-v8a", "x86", "x86_64") if name == "BlueStacks" else ("x86_64",)
     if props.get("versionName") != "1.5" or abi not in valid_abis:
         raise ValueError(f"Unexpected game version or ABI on {name}: {props.get('versionName')}, {abi}")
     dest.mkdir(parents=True)
-    run(args, serial, "shell", "am", "force-stop", PACKAGE)
+    run(args, serial, "shell", "am", "force-stop", package)
     original = dest / "original.xml"  # Private recovery copy, removed after restoration.
-    run(args, serial, "pull", CONFIG, str(original))
+    run(args, serial, "pull", config_path, str(original))
     tree = ET.parse(original)
     video, gfx = tree.find("Video"), tree.find("GFX")
     video.attrib.update(VIDEO)
@@ -63,24 +73,24 @@ def replay(args, name, serial, preset, dest, *, fps_limit=None):
     config = dest / "benchmark.xml"
     tree.write(config, encoding="utf-8", xml_declaration=True)
     try:
-        run(args, serial, "push", str(config), CONFIG)
+        run(args, serial, "push", str(config), config_path)
         def stamp(path):
             return run(args, serial, "shell", "stat", "-c", "%s:%Y", path, check=False).strip()
 
-        before = stamp(REPORT)
-        before_timings = stamp(TIMINGS)
+        before = stamp(report)
+        before_timings = stamp(timings_path)
         last_read = "waiting for fresh profiler files"
         start = time.time()
-        activity = f"{PACKAGE}/.SuperTuxKartActivity"
+        activity = f"{package}/.SuperTuxKartActivity"
         run(args, serial, "shell", "am", "start", "-a", "android.intent.action.MAIN", "-c",
             "android.intent.category.LAUNCHER", "-n", activity)
         deadline = time.monotonic() + 150
         while time.monotonic() < deadline:
             time.sleep(2)
-            summary = stamp(REPORT)
-            timing_stamp = stamp(TIMINGS)
+            summary = stamp(report)
+            timing_stamp = stamp(timings_path)
             if summary and summary != before and timing_stamp and timing_stamp != before_timings:
-                data = run(args, serial, "exec-out", "cat", REPORT)
+                data = run(args, serial, "exec-out", "cat", report)
                 rows = list(csv.reader(io.StringIO(data.decode())))
                 if len(rows) < 65:
                     continue
@@ -88,14 +98,14 @@ def replay(args, name, serial, preset, dest, *, fps_limit=None):
                 settings = [cell.strip() for cell in rows[7][1:] if cell.strip()]
                 if settings[:3] != ["1600", "900", "1"]:
                     raise ValueError(f"Wrong resolution or scale on {name}: {settings[:3]}")
-                log = run(args, serial, "exec-out", "cat", DIRECTORY + "/stdout.log").decode(errors="replace")
+                log = run(args, serial, "exec-out", "cat", directory + "/stdout.log").decode(errors="replace")
                 driver = [line for line in log.splitlines() if any(x in line.lower() for x in
                           ("renderer:", "vendor:", "opengl version", "vulkan version", "vulkan driver",
                            "stk qa vulkan vkpresentmodekhr"))]
                 if preset in ("vulkan", "high-vulkan") and not any("Vulkan" in line for line in driver):
                     raise ValueError(f"The game did not confirm its Vulkan renderer on {name}")
                 (dest / "renderer.txt").write_text("\n".join(driver) + "\n", encoding="utf-8")
-                timings = run(args, serial, "exec-out", "cat", TIMINGS)
+                timings = run(args, serial, "exec-out", "cat", timings_path)
                 if not timings.startswith(b"#") or abs(len(timings.splitlines()) - 1 - frames) > 2:
                     # The game may still be flushing per-frame records after writing the summary.
                     last_read = f"{len(timings.splitlines()) - 1} timing rows for {frames} frames"
@@ -108,10 +118,10 @@ def replay(args, name, serial, preset, dest, *, fps_limit=None):
                             configured_max_fps=int(video.get("max_fps")))
         raise TimeoutError(f"No new complete performance report on {name}: {last_read}")
     finally:
-        run(args, serial, "shell", "am", "force-stop", PACKAGE)
-        run(args, serial, "push", str(original), CONFIG)
-        if run(args, serial, "exec-out", "cat", CONFIG) != original.read_bytes():
-            raise RuntimeError(f"Restore {original} to {serial}:{CONFIG}")
+        run(args, serial, "shell", "am", "force-stop", package)
+        run(args, serial, "push", str(original), config_path)
+        if run(args, serial, "exec-out", "cat", config_path) != original.read_bytes():
+            raise RuntimeError(f"Restore {original} to {serial}:{config_path}")
         original.unlink()
         config.unlink()
 
@@ -127,6 +137,8 @@ def main():
                    help="Write max_fps to the game's XML (default: 60). Benchmark mode skips the game-loop limiter.")
     p.add_argument("--presets", nargs="+", choices=["original", "high", "vulkan", "high-vulkan"], default=["original", "high"])
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--standalone-vulkan-qa", action="store_true",
+                   help="Use the separate STK Vulkan QA package and its own configuration")
     args = p.parse_args()
     engines = [(name, serial) for name, serial in
                [("Kemu", args.kemu), ("RustEmuDroid", args.rust), ("BlueStacks", args.bluestacks)]

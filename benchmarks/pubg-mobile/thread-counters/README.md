@@ -15,7 +15,11 @@ python -B observe.py --adb <adb> --bin observe-stat --serial <serial> --port 503
 
 While the observer runs, poll `dumpsys SurfaceFlinger --latency <game-layer>` about every 440 ms on that same device. Keep the exact foreground SurfaceView, all three timestamp columns and the host monotonic times just before and after each poll. Record six stationary seconds first. Over the next 48 seconds, open Inventory at 0, 12, 24 and 36 seconds and close it at 7, 19, 31 and 43 seconds. Verify the screens and restore the original settings afterwards. Use a new game process for each measured route. [Frame collection and Android timestamp handling](../capture-presentations.py)
 
+Add `--memory` to record process memory in the same samples. The observer reads `VmRSS`, `RssAnon`, `RssFile`, `RssShmem` and `VmSwap` from the game's ordinary `/proc/<pid>/status`. Each window with at least two complete samples reports its first, last and peak values in KiB alongside the fault and CPU counters. Changes between polls or mappings responsible for individual faults require separate evidence. An older guest kernel may lack one of these fields. The optional collection reports an error if a field is unavailable.
+
 ## Analyze
+
+On RustEmuDroid v0.18.1, the optional memory mode collected all five fields in each of 315 samples of the same PUBG 4.7.0 process on Android 17. The median interval from the beginning to the end of an individual read was 0.64 ms and the 95th percentile was 1.90 ms. The third visit showed the backpack finish screen, so the run was excluded from the Inventory comparison. Earlier Android 17 and Pie64 traces collected without the option still produce their original counter reports.
 
 Each distinct presentation counts once. Where SurfaceFlinger reports multiple possible ready times for an endpoint, the exporter leaves that ready interval unmeasured and records all the candidates. It can still measure the presentation gap. [Pie64 measurements](../v0.18.0-pie64-thread-counters.json)
 
