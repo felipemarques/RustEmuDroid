@@ -276,6 +276,8 @@ Use o mesmo `--state-dir` em `init`, `boot` e `ui`. O padrão é `.rustemudroid/
 
 ## Desempenho e solução de problemas
 
+Os testes no Windows comparam as transições de menu e o campo de treino do PUBG, além do replay do SuperTuxKart, nas GPUs dedicada e integrada. Cada resultado identifica a cena, o contador de quadros e as opções gráficas. [Tabela comparativa de FPS](docs/game-testing.md#fps-comparisons-on-the-windows-test-pc)
+
 Para comparar o PUBG no seu PC, meça a mesma cena no RustEmuDroid e no BlueStacks. O coletor informa quantos quadros novos o Android apresentou por segundo e quanto durou a maior pausa entre eles. [Comandos e método de medição, em inglês](docs/game-testing.md#record-a-game-scene-on-your-own-pc)
 
 O [benchmark da Radeon 780M, em inglês](benchmarks/stk-1.5/radeon-780m/README.md), compara a GPU integrada no RustEmuDroid, Kemu e BlueStacks. O relatório inclui os dados de cada corrida e a confirmação da GPU física.

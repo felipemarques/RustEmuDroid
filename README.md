@@ -276,6 +276,8 @@ Use the same `--state-dir` for initialization, boot and UI. The default is `.rus
 
 ## Performance and troubleshooting
 
+The Windows benchmarks compare PUBG menu transitions and Training Grounds with the SuperTuxKart replay on the dedicated and integrated GPUs. Each result identifies the scene, frame counter and graphics settings. [FPS comparison table](docs/game-testing.md#fps-comparisons-on-the-windows-test-pc)
+
 To compare PUBG on your own PC, record the same scene in RustEmuDroid and BlueStacks. The collector reports how often Android presented a new game frame and how long the longest pause lasted. [Commands and measurement method](docs/game-testing.md#record-a-game-scene-on-your-own-pc)
 
 The [Radeon 780M benchmark](benchmarks/stk-1.5/radeon-780m/README.md) compares integrated graphics across RustEmuDroid, Kemu and BlueStacks. It includes per-run measurements and host GPU verification.

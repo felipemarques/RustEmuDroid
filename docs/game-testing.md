@@ -2,6 +2,17 @@
 
 The RustEmuDroid runs used Android Emulator 37.3.10 with the Android 17 Google Play x86-64 image, four guest vCPUs and 8 GiB of guest RAM. Unless a run specifies another setting, the guest display was 1600 × 900 and the active GPU was the GeForce RTX 5070 Ti.
 
+## FPS comparisons on the Windows test PC
+
+| Scene and setting | GPU | RustEmuDroid | BlueStacks Pie64 | Measurement |
+|---|---|---:|---:|---|
+| PUBG Lobby and Inventory, Balanced/High | RTX 5070 Ti | 25.20 FPS | 29.58 FPS | Android presentations. The first Inventory close paused for 1.60–1.68 s on v0.18.0 and 0.17 s on Pie64. [Retest and chart](#pubg-inventory-retest-with-rustemudroid-v0180) |
+| PUBG Training Grounds, Smooth/High, camera pans | RTX 5070 Ti | 29.29 FPS | 29.98 FPS | Android presentations. The slowest 1% averaged 14.63 and 20.00 FPS, respectively. [Training route](#pubg-training-grounds-on-the-rtx-5070-ti) |
+| PUBG Lobby and Inventory, Balanced/High | Integrated Radeon 780M | 25.11 FPS | 29.36 FPS | Android presentations. Two 48-second routes per player, with 27 and 4 pauses above 250 ms. [Integrated graphics results](#inventory-on-the-radeon-780m) |
+| SuperTuxKart Black Forest, High, 60 FPS limit | Integrated Radeon 780M | 59.71 FPS | 59.99 FPS | Game profiler. Android 17 used Vulkan (16× anisotropic filtering), Pie64 used OpenGL ES (8×). [SuperTuxKart results, including Kemu](../benchmarks/stk-1.5/radeon-780m/README.md) |
+
+In the same PUBG training scene, BlueStacks reached **59.89 FPS** when the game's Combat frame-rate option was set to Extreme. PUBG offered High as the highest option on the tested Android 17 installation, including with the display at 90 Hz. The table uses the shared High setting. [Frame-rate menu and raw timings](#pubg-training-grounds-on-the-rtx-5070-ti)
+
 ## SuperTuxKart release comparison
 
 SuperTuxKart 1.5 ran the Black Forest replay in the embedded Windows display. All five builds used the same Android 17 Google Play profile, native x86-64 game, direct Vulkan renderer and RTX 5070 Ti. The High preset ran at 1600 × 900, 100% render scale and a 60 FPS cap. All 21 game-reported graphics fields matched.
@@ -222,6 +233,25 @@ To quantify the visible drops, we divided the two Balanced routes into 96 consec
 We measured distinct presentations on PUBG's Android SurfaceView using column two of `dumpsys SurfaceFlinger --latency`. The 48-second window includes the menu transitions. BlueStacks' presentation times fell on multiples of a 16.67 ms display refresh. Its frame-ready timestamps advanced independently. The game accounts and languages differed. The private mid-run captures confirm Inventory in each run, with differences in the visible clothing panel. These runs measure the lobby and Inventory on this PC. Combat FPS and the game's internal render rate require separate measurements. [Relative timestamps for all seven routes](../benchmarks/pubg-mobile/bluestacks-pie64-inventory.csv)
 
 One additional BlueStacks pass kept its original global Balanced preference, HD lobby and Lobby Graphics Enhancement enabled. It returned 29.85 presentations/s with a 117 ms maximum gap. This warm pass included an Inventory check before the run. The averages in the table use only the matched custom runs.
+
+### PUBG Inventory retest with RustEmuDroid v0.18.0
+
+On November 25, 2026 we repeated the four-visit Lobby route on the Windows RTX 5070 Ti. The local Windows release build reported v0.18.0. PUBG MOBILE 4.7.0 (21718, ARM64) ran at 1600 × 900 and 60 Hz with four vCPUs and 8 GiB of guest RAM. Each measured pass started a fresh game process and retained the existing caches. The collector counted distinct Android SurfaceFlinger presentations on the foreground game layer. The launcher's saved FPS preference stayed in place.
+
+| Runtime and pass | Frames in 48 s | FPS | P99 interval | Pause on first close | Intervals over 250 ms |
+|---|---:|---:|---:|---:|---:|
+| RustEmuDroid v0.18.0, first | 1,227 | 25.56 | 131.49 ms | 1,600 ms | 12 |
+| RustEmuDroid v0.18.0, second | 1,192 | 24.83 | 249.47 ms | 1,681 ms | 12 |
+| BlueStacks 5.22.166.1003 Pie64, first | 1,418 | 29.54 | 66.67 ms | 167 ms | 1 |
+| BlueStacks 5.22.166.1003 Pie64, second | 1,422 | 29.63 | 50.00 ms | 167 ms | 1 |
+
+Across 96 seconds per player, RustEmuDroid presented **25.20 FPS** and BlueStacks **29.58 FPS**. Nine one-second windows on RustEmuDroid contained fewer than 15 new frames. Every BlueStacks window contained at least 20. At the first close, the Android 17 game buffers became ready 1.600 and 1.682 seconds apart. The corresponding gaps on Pie64 were 166 and 167 ms. The long native stalls were visible before the Rust window displayed those frames. [All relative frame times](../benchmarks/pubg-mobile/v0.18.0-rtx-inventory.csv) · [Settings, per-pass results and exclusions](../benchmarks/pubg-mobile/v0.18.0-rtx-inventory.json)
+
+![Frames presented in each second of the four runs. RustEmuDroid has its largest dips near the first Inventory opening and closing. BlueStacks stays near 30 after the first second.](../benchmarks/pubg-mobile/v0.18.0-rtx-inventory.png)
+
+The Android 17 guest used ANGLE/Vulkan at 320 dpi. The official Android 9 Pie64 instance used the host OpenGL renderer at 240 dpi. The existing accounts, inventory contents, language and time spent in the lobby could differ. Before the second BlueStacks run, we followed the lobby-switch hint and returned to the original PUBG tab. The route began about 44 seconds after the gesture. Run `python benchmarks/pubg-mobile/plot-inventory.py --rtx` to reproduce the chart.
+
+Two additional native attempts stopped before the fourth visit. The screenshot check expected the outfit tabs to have loaded two seconds into the third visit. The captured images showed the Inventory panel with its contents still loading. We retained the incomplete attempts in the private log. In later passes the visual check ran 3.7 seconds into that visit, with the same scheduled tap times. The averages include complete 48-second routes only.
 
 ### Why did BlueStacks present PUBG's Inventory more consistently?
 
