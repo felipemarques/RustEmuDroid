@@ -1,0 +1,171 @@
+diff --git a/cpus.c b/cpus.c
+index aef6440a..a4ee7a5b 100644
+--- a/cpus.c
++++ b/cpus.c
+@@ -989,6 +989,11 @@ void cpu_synchronize_all_post_reset(void)
+             hvf_cpu_synchronize_post_reset(cpu);
+ #endif
+     }
++#ifdef CONFIG_WHPX
++    if (whpx_enabled()) {
++        whpx_qa_synchronize_tsc("reset");
++    }
++#endif
+ }
+ 
+ void cpu_synchronize_all_post_init(void)
+@@ -1002,6 +1007,11 @@ void cpu_synchronize_all_post_init(void)
+             hvf_cpu_synchronize_post_init(cpu);
+ #endif
+     }
++#ifdef CONFIG_WHPX
++    if (whpx_enabled()) {
++        whpx_qa_synchronize_tsc("init");
++    }
++#endif
+ }
+ 
+ void cpu_synchronize_all_pre_loadvm(void)
+diff --git a/include/sysemu/whpx.h b/include/sysemu/whpx.h
+index 5b18739c..e567ce44 100644
+--- a/include/sysemu/whpx.h
++++ b/include/sysemu/whpx.h
+@@ -31,6 +31,7 @@ void* whpx_gpa2hva(uint64_t gpa, bool* found);
+ #ifdef CONFIG_WHPX
+ 
+ int whpx_enabled(void);
++void whpx_qa_synchronize_tsc(const char *phase);
+ 
+ #else /* CONFIG_WHPX */
+ 
+diff --git a/target/i386/whpx-all.c b/target/i386/whpx-all.c
+index 493b5eb4..42f2b179 100644
+--- a/target/i386/whpx-all.c
++++ b/target/i386/whpx-all.c
+@@ -174,6 +174,8 @@ struct whpx_vcpu {
+ static bool whpx_allowed;
+ static bool whp_dispatch_initialized = false;
+ static HMODULE hWinHvPlatform, hWinHvEmulation;
++typedef HRESULT (WINAPI *WhpxSuspendPartitionTime)(WHV_PARTITION_HANDLE);
++static WhpxSuspendPartitionTime whpx_qa_suspend_partition_time;
+ static WHV_PROCESSOR_XSAVE_FEATURES whpx_xsave_cap;
+ 
+ struct whpx_state whpx_global;
+@@ -394,6 +396,7 @@ static void whpx_set_registers(CPUState *cpu)
+ 
+     /* MSRs */
+     assert(whpx_register_names[idx] == WHvX64RegisterTsc);
++    const unsigned int tsc_index = idx;
+     vcxt.values[idx++].Reg64 = env->tsc;
+     assert(whpx_register_names[idx] == WHvX64RegisterEfer);
+     vcxt.values[idx++].Reg64 = env->efer;
+@@ -428,11 +431,24 @@ static void whpx_set_registers(CPUState *cpu)
+ 
+     assert(idx == RTL_NUMBER_OF(whpx_register_names));
+ 
+-    hr = whp_dispatch.WHvSetVirtualProcessorRegisters(
+-        whpx->partition, cpu->cpu_index,
+-        whpx_register_names,
+-        RTL_NUMBER_OF(whpx_register_names),
+-        &vcxt.values[0]);
++    if (whpx_qa_suspend_partition_time) {
++        /* Keep the routine WHP call and register order, except for the TSC. */
++        WHV_REGISTER_NAME names[RTL_NUMBER_OF(whpx_register_names) - 1];
++        const unsigned int tail = RTL_NUMBER_OF(whpx_register_names) -
++            tsc_index - 1;
++        memcpy(names, whpx_register_names, tsc_index * sizeof(names[0]));
++        memcpy(names + tsc_index, whpx_register_names + tsc_index + 1,
++               tail * sizeof(names[0]));
++        memmove(vcxt.values + tsc_index, vcxt.values + tsc_index + 1,
++                tail * sizeof(vcxt.values[0]));
++        hr = whp_dispatch.WHvSetVirtualProcessorRegisters(
++            whpx->partition, cpu->cpu_index, names, RTL_NUMBER_OF(names),
++            vcxt.values);
++    } else {
++        hr = whp_dispatch.WHvSetVirtualProcessorRegisters(
++            whpx->partition, cpu->cpu_index, whpx_register_names,
++            RTL_NUMBER_OF(whpx_register_names), vcxt.values);
++    }
+ 
+     if (FAILED(hr)) {
+         error_report("WHPX: Failed to set virtual processor context, hr=%08lx",
+@@ -1249,6 +1265,55 @@ static int whpx_vcpu_run(CPUState *cpu)
+     return ret < 0;
+ }
+ 
++void whpx_qa_synchronize_tsc(const char *phase)
++{
++    struct whpx_state *whpx = &whpx_global;
++    CPUState *cpu;
++    HRESULT hr;
++    unsigned int written = 0;
++    const WHV_REGISTER_NAME register_name = WHvX64RegisterTsc;
++
++    if (!whpx_qa_suspend_partition_time) {
++        return;
++    }
++
++    /* The post-init/reset caller owns the iothread lock. A parked VP cannot
++     * enter WHvRunVirtualProcessor and resume partition time during the batch. */
++    if (!qemu_mutex_iothread_locked()) {
++        error_report("WHPX TSC QA: missing iothread lock at %s", phase);
++        exit(EXIT_FAILURE);
++    }
++    CPU_FOREACH(cpu) {
++        if (!cpu->stopped) {
++            error_report("WHPX TSC QA: vCPU %d is not stopped at %s",
++                         cpu->cpu_index, phase);
++            exit(EXIT_FAILURE);
++        }
++    }
++
++    hr = whpx_qa_suspend_partition_time(whpx->partition);
++    if (FAILED(hr)) {
++        error_report("WHPX TSC QA: suspend failed at %s, hr=%08lx", phase, hr);
++        exit(EXIT_FAILURE);
++    }
++
++    CPU_FOREACH(cpu) {
++        CPUX86State *env = (CPUArchState *)(cpu->env_ptr);
++        WHV_REGISTER_VALUE value;
++        value.Reg64 = env->tsc;
++        hr = whp_dispatch.WHvSetVirtualProcessorRegisters(
++            whpx->partition, cpu->cpu_index, &register_name, 1, &value);
++        if (FAILED(hr)) {
++            error_report("WHPX TSC QA: write failed at %s, vCPU %d, hr=%08lx",
++                         phase, cpu->cpu_index, hr);
++            exit(EXIT_FAILURE);
++        }
++        ++written;
++    }
++    /* WHvRunVirtualProcessor resumes time after the complete batch. */
++    info_report("WHPX TSC QA: synchronized %s vcpus=%u", phase, written);
++}
++
+ static void do_whpx_cpu_synchronize_state(CPUState *cpu, run_on_cpu_data arg)
+ {
+     whpx_get_registers(cpu);
+@@ -1783,6 +1848,7 @@ static int whpx_accel_init(MachineState *ms)
+     WHV_CAPABILITY whpx_cap;
+     UINT32 whpx_cap_size;
+     WHV_PARTITION_PROPERTY prop;
++    const char *qa_tsc = getenv("RUSTEMUDROID_QA_WHPX_SYNC_TSC");
+ 
+     whpx = &whpx_global;
+ 
+@@ -1791,6 +1857,15 @@ static int whpx_accel_init(MachineState *ms)
+         goto error;
+     }
+ 
++    if (qa_tsc && strcmp(qa_tsc, "1") == 0) {
++        whpx_qa_suspend_partition_time = (WhpxSuspendPartitionTime)GetProcAddress(
++            hWinHvPlatform, "WHvSuspendPartitionTime");
++        if (!whpx_qa_suspend_partition_time) {
++            error_report("WHPX TSC QA: WHvSuspendPartitionTime is unavailable");
++            exit(EXIT_FAILURE);
++        }
++    }
++
+     memset(whpx, 0, sizeof(struct whpx_state));
+     memset(whpx_slots, 0, sizeof(whpx_slots));
+ 

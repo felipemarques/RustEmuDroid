@@ -1,5 +1,5 @@
 # This script is sent verbatim to the guest's POSIX shell from Windows and Linux.
 android/*.sh text eol=lf
 
-# Unified diffs mark empty context lines with one space.
-benchmarks/stk-1.5/*.patch text eol=lf whitespace=-blank-at-eol
+# Unified diffs mark empty context lines with one space, including in the final hunk.
+benchmarks/stk-1.5/*.patch text eol=lf whitespace=-blank-at-eol,-blank-at-eof
