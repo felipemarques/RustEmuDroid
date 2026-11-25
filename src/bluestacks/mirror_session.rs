@@ -1,7 +1,8 @@
 //! Coordinates an official player window, its local ADB transport, and the input worker.
 
 use std::{
-    env, fs,
+    env,
+    fs::{self, File},
     io::{self, Read, Seek, SeekFrom, Write},
     net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream},
     os::windows::process::CommandExt,
@@ -25,6 +26,7 @@ use super::{
         transport_socket,
     },
     mirror_foreground::ForegroundWatch,
+    mirror_install::install_apk,
     mirror_target::{ConfiguredTarget, MirrorTarget, TargetError, configured_target},
     player_process::{
         PlayerError, PlayerLifetime, PlayerSource, find_preview_player, listener_pid,
@@ -46,6 +48,7 @@ const ROTATION_REFRESH_WINDOW: Duration = Duration::from_secs(3);
 const SURFACE_FPS_TIMEOUT: Duration = Duration::from_secs(2);
 const SURFACE_FPS_READ_TICK: Duration = Duration::from_millis(100);
 const SURFACE_FPS_OUTPUT_LIMIT: usize = 256 * 1024;
+const APK_INSTALL_TIMEOUT: Duration = Duration::from_secs(180);
 
 #[derive(Debug)]
 pub(crate) enum MirrorEvent {
@@ -96,6 +99,8 @@ pub(crate) struct MirrorSession {
 
 struct SurfaceTarget {
     configured: ConfiguredTarget,
+    config_path: PathBuf,
+    instance: String,
     transport: MirrorTarget,
     player: Arc<PlayerLifetime>,
     player_pid: u32,
@@ -137,6 +142,67 @@ impl ScreenshotSource {
         })?;
         self.verify()?;
         Ok(png)
+    }
+}
+
+/// Bound to the selected session before the user chooses a file.
+pub(crate) struct ApkInstallTarget {
+    target: Arc<SurfaceTarget>,
+    cancelled: Arc<AtomicBool>,
+}
+
+impl ApkInstallTarget {
+    fn current(&self) -> bool {
+        !self.cancelled.load(Ordering::Acquire)
+            && self.target.active.load(Ordering::Acquire)
+            && self.target.player.is_live()
+    }
+
+    pub(crate) fn install(self, path: &Path, allowed: impl Fn() -> bool) -> io::Result<()> {
+        let current = || allowed() && self.current();
+        if !current() {
+            return Err(cancelled());
+        }
+        if !path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("apk"))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Select an APK file.",
+            ));
+        }
+        let apk = File::open(path)?;
+        let metadata = apk.metadata()?;
+        if !metadata.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Select a regular APK file.",
+            ));
+        }
+        if !current() {
+            return Err(cancelled());
+        }
+        let target = &self.target;
+        // Select first, then attest the live endpoint/ID pair. A connected socket cannot be
+        // redirected to a different transport, even if adb restarts and recycles an ID.
+        let socket = transport_socket(target.transport.transport_id.get())?;
+        if read_target(&target.config_path, &target.instance)? != target.configured
+            || adb_target(target.configured)?.map_err(io::Error::other)? != target.transport
+            || listener_pid(target.transport.endpoint).map_err(io::Error::other)?
+                != target.player_pid
+        {
+            return Err(io::Error::other(
+                "The selected BlueStacks ADB transport changed.",
+            ));
+        }
+        install_apk(
+            socket,
+            apk,
+            metadata.len(),
+            Instant::now() + APK_INSTALL_TIMEOUT,
+            current,
+        )
     }
 }
 
@@ -307,6 +373,14 @@ impl MirrorSession {
         };
         source.active().then_some(source)
     }
+
+    pub(crate) fn apk_install_target(&self) -> Option<ApkInstallTarget> {
+        let install = ApkInstallTarget {
+            target: self.surface_target.lock().ok()?.as_ref()?.clone(),
+            cancelled: self.cancelled.clone(),
+        };
+        install.current().then_some(install)
+    }
 }
 
 impl Drop for MirrorSession {
@@ -467,6 +541,8 @@ impl Worker {
         let foreground = ForegroundWatch::start(target, mirrored, self.events.clone());
         *self.surface_target.lock().unwrap() = Some(Arc::new(SurfaceTarget {
             configured: target,
+            config_path: installation.config.clone(),
+            instance: instance.to_owned(),
             transport: mirrored,
             player: lifetime,
             player_pid: source.pid,
@@ -498,7 +574,7 @@ impl Worker {
         let deadline = Instant::now() + WAIT_DEVICE;
         loop {
             self.check_cancelled()?;
-            match read_target(installation, instance) {
+            match read_target(&installation.config, instance) {
                 Err(error)
                     if Instant::now() < deadline
                         && matches!(
@@ -524,7 +600,7 @@ impl Worker {
         let deadline = Instant::now() + WAIT_DEVICE;
         loop {
             self.check_cancelled()?;
-            let current = read_target(installation, instance)?;
+            let current = read_target(&installation.config, instance)?;
             if current != target {
                 return Err(io::Error::other(
                     "The selected BlueStacks ADB configuration changed.",
@@ -841,8 +917,8 @@ fn valid_dimensions(size: [u32; 2]) -> bool {
         .all(|component| (1..=u32::from(u16::MAX)).contains(&component))
 }
 
-fn read_target(installation: &Installation, instance: &str) -> io::Result<ConfiguredTarget> {
-    let config = fs::read_to_string(&installation.config)?;
+fn read_target(path: &Path, instance: &str) -> io::Result<ConfiguredTarget> {
+    let config = fs::read_to_string(path)?;
     configured_target(&config, instance).map_err(io::Error::other)
 }
 
@@ -1075,6 +1151,8 @@ mod tests {
         ).unwrap();
         let source = Arc::new(SurfaceTarget {
             configured,
+            config_path: PathBuf::new(),
+            instance: "Pie64".to_owned(),
             transport: MirrorTarget {
                 endpoint: configured.endpoint(),
                 transport_id: std::num::NonZeroU64::new(41).unwrap(),
@@ -1132,7 +1210,7 @@ mod tests {
         eprintln!("+{:?} begin find_preview_player", started.elapsed());
         let preview = find_preview_player(&installation.player, &instance);
         eprintln!("+{:?} find_preview_player {preview:?}", started.elapsed());
-        let configured = read_target(&installation, &instance);
+        let configured = read_target(&installation.config, &instance);
         eprintln!("+{:?} configured_target {configured:?}", started.elapsed());
         if let Ok(target) = configured {
             let verified = verify_adb_player(&installation.player, &instance, target.endpoint());

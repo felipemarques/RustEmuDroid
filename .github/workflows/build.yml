@@ -65,9 +65,27 @@ jobs:
       - name: Test desktop build
         run: cargo +stable test --locked --release --features ui
 
+      - name: Check the isolated Windows DWM viewer
+        if: runner.os == 'Windows'
+        run: |
+          cargo +stable fmt --manifest-path experiments/dwm-native-viewer/Cargo.toml -- --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +stable test --locked --release --manifest-path experiments/dwm-native-viewer/Cargo.toml --target-dir "$env:RUNNER_TEMP/dwm-lab"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +stable build --locked --release --manifest-path experiments/dwm-native-viewer/Cargo.toml --target-dir "$env:RUNNER_TEMP/dwm-lab"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP/dwm-lab/release/dwm-native-viewer.exe" --help
+
+      - name: Upload the standalone DWM viewer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Windows-DWM-viewer
+          path: ${{ runner.temp }}/dwm-lab/release/dwm-native-viewer.exe
+          if-no-files-found: error
+
       - name: Test repository tools
-        if: runner.os == 'Linux'
-        run: python3 -B -m unittest discover -s tools -p 'test_*.py'
+        run: python -B -m unittest discover -s tools -p 'test_*.py'
 
       - name: Build desktop executable
         run: cargo +stable build --locked --release --features ui

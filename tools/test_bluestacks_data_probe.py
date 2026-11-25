@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import bluestacks_data_probe as probe
@@ -32,6 +33,7 @@ class DataProbeTest(unittest.TestCase):
                 return {"qemu_exit": qemu_exit, "observation_window_completed": True}
 
             with (
+                patch.object(probe, "os", SimpleNamespace(name="posix")),
                 patch.object(probe, "verify_copy"),
                 patch.object(probe.subprocess, "run"),
                 patch.object(probe, "extract_pie64_linux", return_value=("kernel", "initramfs")),

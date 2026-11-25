@@ -9,8 +9,14 @@ use crate::surface_fps::SurfaceFps;
 use eframe::egui::{self, Event, Key, PointerButton};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
-    path::Path,
-    sync::Arc,
+    io,
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    thread,
     time::{Duration, Instant},
 };
 
@@ -20,6 +26,8 @@ mod controls;
 use controls::MappedControls;
 
 #[cfg(test)]
+mod live_install_test;
+#[cfg(test)]
 mod live_mapping_test;
 #[cfg(test)]
 mod live_test;
@@ -27,6 +35,31 @@ mod live_test;
 mod tests;
 
 const PREVIEW_CHECK_INTERVAL: Duration = Duration::from_millis(200);
+const APK_NOTICE_DURATION: Duration = Duration::from_secs(8);
+
+enum ApkInstallEvent {
+    Dismissed,
+    Installing,
+    Finished(io::Result<()>),
+}
+
+fn choose_and_install_apk(
+    updates: mpsc::Sender<ApkInstallEvent>,
+    repaint: impl Fn(),
+    choose: impl FnOnce() -> Option<PathBuf>,
+    install: impl FnOnce(&Path) -> io::Result<()>,
+) {
+    if let Some(path) = choose() {
+        if updates.send(ApkInstallEvent::Installing).is_ok() {
+            repaint();
+            // The install capability belongs to the session that opened the picker.
+            let _ = updates.send(ApkInstallEvent::Finished(install(&path)));
+        }
+    } else {
+        let _ = updates.send(ApkInstallEvent::Dismissed);
+    }
+    repaint();
+}
 
 #[derive(Default)]
 pub(super) struct MirrorPanel {
@@ -53,6 +86,16 @@ pub(super) struct MirrorPanel {
     surface_fps: SurfaceFps,
     surface_foreground: Option<(u64, String)>,
     surface_query: Option<SurfaceFpsQuery>,
+    apk_updates: Option<mpsc::Receiver<ApkInstallEvent>>,
+    apk_cancel: Option<Arc<AtomicBool>>,
+    apk_installing: bool,
+    apk_notice: Option<(io::Result<()>, Instant)>,
+    #[cfg(test)]
+    test_apk_path: Option<PathBuf>,
+    #[cfg(test)]
+    test_install_button: Option<egui::Pos2>,
+    #[cfg(test)]
+    test_apk_notice_rect: Option<egui::Rect>,
 }
 
 impl MirrorPanel {
@@ -62,6 +105,7 @@ impl MirrorPanel {
     }
 
     pub(super) fn disconnect(&mut self) {
+        self.cancel_apk();
         self.reset_surface_fps();
         self.release();
         if let Some(preview) = self.preview.take() {
@@ -166,6 +210,7 @@ impl MirrorPanel {
         {
             self.apply_event(event);
         }
+        self.poll_apk_install();
         self.poll_player(ctx, Instant::now());
     }
 
@@ -217,6 +262,7 @@ impl MirrorPanel {
                 self.set_display_size(size);
             }
             MirrorEvent::ViewOnly(error) => {
+                self.cancel_apk();
                 self.reset_surface_fps();
                 self.surface_foreground = None;
                 eprintln!("BlueStacks mirror (input): {error}");
@@ -226,6 +272,7 @@ impl MirrorPanel {
                 self.release();
             }
             MirrorEvent::Failed(error) => {
+                self.cancel_apk();
                 self.reset_surface_fps();
                 self.surface_foreground = None;
                 eprintln!("BlueStacks mirror (player): {error}");
@@ -269,6 +316,127 @@ impl MirrorPanel {
             self.session.as_ref()?.screenshot_source(self.size?)
         } else {
             None
+        }
+    }
+
+    fn apk_available(&self) -> bool {
+        self.session.is_some()
+            && self.size.is_some()
+            && self.input_error.is_none()
+            && self.apk_updates.is_none()
+    }
+
+    pub(super) fn choose_apk(
+        &mut self,
+        ctx: &egui::Context,
+        frame: &eframe::Frame,
+        locale: Locale,
+    ) {
+        if !self.apk_available() {
+            return;
+        }
+        let Some(target) = self
+            .session
+            .as_ref()
+            .and_then(MirrorSession::apk_install_target)
+        else {
+            return;
+        };
+        self.hide();
+        self.apk_notice = None;
+        let dialog = crate::toolbar::apk_dialog(locale).set_parent(frame);
+        #[cfg(test)]
+        let test_path = self.test_apk_path.take();
+        let choose = move || {
+            #[cfg(test)]
+            if test_path.is_some() {
+                return test_path;
+            }
+            dialog.pick_file()
+        };
+        let ctx = ctx.clone();
+        let (sender, receiver) = mpsc::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let worker_cancel = cancel.clone();
+        match thread::Builder::new()
+            .name("BlueStacks APK installer".into())
+            .spawn(move || {
+                choose_and_install_apk(
+                    sender,
+                    || ctx.request_repaint(),
+                    choose,
+                    |path| target.install(path, || !worker_cancel.load(Ordering::Acquire)),
+                );
+            }) {
+            Ok(_) => {
+                self.apk_updates = Some(receiver);
+                self.apk_cancel = Some(cancel);
+            }
+            Err(error) => self.apk_notice = Some((Err(error), Instant::now())),
+        }
+    }
+
+    pub(super) fn cancel_apk(&mut self) {
+        if let Some(cancel) = self.apk_cancel.take() {
+            cancel.store(true, Ordering::Release);
+        }
+        self.apk_updates = None;
+        self.apk_installing = false;
+    }
+
+    fn poll_apk_install(&mut self) {
+        let Some(updates) = &self.apk_updates else {
+            return;
+        };
+        loop {
+            let result = match updates.try_recv() {
+                Ok(ApkInstallEvent::Installing) => {
+                    self.apk_installing = true;
+                    continue;
+                }
+                Ok(ApkInstallEvent::Dismissed) => None,
+                Ok(ApkInstallEvent::Finished(result)) => Some(result),
+                Err(mpsc::TryRecvError::Empty) => return,
+                Err(mpsc::TryRecvError::Disconnected) => Some(Err(io::Error::other(
+                    "The installation task ended unexpectedly.",
+                ))),
+            };
+            self.apk_notice = result.map(|result| (result, Instant::now()));
+            self.cancel_apk();
+            break;
+        }
+    }
+
+    fn show_apk_notice(&mut self, ui: &mut egui::Ui, locale: Locale) {
+        #[cfg(test)]
+        {
+            self.test_apk_notice_rect = None;
+        }
+        if self.apk_installing {
+            ui.label(locale.pick("Instalando APK…", "Installing APK…", "Instalando APK…"));
+        } else if let Some((result, started)) = &self.apk_notice
+            && started.elapsed() < APK_NOTICE_DURATION
+        {
+            ui.ctx()
+                .request_repaint_after(APK_NOTICE_DURATION.saturating_sub(started.elapsed()));
+            match result {
+                Ok(()) => {
+                    let _response =
+                        ui.label(locale.pick("APK instalado", "APK installed", "APK instalado"));
+                    #[cfg(test)]
+                    {
+                        self.test_apk_notice_rect = Some(_response.rect);
+                    }
+                }
+                Err(error) => {
+                    ui.label(locale.pick(
+                        "Falha ao instalar o APK.",
+                        "Could not install the APK.",
+                        "No se pudo instalar el APK.",
+                    ))
+                    .on_hover_text(error.to_string());
+                }
+            }
         }
     }
 
@@ -381,6 +549,16 @@ impl MirrorPanel {
                 if self.screenshot_button(ui, l, host_gesture).clicked() {
                     action = Some(Tool::Screenshot);
                 }
+                ui.add_enabled_ui(self.apk_available() && !host_gesture && !self.controls_open(), |ui| {
+                    let response = Tool::Install.icon_button(ui, Tool::Install.label(l));
+                    #[cfg(test)]
+                    {
+                        self.test_install_button = response.enabled().then_some(response.rect.center());
+                    }
+                    if response.clicked() {
+                        action = Some(Tool::Install);
+                    }
+                });
                 if Tool::CapturesFolder.button(ui, l) {
                     action = Some(Tool::CapturesFolder);
                 }
@@ -395,6 +573,7 @@ impl MirrorPanel {
                     ui.label(l.pick("Somente visualização", "View only", "Solo visualización")).on_hover_text(tip);
                 }
                 disconnect = ui.add_enabled(!self.controls_open(), theme::button(l.pick("Desconectar", "Disconnect", "Desconectar"))).clicked();
+                self.show_apk_notice(ui, l);
                 if let Some((message, details, color)) = &capture_notice {
                     let response = ui.add(egui::Label::new(egui::RichText::new(message).color(*color)).truncate());
                     response.on_hover_text(details.unwrap_or(message));
@@ -416,7 +595,7 @@ impl MirrorPanel {
         capture_notice: Option<CaptureNoticeStatus<'_>>,
     ) -> Option<Tool> {
         ctx.request_repaint_after(PREVIEW_CHECK_INTERVAL);
-        if obscured {
+        if obscured || (self.apk_updates.is_some() && !self.apk_installing) {
             self.hide();
             return None;
         }

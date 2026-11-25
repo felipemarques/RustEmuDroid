@@ -451,7 +451,10 @@ impl eframe::App for Launcher {
         if close_requested && !self.closing {
             self.closing = true;
             #[cfg(windows)]
-            self.blue_mirror.hide();
+            {
+                self.blue_mirror.cancel_apk();
+                self.blue_mirror.hide();
+            }
             self.play = false;
             self.restart = false;
             self.request_stop();
@@ -512,7 +515,7 @@ impl eframe::App for Launcher {
                 .parent()
                 .unwrap_or(std::path::Path::new(".")),
         );
-        self.show_main(ctx);
+        self.show_main(ctx, frame);
         self.show_capture_notice(ctx);
         self.adapters.poll(ctx);
         if !self.external_dialog_open() {
@@ -545,7 +548,7 @@ impl Launcher {
         self.playing
     }
 
-    fn show_main(&mut self, ctx: &egui::Context) {
+    fn show_main(&mut self, ctx: &egui::Context, _frame: &eframe::Frame) {
         let locale = self.config.locale;
         if std::mem::take(&mut self.play) {
             self.start(false)
@@ -631,7 +634,11 @@ impl Launcher {
                 resizing || toggling_fullscreen,
                 notice,
             ) {
-                self.capture_action(tool);
+                if tool == Tool::Install {
+                    self.blue_mirror.choose_apk(ctx, _frame, locale);
+                } else {
+                    self.capture_action(tool);
+                }
             }
             return;
         }

@@ -3,6 +3,8 @@ pub(crate) mod mirror_control;
 #[cfg(feature = "ui")]
 mod mirror_foreground;
 #[cfg(feature = "ui")]
+mod mirror_install;
+#[cfg(feature = "ui")]
 pub(crate) mod mirror_session;
 #[cfg(feature = "ui")]
 pub(crate) mod mirror_target;

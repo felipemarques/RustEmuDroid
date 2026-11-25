@@ -12,6 +12,50 @@ const CENTER: Pos2 = Pos2::new(300.0, 150.0);
 const TOOLBAR: Pos2 = Pos2::new(40.0, 15.0);
 
 #[test]
+fn install_picker_does_not_dispatch_after_replacing_the_preview() {
+    let mut panel = MirrorPanel::default();
+    let (updates, receiver) = mpsc::channel();
+    panel.apk_updates = Some(receiver);
+    let selected = PathBuf::from("chosen file.apk");
+    choose_and_install_apk(
+        updates,
+        || {},
+        || {
+            panel.disconnect();
+            Some(selected)
+        },
+        |_| panic!("the old picker must not install into a replacement preview"),
+    );
+    assert!(panel.apk_updates.is_none());
+}
+
+#[test]
+fn apk_control_requires_adb_and_reports_only_a_completed_install() {
+    let (session, _) = MirrorSession::input_recorder();
+    let mut panel = MirrorPanel {
+        session: Some(session),
+        ..Default::default()
+    };
+    assert!(!panel.apk_available());
+    panel.apply_event(MirrorEvent::Ready(GUEST));
+    assert!(panel.apk_available());
+    let (updates, receiver) = mpsc::channel();
+    panel.apk_updates = Some(receiver);
+    updates.send(ApkInstallEvent::Installing).unwrap();
+    panel.poll_apk_install();
+    assert!(panel.apk_installing);
+    assert!(panel.apk_notice.is_none());
+    assert!(!panel.apk_available());
+    updates.send(ApkInstallEvent::Finished(Ok(()))).unwrap();
+    panel.poll_apk_install();
+    assert!(!panel.apk_installing);
+    assert!(panel.apk_available());
+    assert!(panel.apk_notice.as_ref().unwrap().0.is_ok());
+    panel.apply_event(MirrorEvent::ViewOnly("ADB access is disabled".into()));
+    assert!(!panel.apk_available());
+}
+
+#[test]
 fn surface_fps_follows_the_live_foreground_without_requiring_a_mapping() {
     let mut panel = MirrorPanel::default();
     panel.apply_event(MirrorEvent::Foreground(5, Some("org.example.game".into())));

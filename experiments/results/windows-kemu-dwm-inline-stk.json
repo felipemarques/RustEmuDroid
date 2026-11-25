@@ -1,0 +1,333 @@
+{
+  "windows_display": {
+    "pnp_model_id": "RTK2555",
+    "friendly_name": "Generic PnP Monitor",
+    "monitor_adapter": "NVIDIA GeForce RTX 5070 Ti",
+    "desktop_px": [
+      1920,
+      1080
+    ],
+    "nominal_hz": 100
+  },
+  "physical_qemu_vulkan_renderer": "NVIDIA GeForce RTX 5070 Ti",
+  "guest_vulkan_renderer": "Qualcomm Adreno (TM) 830, Vulkan 1.3.0, driver 512.849.1",
+  "dwm_viewer_sha256": "5b458d50c1aa5909ef336871570c9b84eec1f89644e564ad14dcb3ada84314cd",
+  "glow_viewer_sha256": "a1890271e71d607aeaa3019536ad13b4e97a049d7a7765793a8aeb02d76961ee",
+  "gpu_preference_smoke": {
+    "private_exe_sha256": "a1890271e71d607aeaa3019536ad13b4e97a049d7a7765793a8aeb02d76961ee",
+    "per_copy_high_performance_requested": true,
+    "registry_value_restored_to_absent": true,
+    "confirmed_by_local_rgba_replay": true,
+    "observed_wgl_gl_renderer": "NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2",
+    "live_static_attempt": "Glow did not produce a valid processed-frame report while the guest was idle."
+  },
+  "game_graphics_parameters": {
+    "Resolution width": 1600,
+    "Resolution height": 900,
+    "Render resolution": 1,
+    "Dynamic lighting": 1,
+    "Particle effects": 2,
+    "Animated characters": 1,
+    "Geometry Detail": 4,
+    "Bloom": 1,
+    "Glow": 1,
+    "Light Shaft": 1,
+    "Anti-Aliasing (MLAA)": 0,
+    "SSAO": 1,
+    "Anisotropic Filtering": 16,
+    "Shadow Resolution": 1024,
+    "Light scattering": 0,
+    "Degraded IBL": 0,
+    "Motion Blur": 0,
+    "Depth of Field": 0,
+    "Texture compression": 1,
+    "HD Textures": 0,
+    "HQ Mipmap": 0
+  },
+  "qa_apk_sha256": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e",
+  "game_frame_rate_preferences": {
+    "max_fps": 90,
+    "swap_interval_vsync": 1
+  },
+  "excluded_attempts": [
+    "Preliminary DWM race: strict comparison to asynchronous ADB PNGs failed despite two same-desktop pixel matches.",
+    "First inline launch: the Python gRPC module could not load. No race measured.",
+    "Next inline race: the full-desktop captures were too slow to align the Qt and Glow images within the specified search range."
+  ],
+  "scope": "Private Kemu 0.7.1 Android 16 test AVD, same boot. SuperTuxKart 1.5 Black Forest replay, x86_64, High Vulkan/FIFO, native 1600x900 at 90Hz. Host RTX 5070 Ti. Both Windows destinations about 896x504 on the same 100Hz monitor. Source visible during all matched passes.",
+  "definitions": {
+    "game_fps": "1000 * total profiler frames / total profiler ms",
+    "surfaceview": "New Android presentations in a separately measured approximately 20s race window",
+    "windows_cpu": "Windows user+kernel CPU charged to selected processes only in the SurfaceView window. No DWM compositor/other kernel/GPU cost accounted. Inline uses a separate Python gRPC producer and a pipe to Glow. The recorded Windows venv launcher was not the actual Python worker, so bridge CPU is omitted.",
+    "pixels": "Compared interior RGB after bilinear normalization to 256x144. Capture timestamps allowed a bounded 160ms offset between Qt and Glow; DWM comparisons from the same desktop snapshot. The covered diagnostic uses a second short independent Android RGBA reference stream and does not enter the comparison.",
+    "limits": "No per-frame Windows presentation or physical scan-out counter for DWM."
+  },
+  "runs": [
+    {
+      "run": 1,
+      "transport": "dwm",
+      "game": {
+        "fps": 90.01495003540798,
+        "frames": 3432,
+        "duration_ms": 38127
+      },
+      "surfaceview": {
+        "duration_s": 20.0202751,
+        "presentations": 1803,
+        "presentations_per_second": 90.05870254000655,
+        "p99_interval_ms": 13.823213,
+        "max_interval_ms": 16.513357,
+        "intervals_over_250_ms": 0
+      },
+      "windows_cpu_ms_per_second": {
+        "qemu": 1138.2971755468036,
+        "viewer": 0.7804588059831405
+      },
+      "qt_to_preview_pixel_checks": [
+        {
+          "mean_absolute_rgb_error": 0.3574555218219757,
+          "rgb_pearson": 0.999862818528542,
+          "candidate_near_black_fraction": 0.0,
+          "reference_capture_offset_ms": 0.0
+        },
+        {
+          "mean_absolute_rgb_error": 0.29184508323669434,
+          "rgb_pearson": 0.9998971830427196,
+          "candidate_near_black_fraction": 0.0,
+          "reference_capture_offset_ms": 0.0
+        }
+      ],
+      "preview_scene_change_mean_rgb_error": 34.50459289550781
+    },
+    {
+      "run": 2,
+      "transport": "inline",
+      "game": {
+        "fps": 89.94098360655738,
+        "frames": 3429,
+        "duration_ms": 38125
+      },
+      "surfaceview": {
+        "duration_s": 20.02716265,
+        "presentations": 1804,
+        "presentations_per_second": 90.0776625989004,
+        "p99_interval_ms": 13.497389,
+        "max_interval_ms": 20.121043,
+        "intervals_over_250_ms": 0
+      },
+      "windows_cpu_ms_per_second": {
+        "qemu": 1973.4923009675563,
+        "viewer": 358.1070232132958
+      },
+      "qt_to_preview_pixel_checks": [
+        {
+          "mean_absolute_rgb_error": 0.5842849016189575,
+          "rgb_pearson": 0.9995129884261964,
+          "candidate_near_black_fraction": 0.0,
+          "reference_capture_offset_ms": 42.25350001070183
+        },
+        {
+          "mean_absolute_rgb_error": 0.5509325265884399,
+          "rgb_pearson": 0.9995540367795531,
+          "candidate_near_black_fraction": 0.0,
+          "reference_capture_offset_ms": 39.39019999234006
+        }
+      ],
+      "preview_scene_change_mean_rgb_error": 29.135313034057617,
+      "inline_viewer": {
+        "adapter": "AMD Radeon 780M Graphics",
+        "backend": "glow",
+        "bytes_per_frame": 5760000,
+        "duplicates": 52,
+        "elapsed_seconds": 53.0,
+        "first_processed_sequence": 180,
+        "height": 900,
+        "last_processed_sequence": 4536,
+        "late_slots": 281,
+        "latency_ms": {
+          "max": 14.522200000000002,
+          "mean": 5.339288436439563,
+          "p50": 4.9588,
+          "p95": 10.2262
+        },
+        "layers": 1,
+        "pixel_transport": "CPU-visible RGBA8 to the production Glow texture upload",
+        "processed": 3831,
+        "processed_fps": 72.28301886792453,
+        "produced": 4030,
+        "replaced": 199,
+        "source": "raw",
+        "target_fps": 90,
+        "vsync_requested": true,
+        "warmup_seconds": 2,
+        "width": 1600,
+        "window_height": 504,
+        "window_width": 896
+      }
+    },
+    {
+      "run": 3,
+      "transport": "inline",
+      "game": {
+        "fps": 89.71232266016311,
+        "frames": 3421,
+        "duration_ms": 38133
+      },
+      "surfaceview": {
+        "duration_s": 20.03023805,
+        "presentations": 1802,
+        "presentations_per_second": 89.96398322884635,
+        "p99_interval_ms": 13.426088,
+        "max_interval_ms": 15.463232,
+        "intervals_over_250_ms": 0
+      },
+      "windows_cpu_ms_per_second": {
+        "qemu": 2040.2737100770498,
+        "viewer": 334.26169890177613
+      },
+      "qt_to_preview_pixel_checks": [
+        {
+          "mean_absolute_rgb_error": 0.5920282602310181,
+          "rgb_pearson": 0.999485973564257,
+          "candidate_near_black_fraction": 0.0,
+          "reference_capture_offset_ms": 46.943699999246746
+        },
+        {
+          "mean_absolute_rgb_error": 0.5779331922531128,
+          "rgb_pearson": 0.9993721523959832,
+          "candidate_near_black_fraction": 0.0,
+          "reference_capture_offset_ms": 46.908399992389604
+        }
+      ],
+      "preview_scene_change_mean_rgb_error": 28.694833755493164,
+      "inline_viewer": {
+        "adapter": "AMD Radeon 780M Graphics",
+        "backend": "glow",
+        "bytes_per_frame": 5760000,
+        "duplicates": 58,
+        "elapsed_seconds": 53.0,
+        "first_processed_sequence": 179,
+        "height": 900,
+        "last_processed_sequence": 4517,
+        "late_slots": 430,
+        "latency_ms": {
+          "max": 13.7974,
+          "mean": 5.171984201909966,
+          "p50": 4.7716,
+          "p95": 10.1735
+        },
+        "layers": 1,
+        "pixel_transport": "CPU-visible RGBA8 to the production Glow texture upload",
+        "processed": 3665,
+        "processed_fps": 69.15094339622641,
+        "produced": 3860,
+        "replaced": 195,
+        "source": "raw",
+        "target_fps": 90,
+        "vsync_requested": true,
+        "warmup_seconds": 2,
+        "width": 1600,
+        "window_height": 504,
+        "window_width": 896
+      }
+    },
+    {
+      "run": 4,
+      "transport": "dwm",
+      "game": {
+        "fps": 90.017568240816,
+        "frames": 3433,
+        "duration_ms": 38137
+      },
+      "surfaceview": {
+        "duration_s": 20.0192806,
+        "presentations": 1800,
+        "presentations_per_second": 89.91332086129009,
+        "p99_interval_ms": 14.149247,
+        "max_interval_ms": 15.474242,
+        "intervals_over_250_ms": 0
+      },
+      "windows_cpu_ms_per_second": {
+        "qemu": 1144.2074446970887,
+        "viewer": 1.5609951538418418
+      },
+      "qt_to_preview_pixel_checks": [
+        {
+          "mean_absolute_rgb_error": 0.35632553696632385,
+          "rgb_pearson": 0.9998567882885762,
+          "candidate_near_black_fraction": 0.0,
+          "reference_capture_offset_ms": 0.0
+        },
+        {
+          "mean_absolute_rgb_error": 0.2738129198551178,
+          "rgb_pearson": 0.9999110501057364,
+          "candidate_near_black_fraction": 0.0,
+          "reference_capture_offset_ms": 0.0
+        }
+      ],
+      "preview_scene_change_mean_rgb_error": 35.656639099121094
+    }
+  ],
+  "groups": {
+    "dwm": {
+      "passes": 2,
+      "pooled_game_fps": 90.01625930976607,
+      "pooled_surfaceview_per_second": 89.98601350613889,
+      "mean_windows_cpu_ms_per_second_by_role": {
+        "qemu": 1141.2523101219463,
+        "viewer": 1.1707269799124913
+      },
+      "mean_selected_cpu_ms_per_second": 1142.4230371018587
+    },
+    "inline": {
+      "passes": 2,
+      "pooled_game_fps": 89.8266411392903,
+      "pooled_surfaceview_per_second": 90.0208185500164,
+      "mean_windows_cpu_ms_per_second_by_role": {
+        "qemu": 2006.883005522303,
+        "viewer": 346.18436105753597
+      },
+      "mean_selected_cpu_ms_per_second": 2353.067366579839
+    }
+  },
+  "covered_qt": {
+    "near_start": {
+      "nearest_matching_android_ms_offset": -14.5641,
+      "compared_frames": 48,
+      "match_android": true,
+      "metric": {
+        "mean_absolute_rgb_error": 4.057474613189697,
+        "rgb_pearson": 0.9815736644244258,
+        "reference_brightness_std": 42.46660614013672,
+        "candidate_brightness_std": 41.59941864013672,
+        "candidate_near_black_fraction": 0.0
+      }
+    },
+    "near_end": {
+      "nearest_matching_android_ms_offset": -11.3804,
+      "compared_frames": 47,
+      "match_android": true,
+      "metric": {
+        "mean_absolute_rgb_error": 5.031579971313477,
+        "rgb_pearson": 0.9730260227318018,
+        "reference_brightness_std": 41.49782943725586,
+        "candidate_brightness_std": 40.410125732421875,
+        "candidate_near_black_fraction": 0.0
+      }
+    },
+    "scene_change_mean_absolute_rgb_error": 28.506267547607422,
+    "render_child_rect_px": [
+      24,
+      14,
+      842,
+      474
+    ],
+    "viewer_fitted_rect_px": [
+      0,
+      0,
+      895,
+      504
+    ],
+    "passed": true
+  }
+}

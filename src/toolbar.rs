@@ -477,15 +477,18 @@ pub fn session_tools(
         }
         if Tool::Install.button(ui, locale)
             && !controls.busy()
-            && let Some(path) = rfd::FileDialog::new()
-                .set_title(locale.pick("Instalar APK", "Install APK", "Instalar APK"))
-                .add_filter(
-                    locale.pick("Pacote Android", "Android package", "Paquete Android"),
-                    &["apk"],
-                )
-                .pick_file()
+            && let Some(path) = apk_dialog(locale).pick_file()
         {
             controls.send(Action::Install(path), &ctx);
         }
     });
+}
+
+pub(super) fn apk_dialog(locale: Locale) -> rfd::FileDialog {
+    rfd::FileDialog::new()
+        .set_title(Tool::Install.label(locale))
+        .add_filter(
+            locale.pick("Pacote Android", "Android package", "Paquete Android"),
+            &["apk"],
+        )
 }
