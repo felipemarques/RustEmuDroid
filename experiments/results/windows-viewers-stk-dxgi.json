@@ -1,0 +1,201 @@
+{
+  "release_tag": "gpui-lab-v0.1.1",
+  "revision": "5bab874472463db5732087d4c0ffeb23181d7ac4",
+  "windows_zip_sha256": "bff02e1f9227fafe9f80cb958ebde0cac333d67b9ba15f4825681ae4394e209f",
+  "executables_sha256": {
+    "glow": "a1890271e71d607aeaa3019536ad13b4e97a049d7a7765793a8aeb02d76961ee",
+    "gpui": "8416a02f2c991b921aa34b8a6b8c5d6a70176d544a550efb811e3b9fd175778b"
+  },
+  "input_clip_sha256": "a333c7b1a2f9502ee67654031dcce6b3588ef0c843ab27d46fe2eb0349cb17a5",
+  "desktop_duplication_reader_sha256": "a99a556bae7996ef088c9481c555e73a4bde6a6be7548468c80c29667f22982d",
+  "workload": {
+    "input_rgba_px": [
+      640,
+      360
+    ],
+    "source_loop_frames": 120,
+    "source_hz": 90,
+    "physical_client_px": [
+      1040,
+      585
+    ],
+    "monitor_px": [
+      1920,
+      1080
+    ],
+    "render_and_output_adapter": "AMD Radeon 780M Graphics",
+    "window_dpi": 96,
+    "monitor_hz": 100,
+    "capture_start_after_source_seconds": 6.75
+  },
+  "metric": {
+    "sampled_scanlines": 12,
+    "rgb_channel_threshold": 4,
+    "material_sampled_pixels_min": 6,
+    "interval_gap_p99": "floor(0.99 * (n - 1))",
+    "source_alignment": "Windows QPC relative to source-start message",
+    "exclusions": "Missing bracket, any known superseded desktop update or less than 30 material sampled updates/s"
+  },
+  "runs": [
+    {
+      "viewer": "glow",
+      "comment": [],
+      "nominal_capture_seconds": 11,
+      "desktop_updates_acquired": 1099,
+      "intermediate_desktop_updates_unavailable": 0,
+      "end_bracket_accumulated": 1,
+      "before_start_reference": true,
+      "coalesced_dirty_metadata_count": 0,
+      "mouse_only_acquisitions": 0,
+      "acquisition_timeouts": 0,
+      "max_desktop_update_gap_ms": 19.3276,
+      "processing_ms_p50": 0.978,
+      "processing_ms_p95": 1.724,
+      "sampler_cpu_ms_per_s_including_warmup": 78.14574574185082,
+      "staged_bytes_per_desktop_update": 49920,
+      "visible_changes_in_sampled_scanlines": {
+        "exact_rgb_updates": 935,
+        "exact_rgb_updates_per_second": 85.0,
+        "material_updates": 935,
+        "material_updates_per_second": 85.0,
+        "exact_update_gap_p99_ms": 25.2727,
+        "material_update_gap_p99_ms": 25.2727
+      },
+      "viewer_full_interval": {
+        "elapsed_seconds": 16.0,
+        "produced": 1440,
+        "processed": 1356,
+        "replaced": 84,
+        "late_slots": 0,
+        "duplicates": 0
+      },
+      "numeric_trace_sha256": "8af50a7178c7158c673f1861d80054a5be909af54a3b8405e1941de75138a0ce"
+    },
+    {
+      "viewer": "gpui",
+      "comment": [],
+      "nominal_capture_seconds": 11,
+      "desktop_updates_acquired": 976,
+      "intermediate_desktop_updates_unavailable": 0,
+      "end_bracket_accumulated": 1,
+      "before_start_reference": true,
+      "coalesced_dirty_metadata_count": 0,
+      "mouse_only_acquisitions": 0,
+      "acquisition_timeouts": 5,
+      "max_desktop_update_gap_ms": 28.7485,
+      "processing_ms_p50": 0.898,
+      "processing_ms_p95": 1.654,
+      "sampler_cpu_ms_per_s_including_warmup": 67.77765349325735,
+      "staged_bytes_per_desktop_update": 49920,
+      "visible_changes_in_sampled_scanlines": {
+        "exact_rgb_updates": 958,
+        "exact_rgb_updates_per_second": 87.0909090909091,
+        "material_updates": 958,
+        "material_updates_per_second": 87.0909090909091,
+        "exact_update_gap_p99_ms": 23.3198,
+        "material_update_gap_p99_ms": 23.3198
+      },
+      "viewer_full_interval": {
+        "elapsed_seconds": 16.0,
+        "produced": 1440,
+        "processed": 1399,
+        "replaced": 41,
+        "late_slots": 0,
+        "duplicates": 0
+      },
+      "numeric_trace_sha256": "fc938e1aac18f00a570f74f188f135391b797e6ebff3e88f3fc70d07ec04e720"
+    },
+    {
+      "viewer": "gpui",
+      "comment": [],
+      "nominal_capture_seconds": 11,
+      "desktop_updates_acquired": 957,
+      "intermediate_desktop_updates_unavailable": 0,
+      "end_bracket_accumulated": 1,
+      "before_start_reference": true,
+      "coalesced_dirty_metadata_count": 0,
+      "mouse_only_acquisitions": 0,
+      "acquisition_timeouts": 8,
+      "max_desktop_update_gap_ms": 29.3241,
+      "processing_ms_p50": 0.827,
+      "processing_ms_p95": 1.526,
+      "sampler_cpu_ms_per_s_including_warmup": 76.90639792072297,
+      "staged_bytes_per_desktop_update": 49920,
+      "visible_changes_in_sampled_scanlines": {
+        "exact_rgb_updates": 934,
+        "exact_rgb_updates_per_second": 84.9090909090909,
+        "material_updates": 934,
+        "material_updates_per_second": 84.9090909090909,
+        "exact_update_gap_p99_ms": 24.7455,
+        "material_update_gap_p99_ms": 24.7455
+      },
+      "viewer_full_interval": {
+        "elapsed_seconds": 16.0,
+        "produced": 1440,
+        "processed": 1375,
+        "replaced": 65,
+        "late_slots": 0,
+        "duplicates": 0
+      },
+      "numeric_trace_sha256": "66f3cccb612bebbbd360ea29efc754719f8f966bfb4cd3f8f9733e87ed5327a6"
+    },
+    {
+      "viewer": "glow",
+      "comment": [],
+      "nominal_capture_seconds": 11,
+      "desktop_updates_acquired": 1099,
+      "intermediate_desktop_updates_unavailable": 0,
+      "end_bracket_accumulated": 1,
+      "before_start_reference": true,
+      "coalesced_dirty_metadata_count": 0,
+      "mouse_only_acquisitions": 0,
+      "acquisition_timeouts": 0,
+      "max_desktop_update_gap_ms": 18.8335,
+      "processing_ms_p50": 1.041,
+      "processing_ms_p95": 1.601,
+      "sampler_cpu_ms_per_s_including_warmup": 70.32514563327062,
+      "staged_bytes_per_desktop_update": 49920,
+      "visible_changes_in_sampled_scanlines": {
+        "exact_rgb_updates": 916,
+        "exact_rgb_updates_per_second": 83.27272727272727,
+        "material_updates": 916,
+        "material_updates_per_second": 83.27272727272727,
+        "exact_update_gap_p99_ms": 26.0851,
+        "material_update_gap_p99_ms": 26.0851
+      },
+      "viewer_full_interval": {
+        "elapsed_seconds": 16.0,
+        "produced": 1440,
+        "processed": 1337,
+        "replaced": 103,
+        "late_slots": 0,
+        "duplicates": 0
+      },
+      "numeric_trace_sha256": "84dde78379059b7011d50a58336890c99315acc05c94e9cbac05ee35a2e124b1"
+    }
+  ],
+  "comparison": {
+    "status": "loss_free_intervals",
+    "pooled_per_second": {
+      "exact_rgb_updates": {
+        "glow": 84.13636363636363,
+        "gpui": 86.0
+      },
+      "material_updates": {
+        "glow": 84.13636363636363,
+        "gpui": 86.0
+      }
+    },
+    "paired_glow_minus_gpui_per_second": {
+      "exact_rgb_updates": [
+        -2.0909090909090935,
+        -1.6363636363636402
+      ],
+      "material_updates": [
+        -2.0909090909090935,
+        -1.6363636363636402
+      ]
+    },
+    "direction_consistent_across_thresholds_and_pairs": false
+  }
+}
