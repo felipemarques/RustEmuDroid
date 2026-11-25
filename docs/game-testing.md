@@ -367,6 +367,8 @@ On the same Ryzen 9 8945HS and RTX 5070 Ti host, a separate JNI fixture ran on B
 
 The fixture measures two warmed loops. It leaves first-use translation, rendering and game behavior outside its timing window, so assigning the PUBG Inventory pause to the native bridge still requires a workload that exercises that transition. [Benchmark method and results](../benchmarks/native-bridge/README.md#windows-results) · [Per-sample timings](../benchmarks/native-bridge/results.csv)
 
+The follow-up fixture timed the first visit to groups of 1,024 functions and their immediate repeats on v0.18.0. With ARM64 code, a first visit took 1.464 ms on Android 17 and 0.345 ms on Pie64. Repeats took 0.033 and 0.113 ms, respectively. This gives us a reproducible example of slower first execution on Android 17 alongside faster repeated execution. The time attributable to code translation during the actual Inventory transition remains unknown. [Results, method and per-visit timings](../benchmarks/native-bridge/README.md#first-use-of-arm64-code-on-windows)
+
 ### PUBG startup on Kemu Android 16
 
 We tested the existing Original profile in RustEmuDroid 0.13.3 on Windows with Kemu Android 16, the RTX 5070 Ti, 1600 × 900 and the same ARM64 PUBG build 4.7.0 (21718). Each test had its own VM boot. We verified the selected GPU, game version, AVD and Berberis translation mode on each launch.

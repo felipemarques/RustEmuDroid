@@ -1,0 +1,8 @@
+lap,mode,wall_s,probe_cpu_s,qemu_cpu_s,notices,complete,ignored_while_unary_busy,holds_verified,hold_changed,mixed,unknown,notice_to_ready_ms_p50_p95_max
+idle,tiny_inline,3.004905,0.000000,0.734375,1,1,0,0,0,0,1,0.002/0.002/0.002
+moving_preflight,tiny_inline,4.008683,0.062500,6.140625,240,240,0,0,0,0,0,0.002/0.004/0.009
+A1,full_inline,5.001530,1.000000,9.531250,298,298,0,0,0,0,0,0.016/0.039/0.149
+B1,tiny_inline_then_serial_unary_mmap,5.004389,0.312500,9.593750,300,299,0,0,0,0,0,6.308/8.366/10.139
+B2,tiny_inline_then_serial_unary_mmap,5.002305,0.359375,9.234375,300,299,0,0,0,0,0,6.475/8.595/11.666
+A2,full_inline,5.007054,1.000000,11.265625,300,300,0,0,0,0,0,0.017/0.034/0.077
+stress,tiny_inline_then_serial_unary_mmap_with_45ms_hold,5.016318,0.281250,8.218750,300,78,221,78,0,0,0,58.038/66.469/68.764

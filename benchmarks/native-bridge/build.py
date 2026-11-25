@@ -5,9 +5,11 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 from tempfile import TemporaryDirectory
 import zipfile
+import first_use
 
 SOURCE = Path(__file__).resolve().parent
 NAMESPACE = "org.rustemudroid.qa.abicost"
@@ -50,6 +52,7 @@ def main():
     parser.add_argument("--sdk", type=Path, required=True)
     parser.add_argument("--jdk", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--first-use", action="store_true", help="Build the code-traversal workload")
     parser.add_argument("--ndk", default="30.0.14904198")
     parser.add_argument("--build-tools", default="37.0.0")
     parser.add_argument("--platform", default="android-37.0")
@@ -88,12 +91,24 @@ def main():
             "--output", work, *sorted(classes.rglob("*.class")))
         dex = work / "classes.dex"
         dex_hash = digest(dex)
+        c_source = SOURCE / ("first_use.c" if args.first_use else "bench.c")
+        sources = [c_source, SOURCE / "timing.h", SOURCE / "BenchActivity.java"]
+        if args.first_use:
+            first_use.generate(work)
+            sources += [SOURCE / "first_use.py", work / "first_use.inc"]
+        source_hashes = {path.name: digest(path) for path in sources}
         for abi, (target, package, machine) in ABIS.items():
             xml, native, unsigned, aligned = (work / name for name in
                                                ("AndroidManifest.xml", LIBRARY, "unsigned.apk", "aligned.apk"))
             apk = out / f"rust-abicost-{abi}.apk"
             xml.write_text(manifest(package), encoding="utf-8")
-            run(clang, f"--target={target}", f"--sysroot={llvm / 'sysroot'}", *FLAGS, SOURCE / "bench.c", "-o", native)
+            run(clang, f"--target={target}", f"--sysroot={llvm / 'sysroot'}", *FLAGS,
+                "-I", work, c_source, "-o", native)
+            if args.first_use:
+                symbols = run(llvm / "bin" / f"llvm-nm{suffix}", "--defined-only", native)
+                addresses = re.findall(r"^([0-9a-fA-F]+) [tT] leaf_\d+$", symbols, re.M)
+                if len(set(addresses)) != first_use.BANKS * first_use.LEAVES:
+                    raise RuntimeError(f"The linker did not preserve every distinct code address for {abi}")
             header = native.read_bytes()[:20]
             if header[:6] != b"\x7fELF\x02\x01" or int.from_bytes(header[18:20], "little") != machine:
                 raise RuntimeError(f"Unexpected native image for {abi}")
@@ -113,9 +128,10 @@ def main():
                 raise RuntimeError(f"Unexpected APK manifest or ABI for {abi}")
             packages[abi] = {"apk": apk.name, "sha256": digest(apk), "elf_sha256": digest(native),
                              "package": package, "activity": ACTIVITY, "target": target}
-    receipt = {"packages": packages, "golden": GOLDEN, "compiler": run(clang, "--version").splitlines()[0],
+    receipt = {"packages": packages, "golden": first_use.golden() if args.first_use else GOLDEN,
+               "compiler": run(clang, "--version").splitlines()[0],
                "flags": FLAGS, "ndk": args.ndk, "build_tools": args.build_tools, "platform": args.platform,
-               "dex_sha256": dex_hash, "sources": {name: digest(SOURCE / name) for name in ("bench.c", "BenchActivity.java")}}
+               "dex_sha256": dex_hash, "sources": source_hashes}
     path = out / "build-receipt.json"
     path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     print(path)

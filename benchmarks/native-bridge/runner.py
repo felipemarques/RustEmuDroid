@@ -9,6 +9,7 @@ import socket
 from statistics import median
 import subprocess
 import time
+import first_use
 
 from build import ABIS, ACTIVITY, GOLDEN, digest
 
@@ -57,8 +58,9 @@ def collect(args, report):
 
     receipt = args.build_dir / "build-receipt.json"
     build = json.loads(receipt.read_text(encoding="utf-8"))
-    report.update(build_receipt_sha256=digest(receipt), golden=GOLDEN)
-    if build["golden"] != GOLDEN:
+    golden = first_use.golden() if args.first_use else GOLDEN
+    report.update(build_receipt_sha256=digest(receipt), golden=golden)
+    if build["golden"] != golden:
         raise RuntimeError("The build receipt does not match this fixture's workloads")
     for abi, (_, package, _) in ABIS.items():
         apk, record = args.build_dir / f"rust-abicost-{abi}.apk", build["packages"][abi]
@@ -95,14 +97,27 @@ def collect(args, report):
             if len(lines) != 1 or lines[0].startswith("ERROR "):
                 raise RuntimeError(f"Expected one fixture result for {package}: {lines!r}")
             record["result"] = result = json.loads(lines[0])
-            expected = {**GOLDEN, "abi": abi, "package": package, "process_64bit": True,
+            expected = {**golden, "abi": abi, "package": package, "process_64bit": True,
                         "pointer_bits": 64, "sample_columns": COLUMNS}
             if any(result.get(key) != value for key, value in expected.items()):
                 raise RuntimeError(f"ABI, workload or digest mismatch for {package}")
             if result["pid"] in pids or result["pid"] <= 0 or result["tid"] <= 0 or result["pid"] == result["tid"]:
                 raise RuntimeError("Expected a worker thread in a fresh fixture process")
             pids.add(result["pid"])
-            record["statistics"] = dict(validate_samples(result, task, args.samples) for task in ("arithmetic", "memory"))
+            if args.first_use:
+                record["statistics"] = {}
+                for bank in range(first_use.BANKS):
+                    task = f"bank_{bank}"
+                    validate_samples(result, task, args.samples)
+                    first, *repeats = result[task]
+                    record["statistics"][task] = {
+                        "first_wall_ns": first[0], "first_cpu_ns": first[1],
+                        "repeat_median_wall_ns": median(row[0] for row in repeats),
+                        "repeat_median_cpu_ns": median(row[1] for row in repeats),
+                    }
+            else:
+                record["statistics"] = dict(validate_samples(result, task, args.samples)
+                                            for task in ("arithmetic", "memory"))
             print(f"Lap {lap}: {abi}", flush=True)
     finally:
         for package in reversed(attempted):
@@ -146,9 +161,12 @@ def main():
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--samples", type=int, default=7, choices=range(1, 10), metavar="1..9")
+    parser.add_argument("--first-use", action="store_true", help="Use the matching first-traversal APKs")
     parser.add_argument("--quiet-seconds", type=int, default=15, choices=range(5, 121), metavar="5..120")
     parser.add_argument("--execute", action="store_true", help="Install, run and remove the two fixture APKs")
     args = parser.parse_args()
+    if args.first_use and args.samples < 2:
+        parser.error("The first-use workload needs one initial traversal and at least one repeat")
     if not args.adb.is_file() or not re.fullmatch(r"[a-zA-Z0-9._:-]+", args.serial) or args.output.exists():
         parser.error("Provide an existing ADB executable, the exact guest serial and a new output file")
     args.adb = args.adb.resolve()

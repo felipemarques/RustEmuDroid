@@ -53,3 +53,26 @@ The last two columns give the geometric mean of the adjacent ARM64/x86-64 ratios
 The CSV contains 112 samples from eight fresh processes. All samples in the completed sweeps matched their workload digest and recorded zero page faults. A preliminary Android 17 sweep stopped during the second lap when thread CPU exceeded elapsed time by more than the previous 0.100 ms tolerance. Three samples in that sweep had CPU times above elapsed time, with a largest excess of 0.221 ms. We restarted the full sweep using a collector that records the discrepancy. Every sample in the completed sweep reported thread CPU time at or below elapsed time.
 
 The timed loops follow two warmups per task. This setup measures sustained execution of two small JNI workloads. It leaves first-use translation, game loading, rendering and frame pacing outside the measurement. [Per-sample timings](results.csv)
+
+## First use of ARM64 code on Windows
+
+On November 25, 2026, we measured the first visit to each of four groups of 1,024 distinct functions, then revisited each group three times in the same order. The two guests ran sequentially on the same Ryzen 9 8945HS PC. RustEmuDroid 0.18.0 used the Android 17 Google Play x86-64 image. BlueStacks 5.22.166.1003 used a restored Pie64 Android 9 instance. Each guest had four vCPUs and 8 GiB of RAM. The two guests ran the same pair of signed APKs in four fresh processes each (x86-64, ARM64, ARM64, x86-64).
+
+| Guest | App code | First visit (µs) | Repeat (µs) | First thread CPU (µs) | Repeat thread CPU (µs) |
+|---|---|---:|---:|---:|---:|
+| RustEmuDroid, Android 17 | x86-64 | 25.55 | 14.75 | 17.82 | 7.49 |
+| BlueStacks, Android 9 | x86-64 | 32.40 | 9.97 | 31.39 | 9.72 |
+| RustEmuDroid, Android 17 | ARM64 | 1,463.85 | 33.35 | 1,441.93 | 24.88 |
+| BlueStacks, Android 9 | ARM64 | 345.00 | 112.63 | 344.44 | 111.79 |
+
+Each entry covers 1,024 function calls. For a first visit we report the median across eight groups (four per process, two processes per ABI). For a repeat we take the median of the three revisits within each group, then the median across those eight values. The first two timing columns use elapsed wall time. The Android 17 ARM64 first visit took 4.24 times as long as on Pie64. On subsequent visits, the order reversed. Across the eight first ARM64 visits, the worker incurred 1,648 minor page faults on Android 17 and 15 on Pie64. Neither guest recorded a major fault. The timings include translation, dispatch, page faults and the generated code's own execution. This exercise does not identify which of those costs accounts for the difference or how much time PUBG spends on any of them. [Individual visits and fault counts](first-use-results.csv) · [Measured PUBG first Inventory close](../../docs/game-testing.md#pubg-inventory-retest-with-rustemudroid-v0180)
+
+### Reproduce the first-use measurement
+
+Run the build and collection commands above with `--first-use` on **both** commands. Give the build a fresh output directory. Add `--samples 4` to the collector for one first traversal and three repeats, and run it once per guest with a separate JSON destination. Export the results with the command below.
+
+```sh
+python -B benchmarks/native-bridge/export_first_use.py native.json pie64.json --csv first-use-results.csv
+```
+
+The build checks with `llvm-nm` that the 4,096 generated functions have distinct addresses in each library. Every visit follows the same permutation and must return the reference digest for its group. The exporter verifies both guests used the same build receipt and both fixture packages were removed after each run. First use means the first traversal of that group in the process. Persistent caches and guest memory retain their normal behavior across launches. [Generator and reference results](first_use.py) · [Timed traversal](first_use.c)

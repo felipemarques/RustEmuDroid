@@ -1,18 +1,7 @@
 #include <inttypes.h>
-#include <jni.h>
-#include <stdint.h>
+#include "timing.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/resource.h>
-#include <time.h>
-
-#if defined(__aarch64__)
-#define BENCH_ABI "arm64-v8a"
-#elif defined(__x86_64__)
-#define BENCH_ABI "x86_64"
-#else
-#error Unsupported benchmark ABI
-#endif
 
 #define ARITHMETIC_ROUNDS UINT32_C(6000000)
 #define MEMORY_ROUNDS UINT32_C(1048576)
@@ -20,14 +9,6 @@
 #define SEED UINT64_C(0x34199a4dbe31f47a)
 #define WARMUPS 2
 #define MAX_SAMPLES 9
-
-static uint64_t now_ns(clockid_t clock) {
-    struct timespec stamp;
-    if (clock_gettime(clock, &stamp) != 0) {
-        return 0;
-    }
-    return (uint64_t)stamp.tv_sec * UINT64_C(1000000000) + (uint64_t)stamp.tv_nsec;
-}
 
 __attribute__((noinline))
 static uint64_t arithmetic(uint64_t state) {
@@ -69,41 +50,14 @@ static void cycle(uint32_t *next, uint32_t *order) {
     }
 }
 
-struct sample {
-    uint64_t wall_ns;
-    uint64_t cpu_ns;
-    uint64_t digest;
-    long minor_faults;
-    long major_faults;
-};
-
 static struct sample trial(const uint32_t *next, int task) {
     uint64_t seed = task == 0 ? SEED : 0;
-    struct rusage usage_start, usage_end;
-    int usage_ok = getrusage(RUSAGE_THREAD, &usage_start) == 0;
-    uint64_t wall_start = now_ns(CLOCK_MONOTONIC);
-    uint64_t cpu_start = now_ns(CLOCK_THREAD_CPUTIME_ID);
+    struct sample_start start = begin_sample();
     // Keep the workload between the clock reads, including when every trial uses the same seed.
     __asm__ __volatile__("" : "+r"(seed) : : "memory");
     uint64_t digest = task == 0 ? arithmetic(seed) : indexed(next, (uint32_t)seed);
     __asm__ __volatile__("" : "+r"(digest) : : "memory");
-    uint64_t cpu_end = now_ns(CLOCK_THREAD_CPUTIME_ID);
-    uint64_t wall_end = now_ns(CLOCK_MONOTONIC);
-    usage_ok = getrusage(RUSAGE_THREAD, &usage_end) == 0 && usage_ok;
-    if (!wall_start || !cpu_start || cpu_end <= cpu_start || wall_end <= wall_start) {
-        return (struct sample){0, 0, digest, -1, -1};
-    }
-    return (struct sample){wall_end - wall_start, cpu_end - cpu_start, digest,
-        usage_ok ? usage_end.ru_minflt - usage_start.ru_minflt : -1,
-        usage_ok ? usage_end.ru_majflt - usage_start.ru_majflt : -1};
-}
-
-static jstring error(JNIEnv *env, const char *message) {
-    jclass exception = (*env)->FindClass(env, "java/lang/IllegalStateException");
-    if (exception) {
-        (*env)->ThrowNew(env, exception, message);
-    }
-    return NULL;
+    return end_sample(&start, digest);
 }
 
 JNIEXPORT jstring JNICALL Java_org_rustemudroid_qa_abicost_BenchActivity_measure(
