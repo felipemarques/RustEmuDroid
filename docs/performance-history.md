@@ -2,6 +2,8 @@
 
 **November 25, 2026.** The first RustEmuDroid prototype delivered **45.86 FPS** in SuperTuxKart's Black Forest replay. By the end of the initial v0.1.0 integration, it reached **59.98 FPS** on the Original preset, alongside Kemu at **59.90**. At High quality and 90 Hz, the Rust frontend later reached **90.02 FPS** with Kemu's Android 16 image and engine. In the new v0.21.1 comparison the Android 17 Google Play profile delivered **85.62 FPS**, alongside **90.02 for Kemu** and **89.99 for BlueStacks**. [Português brasileiro](performance-history.pt-BR.md) · [Portuguese PDF](../output/pdf/comparativo-de-desempenho-2026-11-25.pdf)
 
+With the same **v0.21.1 Rust window** and a separately rebuilt Android engine, a Windows virtual clock fix improved the game from **85.65 to 87.46 FPS (+2.11%)** in four cold-boot replays. Android presentation gaps over 16.667 ms fell from **5.08% to 3.18%**. The release still ships with its regular runtime setup. [Per-lap results and frame traces](../benchmarks/stk-1.5/windows-whpx-clock-kart.md)
+
 ## SuperTuxKart from the first prototype through v0.21.1
 
 One Windows PC with a Ryzen 9 8945HS and GeForce RTX 5070 Ti ran SuperTuxKart 1.5's built-in Black Forest replay at a guest resolution of 1600 × 900. The table reports **game FPS** from the game's frame count and full replay duration.
