@@ -76,3 +76,5 @@ The actual GPU was the RTX 5070 Ti in both sessions. In a separate paired test, 
 In the SDK's two instrumented replays, the highlighted four seconds contained **76 of 148** and **88 of 144** long game frames. In the two Kemu replays they contained **0 of 3** and **0 of 1**. These windows were selected after observing the traces. They give a specific part of the replay in which to test a change.
 
 Each point uses one complete second of accumulated game-loop time. Frames belong to the bin in which they start. Each line is the average of the two runs' mean render-thread CPU times for `generate` within that second. The colored band spans the two observed values. All four runs covered 38 complete seconds. The guest game and its thread supply both measurements. [Recreate the figure from the archived replays](plot-draw-timeline.py)
+
+A separate native Android probe timed CPU writes into the memory types available for the same Vulkan buffer usage. It records the cost for each type and write pattern independently of the game. [Mapped-buffer measurements](windows-vulkan-mapped-writes.md)

@@ -6,3 +6,6 @@ benchmarks/stk-1.5/*.patch text eol=lf whitespace=-blank-at-eol,-blank-at-eof
 
 # Preserve the exact bytes and internal offsets of downloadable reports.
 output/pdf/*.pdf binary
+
+# Retain byte-identical ADB stdout, including the measured Windows line endings.
+benchmarks/stk-1.5/windows-mapped-writes-*.tsv -text whitespace=cr-at-eol
