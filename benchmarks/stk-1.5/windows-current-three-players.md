@@ -30,3 +30,21 @@ The earlier matched Rust control was v0.18.1. Kemu and BlueStacks used the same 
 A first Rust QA launch was discarded before gameplay because its window was not in foreground. The retry used the released binary and the previously verified private AVD. The BlueStacks run used the official player with a separate Pie64 clone. Cleanup restored the player settings, removed the QA APKs and returned to the single habitual Android 17 Home.
 
 [Data, hashes and exact per-replay metrics](windows-current-three-players.json)
+
+## Where the longer game frames spent time
+
+At 90 Hz, a refresh period is 11.111 ms. We counted intervals longer than 1.5 periods (16.667 ms, tested before rounding) in the full game replay and, independently, between Android SurfaceView presentations in the sampled race segment. Counts are shown separately for each replay. They do not identify the same individual frames across the two timelines.
+
+| Player | Long game loops / all loops, replay 1 | Replay 2 | Long Android intervals / all intervals, replay 1 | Replay 2 |
+|---|---:|---:|---:|---:|
+| RustEmuDroid, Android 17 | 96 / 3,265 | 105 / 3,254 | 92 / 1,709 | 100 / 1,702 |
+| Kemu Qt, Android 16 | 1 / 3,432 | 1 / 3,432 | 0 / 1,799 | 0 / 1,801 |
+| BlueStacks, Android 9 | 4 / 3,431 | 3 / 3,431 | 0 / 1,802 | 1 / 1,799 |
+
+Within each **Rust** replay, we compared the mean scope durations of game loops above that threshold with the means of the other loops. The main loop grew by **7.10 and 7.62 ms** and the nested `drawAll() for kart 0` scope grew by **7.70 and 8.08 ms**. Other scopes partly offset that increase. In particular, `VK endScene acquire` **shrank by 2.03 and 1.78 ms**. The race-update scope grew by **0.47 and 0.49 ms**. The game profiler measures elapsed time on the calling thread, including waits and descheduling. Measurements inside scene traversal and draw preparation are needed to separate those effects from active CPU work. [Renderer scopes and what they include](vulkan-end-scene.md) · [Source of the Vulkan scene traversal](https://github.com/supertuxkart/stk-code/blob/1fb491f507216c5d181ccd85f29ff08eca003827/lib/graphics_engine/src/ge_vulkan_scene_manager.cpp#L156-L186)
+
+The archive contains the six game traces reduced to the six relevant columns in microseconds, and all six Android presentation traces in nanoseconds relative to the first presentation of each sample. The export checked game counts, whole-loop times and the source CSV hashes against the original receipts. The Android series reproduced the published sample counts and P99 values. From this directory, run the following command with Python 3.10 or newer. [Measurement archive](windows-current-three-frame-times.zip) · [Analyzer](summarize-long-frames.py)
+
+```sh
+python summarize-long-frames.py windows-current-three-frame-times.zip --hz 90
+```
