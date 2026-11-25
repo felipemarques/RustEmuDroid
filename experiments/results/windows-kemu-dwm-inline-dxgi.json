@@ -1,0 +1,266 @@
+{
+  "scope": "One additional DWM and one RTX inline replay, single QA boot. See original benchmark for window/guest context.",
+  "capture": {
+    "adapter": "NVIDIA GeForce RTX 5070 Ti",
+    "display_px": [
+      1920,
+      1080
+    ],
+    "nominal_display_hz": 100,
+    "guest_px": [
+      1600,
+      900
+    ],
+    "guest_mode_hz": 90,
+    "sampled_scanlines_per_region": 12,
+    "minimum_changed_sites": 6,
+    "channel_delta_threshold": 4,
+    "timestamp_scope": "QPC relative to a fixed measurement window, from global desktop LastPresentTime",
+    "visible_change_classification": "Compare sampled RGB against the previous acquired frame per crop."
+  },
+  "artifact_sha256": {
+    "dwm_official_actions": "5b409c17d8a847f99c9fabea62631e6600080b02d1f4bb987963871ee9ff8875",
+    "glow_release_binary": "a1890271e71d607aeaa3019536ad13b4e97a049d7a7765793a8aeb02d76961ee",
+    "desktop_duplication_reader": "e3e2b5e6231629a84f619148129dc66216b67d8da0bbec96c13b7adb6f081e4e",
+    "qa_apk": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e"
+  },
+  "calibration": [
+    {
+      "method": "GDI and DWM thumbnails, unsynchronized paints",
+      "measurement_duration_s": 10,
+      "eligible_desktop_updates": 548,
+      "desktop_updates_superseded": 11,
+      "desktop_updates_superseded_fraction": 0.01967799642218247,
+      "coalesced_rect_metadata_count": 0,
+      "cursor_only_updates": 0,
+      "acquire_timeouts": 71,
+      "reference_from_warmup": true,
+      "staged_bytes_per_desktop_update": 46080,
+      "processing_p50_ms": 0.592,
+      "processing_p95_ms": 10.302,
+      "sampler_cpu_ms_per_second_inclusive_of_warmup": 110.79545454545455,
+      "max_gap_between_desktop_updates_ms": 179.1984,
+      "regions": {
+        "source": {
+          "exact_rgb_updates": 387,
+          "exact_rgb_updates_per_second": 38.7,
+          "material_updates": 387,
+          "material_updates_per_second": 38.7
+        },
+        "destination": {
+          "exact_rgb_updates": 391,
+          "exact_rgb_updates_per_second": 39.1,
+          "material_updates": 391,
+          "material_updates_per_second": 39.1
+        }
+      },
+      "fixture_updates": 420,
+      "basic_calibration_passed": false,
+      "same_acquisition_material_change_counts": {
+        "both": 386,
+        "source_only": 1,
+        "destination_only": 5,
+        "neither": 156
+      }
+    },
+    {
+      "method": "GDI and DWM thumbnails, DwmFlush",
+      "measurement_duration_s": 10,
+      "eligible_desktop_updates": 511,
+      "desktop_updates_superseded": 15,
+      "desktop_updates_superseded_fraction": 0.028517110266159697,
+      "coalesced_rect_metadata_count": 0,
+      "cursor_only_updates": 0,
+      "acquire_timeouts": 86,
+      "reference_from_warmup": true,
+      "staged_bytes_per_desktop_update": 46080,
+      "processing_p50_ms": 0.589,
+      "processing_p95_ms": 10.394,
+      "sampler_cpu_ms_per_second_inclusive_of_warmup": 93.75,
+      "max_gap_between_desktop_updates_ms": 170.2444,
+      "regions": {
+        "source": {
+          "exact_rgb_updates": 374,
+          "exact_rgb_updates_per_second": 37.4,
+          "material_updates": 374,
+          "material_updates_per_second": 37.4
+        },
+        "destination": {
+          "exact_rgb_updates": 381,
+          "exact_rgb_updates_per_second": 38.1,
+          "material_updates": 381,
+          "material_updates_per_second": 38.1
+        }
+      },
+      "fixture_updates": 420,
+      "basic_calibration_passed": false,
+      "same_acquisition_material_change_counts": {
+        "both": 374,
+        "source_only": 0,
+        "destination_only": 7,
+        "neither": 130
+      }
+    },
+    {
+      "method": "Both regions in the same GDI paint, DwmFlush",
+      "measurement_duration_s": 10,
+      "eligible_desktop_updates": 468,
+      "desktop_updates_superseded": 9,
+      "desktop_updates_superseded_fraction": 0.018867924528301886,
+      "coalesced_rect_metadata_count": 0,
+      "cursor_only_updates": 0,
+      "acquire_timeouts": 77,
+      "reference_from_warmup": true,
+      "staged_bytes_per_desktop_update": 46080,
+      "processing_p50_ms": 0.674,
+      "processing_p95_ms": 10.33,
+      "sampler_cpu_ms_per_second_inclusive_of_warmup": 92.32954545454545,
+      "max_gap_between_desktop_updates_ms": 169.7192,
+      "regions": {
+        "source": {
+          "exact_rgb_updates": 346,
+          "exact_rgb_updates_per_second": 34.6,
+          "material_updates": 346,
+          "material_updates_per_second": 34.6
+        },
+        "destination": {
+          "exact_rgb_updates": 346,
+          "exact_rgb_updates_per_second": 34.6,
+          "material_updates": 346,
+          "material_updates_per_second": 34.6
+        }
+      },
+      "atomic_qa_crops": true,
+      "fixture_updates": 350,
+      "basic_calibration_passed": true,
+      "same_acquisition_material_change_counts": {
+        "both": 345,
+        "source_only": 1,
+        "destination_only": 1,
+        "neither": 121
+      }
+    }
+  ],
+  "runs": [
+    {
+      "mode": "DWM",
+      "preview": {
+        "pixel_transport": "DWM thumbnail of visible Qt game child"
+      },
+      "game": {
+        "profiler_frames": 3432,
+        "profiler_duration_ms": 38125,
+        "profiler_fps": 90.01967213114754
+      },
+      "desktop_duplication": {
+        "measurement_duration_s": 14,
+        "eligible_desktop_updates": 1285,
+        "desktop_updates_superseded": 5,
+        "desktop_updates_superseded_fraction": 0.003875968992248062,
+        "coalesced_rect_metadata_count": 0,
+        "cursor_only_updates": 0,
+        "acquire_timeouts": 3,
+        "reference_from_warmup": true,
+        "staged_bytes_per_desktop_update": 83376,
+        "processing_p50_ms": 0.597,
+        "processing_p95_ms": 2.347,
+        "sampler_cpu_ms_per_second_inclusive_of_warmup": 120.83333333333333,
+        "max_gap_between_desktop_updates_ms": 26.6592,
+        "regions": {
+          "source": {
+            "exact_rgb_updates": 1255,
+            "exact_rgb_updates_per_second": 89.64285714285714,
+            "material_updates": 1255,
+            "material_updates_per_second": 89.64285714285714
+          },
+          "destination": {
+            "exact_rgb_updates": 1255,
+            "exact_rgb_updates_per_second": 89.64285714285714,
+            "material_updates": 1255,
+            "material_updates_per_second": 89.64285714285714
+          }
+        },
+        "sampler_launch_seconds_after_game_start_returned": 11.163535700005013,
+        "source_and_destination_crop_dimensions_px": [
+          [
+            842,
+            474
+          ],
+          [
+            895,
+            504
+          ]
+        ],
+        "same_acquisition_material_change_counts": {
+          "both": 1255,
+          "source_only": 0,
+          "destination_only": 0,
+          "neither": 30
+        }
+      }
+    },
+    {
+      "mode": "Inline RGBA + Glow",
+      "preview": {
+        "wgl_renderer": "NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2",
+        "pixel_transport": "inline RGBA through Python and Glow"
+      },
+      "game": {
+        "profiler_frames": 3420,
+        "profiler_duration_ms": 38126,
+        "profiler_fps": 89.70256517861827
+      },
+      "desktop_duplication": {
+        "measurement_duration_s": 14,
+        "eligible_desktop_updates": 1249,
+        "desktop_updates_superseded": 147,
+        "desktop_updates_superseded_fraction": 0.10530085959885387,
+        "coalesced_rect_metadata_count": 0,
+        "cursor_only_updates": 0,
+        "acquire_timeouts": 1,
+        "reference_from_warmup": true,
+        "staged_bytes_per_desktop_update": 83424,
+        "processing_p50_ms": 3.033,
+        "processing_p95_ms": 11.48,
+        "sampler_cpu_ms_per_second_inclusive_of_warmup": 428.125,
+        "max_gap_between_desktop_updates_ms": 30.7151,
+        "regions": {
+          "source": {
+            "exact_rgb_updates": 1146,
+            "exact_rgb_updates_per_second": 81.85714285714286,
+            "material_updates": 1146,
+            "material_updates_per_second": 81.85714285714286
+          },
+          "destination": {
+            "exact_rgb_updates": 1046,
+            "exact_rgb_updates_per_second": 74.71428571428571,
+            "material_updates": 1046,
+            "material_updates_per_second": 74.71428571428571
+          }
+        },
+        "sampler_launch_seconds_after_game_start_returned": 11.254741800003103,
+        "source_and_destination_crop_dimensions_px": [
+          [
+            842,
+            474
+          ],
+          [
+            896,
+            504
+          ]
+        ],
+        "same_acquisition_material_change_counts": {
+          "both": 952,
+          "source_only": 194,
+          "destination_only": 94,
+          "neither": 9
+        }
+      }
+    }
+  ],
+  "interpretation": {
+    "dwm_evidence": "Both regions changed in the same acquired desktop images during this race.",
+    "inline_comparison": "The magnitude of the rate difference is inconclusive because inline suffered more unavailable desktop images and sampler overhead.",
+    "physical_scanout_measured": false
+  }
+}

@@ -47,3 +47,18 @@ A static Home check established that the Qt crop agreed with Android's framebuff
 In a separate replay, the foreground DWM preview completely covered the Qt render child, which remained restored at the same position. A short independent 320×180 Android stream supplied time-neighbor reference frames for two desktop snapshots. The destination matched with correlations **0.98157** and **0.97303** and mean RGB errors **4.06** and **5.03**. The two destination snapshots differed by **28.51** on the same scale and their sampled interiors contained zero near-black pixels. This demonstrates that the preview can continue displaying the running game while its own window covers the Qt game area. The prototype still depends on a live Qt source window and this check covers one machine and renderer.
 
 The pixel metric is evaluated over the interior of bilinearly normalized 256×144 RGB crops. The data retains the exclusion reasons for the preliminary attempts. [DWM attachment and reproduction steps](../dwm-native-viewer/README.md)
+
+## Observed changes in the Windows preview
+
+A separate two-replay check acquired the same 100 Hz RTX desktop for both side-by-side game regions. It used the official Windows DWM viewer from the v0.21.0 Actions artifact for the DWM run and the RTX-selected Glow build for inline. Each Windows capture covered a fixed 14-second interval within the Black Forest race at 90 Hz in Android. Desktop Duplication exposed the latest composed image and its QPC timestamp. The reader compared 12 scanlines per region against the previous acquisition, counting changes when at least six sampled pixels changed by four or more in any RGB channel. It retained only numeric counts. [DXGI calibration and replay data](windows-kemu-dwm-inline-dxgi.json)
+
+| Preview | Qt source changes/s | Preview changes/s | Desktop updates acquired | Desktop updates superseded | Sampler CPU (ms/s) | Readback processing P95 (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| DWM | 89.64 | 89.64 | 1,285 | 5 (0.39%) | 120.8 | 2.35 |
+| Inline RGBA + Glow | 81.86 | 74.71 | 1,249 | 147 (10.53%) | 428.1 | 11.48 |
+
+In the DWM run, 1,255 separate acquisitions showed changes in both regions, with 0 Qt-only and 0 preview-only. The inline run had 952 acquisitions with both changing, 194 Qt-only and 94 preview-only.
+
+The atomic calibration painted both regions in the same window at 50 updates/s during the animated section. It observed **346 changes in each crop across 350 submitted paints** and recorded **9 superseded desktop updates across 477**. Earlier tests with separately composed GDI and DWM windows differed by four and seven changes per ten seconds. Those tests could not distinguish capture error from different composition behavior between the two windows.
+
+Superseded updates are global to the monitor. A missed image can contain zero, one, or both region updates. These rates count sampled visible changes, including the effects of the preview and Windows compositor, and omit repeated or missed imagery. The lower-bound observations cover one run per transport. The inline run's 10.53% unavailable desktop updates and higher sampler cost leave the magnitude of the difference uncertain. The readback P95 was near one 10 ms refresh in the atomic fixture. The game rows report the observed readback cost and capture loss separately. [Microsoft Desktop Duplication frame metadata](https://learn.microsoft.com/windows/win32/api/dxgi1_2/ns-dxgi1_2-dxgi_outdupl_frame_info)
