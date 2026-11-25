@@ -1,0 +1,200 @@
+{
+  "conditions": {
+    "source": "120-frame loop of the SuperTuxKart Black Forest replay",
+    "input_rgba_px": [
+      640,
+      360
+    ],
+    "physical_client_px": [
+      1040,
+      585
+    ],
+    "source_target_hz": 90,
+    "monitor_resolution_px": [
+      1920,
+      1080
+    ],
+    "monitor_refresh_hz": 100,
+    "render_and_output_adapter": "AMD Radeon 780M Graphics",
+    "window_dpi": 96,
+    "order": "Glow, GPUI, GPUI, Glow"
+  },
+  "binary_sha256": {
+    "glow": "a1890271e71d607aeaa3019536ad13b4e97a049d7a7765793a8aeb02d76961ee",
+    "gpui": "8416a02f2c991b921aa34b8a6b8c5d6a70176d544a550efb811e3b9fd175778b"
+  },
+  "source_sha256": "a333c7b1a2f9502ee67654031dcce6b3588ef0c843ab27d46fe2eb0349cb17a5",
+  "presentmon_sha256": "e57a2f8ee1de1ef1a5516d875f1b115e881943cd729fe9c5a2f88b1dc79a8a3b",
+  "observation": {
+    "source_paint_seconds": 16,
+    "etw_seconds": 11,
+    "etw_offset_from_source_start_seconds": 6.75,
+    "etw_time": "Windows QPC relative to the viewer start marker",
+    "paint_counts": "distinct source sequence accepted by each viewer's drawing callback",
+    "etw_counts": "attributed process presents and display-start events, independent of source sequences"
+  },
+  "runs": [
+    {
+      "backend": "glow",
+      "presentation": {
+        "runtime": "Other",
+        "identified_swapchain": false,
+        "present_modes_in_window": {
+          "Composed: Copy with GPU GDI": 899
+        },
+        "brackets_analysis_window": true,
+        "present_count": 899,
+        "present_events_per_s": 81.72727272727273,
+        "present_gap_p99_ms": 27.82000000000062,
+        "dropped_presents_in_submission_window": 0,
+        "presents_without_verified_display_timing": 0,
+        "present_rows_with_display_start_in_window": 899,
+        "distinct_etw_display_starts_in_window": 897,
+        "etw_display_starts_per_s": 81.54545454545455,
+        "etw_display_start_gap_p99_ms": 29.901099999999133
+      },
+      "paint": {
+        "processed": 1404,
+        "processed_fps": 87.75,
+        "produced": 1440,
+        "replaced": 36,
+        "late_slots": 0,
+        "duplicates": 0,
+        "elapsed_seconds": 16.0,
+        "latency_ms": {
+          "max": 11.8635,
+          "mean": 5.660351851851856,
+          "p50": 5.711,
+          "p95": 10.0341
+        }
+      }
+    },
+    {
+      "backend": "gpui",
+      "presentation": {
+        "runtime": "DXGI",
+        "identified_swapchain": true,
+        "present_modes_in_window": {
+          "Composed: Flip": 783
+        },
+        "brackets_analysis_window": true,
+        "present_count": 783,
+        "present_events_per_s": 71.18181818181819,
+        "present_gap_p99_ms": 30.423099999999977,
+        "dropped_presents_in_submission_window": 4,
+        "presents_without_verified_display_timing": 0,
+        "present_rows_with_display_start_in_window": 779,
+        "distinct_etw_display_starts_in_window": 779,
+        "etw_display_starts_per_s": 70.81818181818181,
+        "etw_display_start_gap_p99_ms": 30.022800000002462
+      },
+      "paint": {
+        "processed": 1406,
+        "processed_fps": 87.875,
+        "produced": 1440,
+        "replaced": 34,
+        "late_slots": 0,
+        "duplicates": 0,
+        "elapsed_seconds": 16.0,
+        "latency_ms": {
+          "mean": 5.755884779516362,
+          "p50": 5.8707,
+          "p95": 9.8703,
+          "max": 12.4036
+        }
+      }
+    },
+    {
+      "backend": "gpui",
+      "presentation": {
+        "runtime": "DXGI",
+        "identified_swapchain": true,
+        "present_modes_in_window": {
+          "Composed: Flip": 783
+        },
+        "brackets_analysis_window": true,
+        "present_count": 783,
+        "present_events_per_s": 71.18181818181819,
+        "present_gap_p99_ms": 33.0653999999995,
+        "dropped_presents_in_submission_window": 3,
+        "presents_without_verified_display_timing": 0,
+        "present_rows_with_display_start_in_window": 781,
+        "distinct_etw_display_starts_in_window": 781,
+        "etw_display_starts_per_s": 71.0,
+        "etw_display_start_gap_p99_ms": 30.03269999999975
+      },
+      "paint": {
+        "processed": 1404,
+        "processed_fps": 87.75,
+        "produced": 1440,
+        "replaced": 36,
+        "late_slots": 0,
+        "duplicates": 0,
+        "elapsed_seconds": 16.0,
+        "latency_ms": {
+          "mean": 5.74500584045584,
+          "p50": 5.9252,
+          "p95": 9.739899999999999,
+          "max": 11.642100000000001
+        }
+      }
+    },
+    {
+      "backend": "glow",
+      "presentation": {
+        "runtime": "Other",
+        "identified_swapchain": false,
+        "present_modes_in_window": {
+          "Composed: Copy with GPU GDI": 916
+        },
+        "brackets_analysis_window": true,
+        "present_count": 916,
+        "present_events_per_s": 83.27272727272727,
+        "present_gap_p99_ms": 27.284099999998944,
+        "dropped_presents_in_submission_window": 0,
+        "presents_without_verified_display_timing": 0,
+        "present_rows_with_display_start_in_window": 915,
+        "distinct_etw_display_starts_in_window": 915,
+        "etw_display_starts_per_s": 83.18181818181819,
+        "etw_display_start_gap_p99_ms": 20.394899999999325
+      },
+      "paint": {
+        "processed": 1394,
+        "processed_fps": 87.125,
+        "produced": 1440,
+        "replaced": 46,
+        "late_slots": 0,
+        "duplicates": 0,
+        "elapsed_seconds": 16.0,
+        "latency_ms": {
+          "max": 11.5275,
+          "mean": 5.482324533715927,
+          "p50": 5.7325,
+          "p95": 9.9591
+        }
+      }
+    }
+  ],
+  "pooled": {
+    "glow": {
+      "painted_source_sequences_per_s": 87.4375,
+      "etw_present_events_per_s": 82.5,
+      "etw_attributed_display_starts_per_s": 82.36363636363636,
+      "etw_dropped_submissions": 0
+    },
+    "gpui": {
+      "painted_source_sequences_per_s": 87.8125,
+      "etw_present_events_per_s": 71.18181818181819,
+      "etw_attributed_display_starts_per_s": 70.9090909090909,
+      "etw_dropped_submissions": 7
+    }
+  },
+  "release_tag": "gpui-lab-v0.1.1",
+  "release_revision": "5bab874472463db5732087d4c0ffeb23181d7ac4",
+  "release_url": "https://github.com/felipemarques/RustEmuDroid/releases/tag/gpui-lab-v0.1.1",
+  "release_ci_run": "https://github.com/felipemarques/RustEmuDroid/actions/runs/45628469031",
+  "release_archive_name": "gpui-lab-v0.1.1-windows-x86_64.zip",
+  "release_archive_sha256": "bff02e1f9227fafe9f80cb958ebde0cac333d67b9ba15f4825681ae4394e209f",
+  "trace_cli": "PresentMon portable console v1.10.0",
+  "scope": "Both standalone viewer executables are byte-identical to their members in the same official Windows ZIP. The fixture is replayed from disk. Counts cover distinct painted source sequences or ETW window events; physical scanout was outside the experiment."
+}

@@ -2,6 +2,8 @@
 
 This lab compares two ways of drawing Android frames in a Rust desktop window. The Glow viewer uses the same OpenGL texture uploader as RustEmuDroid. The GPUI viewer uses Direct3D 11 on Windows. Both accept the same RGBA frames, keep at most one pending frame and fit the image to the window. You can run the comparison without starting an emulator. [GPUI](https://www.gpui.rs/) · [Glow uploader](../src/display/native_texture.rs)
 
+To try a prebuilt package, extract the archive, open a terminal in the extracted folder and run `.\gpui-viewer.exe --demo` on Windows or `./gpui-viewer --demo` on Linux. Both release archives contain the two viewers and the optional Python tools. Windows received an interactive desktop test. Linux received build, test and CLI checks on Ubuntu 24.04. [Download lab v0.1.1 for Windows or Linux](https://github.com/felipemarques/RustEmuDroid/releases/tag/gpui-lab-v0.1.1)
+
 ## Try the viewers on Windows
 
 From the repository root, build the two independent executables with stable Rust, the Visual Studio C++ tools and the Windows SDK. The first GPUI build also compiles its graphics dependencies. Run these commands in PowerShell.
@@ -62,5 +64,7 @@ On the kart input the mean difference was 0.08 frames/s, smaller than the spread
 We repeated both comparisons with the release-mode binaries that include the interactive demo and physical-pixel sizing. The timing mode kept the overlay closed. On the kart clip GPUI processed **86.75 frames/s** and Glow **85.17**. On the 900p input the order reversed, with **85.96** for GPUI and **87.71** for Glow. Peak process working sets for the kart clip were 57.5 and 112.4 MiB, respectively. Each JSON includes the executable hashes and individual passes. [Kart repeat](results/windows-radeon780m-stk-release.json) · [900p repeat](results/windows-radeon780m-synthetic-release.json)
 
 A separate four-pass PresentMon run on the 100 Hz display recorded a larger difference later in the pipeline. With the kart clip, Windows attributed **70.55 presentation events/s to GPUI** and **83.45 to Glow**. Their paint callbacks had both accepted about 85.4 different source frames/s over the longer observation window. ETW identifies submissions and display timings; it cannot associate each event with a particular source image. The GPU, client area, monitor and process attribution were verified for every pass. [Windows presentation measurements](results/windows-viewers-stk-presentmon.md)
+
+We then repeated the trace with both executables extracted from the published **v0.1.1 Windows ZIP**. GPUI and Glow accepted **87.81 and 87.44 different source frames/s**, respectively. Windows recorded **71.18 GPUI and 82.50 Glow presentation events/s**. These measurements reproduce the direction of the first trace using the binaries available for download. [Release trace and archive hash](results/windows-viewers-stk-presentmon-release.json)
 
 The remaining transport question is how much the native rendering surface costs to show directly in the desktop window. Kemu already creates a child Vulkan surface in its Qt window. Both lab viewers still receive CPU-visible RGBA and upload it to their GPU. The measurements favour testing that handoff before migrating desktop frameworks. [Kemu and Rust rendering paths](../benchmarks/stk-1.5/vulkan-end-scene.md#how-the-kemu-and-rust-windows-receive-game-frames)
