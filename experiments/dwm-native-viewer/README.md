@@ -4,6 +4,30 @@ This experiment asks whether Desktop Window Manager can show the existing Qt/Kem
 
 The shipping embedded player starts the emulator with its own window hidden or disabled and receives frames over gRPC. The lab needs a visible, restored Qt source window on the same Windows desktop. The viewer accepts Escape to close. The source emulator retains control of the game. [Native session startup](../../src/android.rs) · [Microsoft DWM thumbnails](https://learn.microsoft.com/en-us/windows/win32/dwm/thumbnail-ovw)
 
+## Play through the DWM preview
+
+The interactive Windows test uses the Rust client's input handling with a DWM thumbnail. Click or drag inside the fitted picture, use the active game's saved keyboard/gamepad scheme, or scroll the RustEmuDroid Android Home. The window can be resized. The test takes one full-resolution Android screenshot to establish its initial size and orientation. DWM supplies subsequent game images. Keep the guest in its initial orientation during the test.
+
+From the repository root, select an existing, visible Qt Android Emulator running a test AVD. Supply its QEMU PID, the absolute AVD directory and the same ADB executable used by the emulator. For a private ADB server, keep its server environment in this shell.
+
+```powershell
+$qtPid = [int](Read-Host 'PID of the selected qemu-system-x86_64.exe')
+$env:RUSTEMUDROID_DWM_PID = "$qtPid"
+$env:RUSTEMUDROID_DWM_CREATION = (Get-Process -Id $qtPid).StartTime.ToUniversalTime().ToFileTimeUtc().ToString()
+$env:RUSTEMUDROID_TEST_AVD = (Resolve-Path (Read-Host 'Path to the running .avd directory')).Path
+$env:RUSTEMUDROID_TEST_ADB = (Get-Command adb.exe -ErrorAction Stop).Source
+$env:RUSTEMUDROID_DWM_SECONDS = '90'
+cargo test --locked --release --features ui play_qt_android_through_dwm -- --ignored --nocapture
+```
+
+The test matches the AVD and console against QEMU's per-process registration and checks the process creation time and render child. It copies existing control profiles into temporary storage. The `dwm_trace` lines identify the attached process and windows, report the fitted rectangle in physical client pixels when it changes, and record viewport focus, keyboard and pointer routing, touch coordinates and each controller reply. The trace uses host timestamps so an input operator can align its logs with the fixture. Successful replies show that the emulator controller accepted the calls. Confirm that a game or Android itself observed the action independently. The Qt emulator keeps running after the preview closes. Game FPS, input latency, recording and overlay editing require their own checks. [Interactive fixture](../../src/display/dwm_input_lab.rs)
+
+### Verified on Android 17 SDK with a visible Qt window
+
+A Windows mouse click in the 800 × 450 fitted preview opened **Network & internet**. The Android foreground activity and accessibility hierarchy confirmed the transition. In a separate run, the cropped preview matched the Device Info screen before and after resizing from 800 × 450 to 856 × 482. Escape returned to the Android Home, and Qt remained active after the preview closed.
+
+The earlier resize run used the original aggregate counter and reported two successful input RPCs. The touchscreen observer recorded no contacts during the separate direct tap, saved `P` mapping and post-resize drag attempts in that run. Those three attempts remain unverified. A new pass can compare the typed replies with an independent touchscreen observer. Wait for the selected device's `add device` line from `adb shell getevent -l -t -v <event-node>` before sending a touch. If automating Windows input, record the actual cursor position and foreground window and check the number of events `SendInput` inserted. [Android getevent source](https://android.googlesource.com/platform/system/core/+/refs/heads/main/toolbox/getevent.c) · [Windows SendInput](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput)
+
 ## Build and smoke test
 
 For a prebuilt executable, open a successful **Desktop builds** run for v0.21.0 or later, download the **Windows-DWM-viewer** artifact and extract it. In a PowerShell window in that folder, run `.\dwm-native-viewer.exe --smoke --width 640 --height 360 --warmup 0 --seconds 5`. The test opens a source window and a preview for five seconds. [Desktop builds](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml)

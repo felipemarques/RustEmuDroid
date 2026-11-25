@@ -1,5 +1,7 @@
 //! Android Emulator's EmulatorController protocol (the subset used by this view).
 mod adaptive_video;
+#[cfg(all(test, windows))]
+mod dwm_input_lab;
 #[cfg(test)]
 mod live_input_test;
 pub(crate) mod mapping;
@@ -189,22 +191,18 @@ struct Shared {
     error: Option<String>,
 }
 
-async fn stream(
+async fn open_controller(
     console: u16,
     rpc: u16,
-    avd: PathBuf,
-    ctx: egui::Context,
-    state: Arc<Mutex<Shared>>,
-    mut input: mpsc::UnboundedReceiver<Input>,
-    tilt: tilt::Worker,
-    video_requests: watch::Receiver<adaptive_video::Request>,
-) -> DisplayResult<()> {
+    avd: &Path,
+    input: &mpsc::UnboundedReceiver<Input>,
+) -> DisplayResult<Option<(Channel, MetadataValue<Ascii>)>> {
     let deadline = Instant::now() + Duration::from_secs(90);
     let token = loop {
         if input.is_closed() {
-            return Ok(());
+            return Ok(None);
         }
-        if let Some(token) = credentials(console, rpc, &avd) {
+        if let Some(token) = credentials(console, rpc, avd) {
             break token;
         }
         if Instant::now() >= deadline {
@@ -218,13 +216,29 @@ async fn stream(
         .connect_timeout(Duration::from_secs(5));
     let channel = loop {
         if input.is_closed() {
-            return Ok(());
+            return Ok(None);
         }
         match endpoint.connect().await {
             Ok(channel) => break channel,
             Err(error) if Instant::now() >= deadline => return Err(error.into()),
             Err(_) => tokio::time::sleep(Duration::from_millis(150)).await,
         }
+    };
+    Ok(Some((channel, token)))
+}
+
+async fn stream(
+    console: u16,
+    rpc: u16,
+    avd: PathBuf,
+    ctx: egui::Context,
+    state: Arc<Mutex<Shared>>,
+    mut input: mpsc::UnboundedReceiver<Input>,
+    tilt: tilt::Worker,
+    video_requests: watch::Receiver<adaptive_video::Request>,
+) -> DisplayResult<()> {
+    let Some((channel, token)) = open_controller(console, rpc, &avd, &input).await? else {
+        return Ok(());
     };
     let mut control = Grpc::new(channel.clone());
     let sensor = channel.clone();
@@ -684,6 +698,17 @@ impl Display {
             Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
             egui::Color32::WHITE,
         );
+        self.game_input(ui, rect, outer, interactive, locale);
+    }
+
+    fn game_input(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: Rect,
+        outer: Rect,
+        interactive: bool,
+        locale: Locale,
+    ) {
         if self.mapping.editing {
             ui.painter()
                 .rect_filled(rect, 0., egui::Color32::from_black_alpha(83));

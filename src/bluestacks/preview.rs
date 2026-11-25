@@ -257,7 +257,7 @@ impl Drop for PhysicalPixels {
 struct Player(OwnedHandle);
 
 impl Player {
-    fn open(pid: u32, expected_creation_time: u64) -> Result<Self> {
+    fn open(pid: u32, expected_creation_time: u64, exe_name: &str) -> Result<Self> {
         if pid == 0 || pid == std::process::id() {
             return Err(PreviewError::InvalidPlayer);
         }
@@ -285,7 +285,7 @@ impl Player {
         if !image
             .rsplit(['\\', '/'])
             .next()
-            .is_some_and(|name| name.eq_ignore_ascii_case("HD-Player.exe"))
+            .is_some_and(|name| name.eq_ignore_ascii_case(exe_name))
         {
             return Err(PreviewError::InvalidPlayer);
         }
@@ -327,7 +327,7 @@ fn is_player_root(window: HWND, pid: u32) -> bool {
         && unsafe { IsWindowVisible(window) != 0 && IsIconic(window) == 0 }
 }
 
-fn is_renderer(window: HWND, pid: u32) -> bool {
+fn is_renderer(window: HWND, pid: u32, class_name: &str) -> bool {
     if window_pid(window) != pid || unsafe { IsWindowVisible(window) } == 0 {
         return false;
     }
@@ -335,19 +335,20 @@ fn is_renderer(window: HWND, pid: u32) -> bool {
     let length = unsafe { GetClassNameW(window, class.as_mut_ptr(), class.len() as i32) } as usize;
     class
         .get(..length)
-        .is_some_and(|name| name.iter().copied().eq("BlueStacksApp".encode_utf16()))
+        .is_some_and(|name| name.iter().copied().eq(class_name.encode_utf16()))
 }
 
-fn find_source(pid: u32) -> Result<(HWND, HWND)> {
+fn find_source(pid: u32, class_name: &'static str) -> Result<(HWND, HWND)> {
     struct Search {
         pid: u32,
+        class_name: &'static str,
         root: HWND,
         pairs: Vec<(HWND, HWND)>,
     }
     unsafe extern "system" fn child(window: HWND, context: LPARAM) -> i32 {
         // Enumeration is synchronous and context points to our live Search.
         let search = unsafe { &mut *(context as *mut Search) };
-        if is_renderer(window, search.pid) {
+        if is_renderer(window, search.pid, search.class_name) {
             search.pairs.push((search.root, window));
         }
         1
@@ -362,6 +363,7 @@ fn find_source(pid: u32) -> Result<(HWND, HWND)> {
     }
     let mut search = Search {
         pid,
+        class_name,
         root: ptr::null_mut(),
         pairs: Vec::new(),
     };
@@ -421,6 +423,7 @@ pub(crate) struct ThumbnailPreview {
     destination: HWND,
     source: HWND,
     renderer: HWND,
+    renderer_class: &'static str,
     player: Player,
     player_pid: u32,
     thumbnail: isize,
@@ -434,12 +437,44 @@ impl ThumbnailPreview {
         player_pid: u32,
         expected_creation_time: u64,
     ) -> Result<Self> {
+        Self::attach_surface(
+            destination,
+            player_pid,
+            expected_creation_time,
+            "HD-Player.exe",
+            "BlueStacksApp",
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn attach_qt_emulator(destination: HWND, pid: u32, creation: u64) -> Result<Self> {
+        Self::attach_surface(
+            destination,
+            pid,
+            creation,
+            "qemu-system-x86_64.exe",
+            "subWin",
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn lab_windows(&self) -> (HWND, HWND, HWND) {
+        (self.destination, self.source, self.renderer)
+    }
+
+    fn attach_surface(
+        destination: HWND,
+        player_pid: u32,
+        expected_creation_time: u64,
+        exe_name: &str,
+        renderer_class: &'static str,
+    ) -> Result<Self> {
         let _dpi = PhysicalPixels::enter()?;
         if !is_root(destination) || window_pid(destination) != std::process::id() {
             return Err(PreviewError::InvalidDestination);
         }
-        let player = Player::open(player_pid, expected_creation_time)?;
-        let (source, renderer) = find_source(player_pid)?;
+        let player = Player::open(player_pid, expected_creation_time, exe_name)?;
+        let (source, renderer) = find_source(player_pid, renderer_class)?;
         if is_cloaked(source)? {
             return Err(PreviewError::SourceUnavailable);
         }
@@ -455,6 +490,7 @@ impl ThumbnailPreview {
             destination,
             source,
             renderer,
+            renderer_class,
             player,
             player_pid,
             thumbnail,
@@ -488,7 +524,7 @@ impl ThumbnailPreview {
             return Err(PreviewError::InvalidDestination);
         }
         if !is_player_root(self.source, self.player_pid)
-            || !is_renderer(self.renderer, self.player_pid)
+            || !is_renderer(self.renderer, self.player_pid, self.renderer_class)
             || unsafe { IsChild(self.source, self.renderer) } == 0
             || is_cloaked(self.source)?
         {
