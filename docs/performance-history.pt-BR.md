@@ -10,7 +10,7 @@ Em duas corridas Mailbox por motor, o jogo marcou **163,54–176,38 FPS no RustE
 
 Em uma sonda separada no SDK de fábrica, `VulkanAllocateHostMemory` baixou a mediana das escritas de 32 bits em 4 MiB do tipo 2 de **91,843 para 0,290 ms**. O motor recompilado também passou no teste curto de decodificação por software e gravação VP9. Os três decodificadores Goldfish anunciados como acelerados retornaram erro no caminho testado. O ganho em jogo com a opção do SDK e a decodificação acelerada seguem sem confirmação. [Escritas mapeadas no SDK de fábrica](../benchmarks/stk-1.5/windows-stock-vulkan-host-memory.md) · [Teste de mídia](../benchmarks/stk-1.5/windows-source-media-cache-rtx.md#media-smoke-on-the-relinked-engine)
 
-No Cipó Livre, a 1600 × 900 e 60 Hz na RTX, o RustEmuDroid apresentou **59,68–59,98 quadros/s** e o Kemu **59,85–60,04** com o mesmo APK ajustado localmente. Ao final dos trechos, o jogo mostrava escala de renderização 3D de 80%. [Ajustes de áudio, cenas e tempos de quadro](../benchmarks/cipo-livre/README.md)
+No Cipó Livre, a 1600 × 900 e 60 Hz na RTX, o RustEmuDroid apresentou **59,68–59,98 quadros/s** e o Kemu **59,85–60,04** com o mesmo APK ajustado localmente. Ao final dos trechos na RTX, o jogo mostrava escala de renderização 3D de 80%. Na Radeon 780M integrada, o Rust apresentou **55,13 e 57,19 quadros/s** nas caminhadas, que terminaram com escala de 80% e 70%. [Ajustes de áudio, cenas e tempos de quadro](../benchmarks/cipo-livre/README.md)
 
 ## SuperTuxKart do primeiro protótipo até a v0.21.1
 

@@ -11,6 +11,17 @@ Each run lasted 20 seconds. The end-of-run game HUD showed **60 FPS and 80% 3D r
 
 Both players used the same release APK and the same physical RTX. Kemu 0.7.1 ran Android 16. Its host engine selected the RTX, while its Android Vulkan device identified itself to the game as Qualcomm Adreno 830. RustEmuDroid v0.22.0 ran Android 17 with the experimental Vulkan memory cache and default clock. Its guest exposed the RTX name through GFXStream. The near-60 rates show how the two configurations played at this display setting. Measuring their maximum throughput would require a separate workload.
 
+## RustEmuDroid on the integrated Radeon 780M
+
+Two independent boots ran the same v0.22.0 Windows client, cached QEMU core, Android 17 Google Play image revision and audio-adjusted x86-64 APK used for the Rust RTX measurements. Each used 1600 × 900 at 60 Hz. The Windows adapter, emulator startup log and Godot's Vulkan device line all identified the **Radeon 780M**. Each number below is a 20-second sample whose final game state was verified on screen.
+
+| Scene | Radeon FPS, boots 1 / 2 | Radeon P99, boots 1 / 2 | 3D render scale at the end |
+| --- | ---: | ---: | ---: |
+| Standing in the forest | 58.79 / 59.43 | 31.54 / 28.61 ms | 80% / 80% |
+| Walking into the river, ending in a swim | 55.13 / 57.19 | 38.58 / 35.56 ms | 80% / 70% |
+
+The integrated GPU had longer frame intervals than the RTX in both matched scenes. The longest interval during the matched Radeon walks was 70.86 ms. Adaptive render scale was active, so the GPU comparison describes the default mobile experience with variable internal resolution. Two other samples from the first Radeon boot ended with the character trotting and on a vine. Their raw data is retained with `endpoint_review.matched = false` and excluded from the table. The second boot repeated one pair. [Frame intervals and per-case validation](windows-radeon-vulkan.json) · [HUD readings and image hashes](windows-hud-check.json)
+
 ## Android audio and the original APK
 
 On the RustEmuDroid Android 17 profile, the original release APK installed and selected the RTX. Android recorded a native exit on the audio thread during forest generation. A separate export changing only the audio driver to Dummy also exited before gameplay, this time on the game's sound-generation thread. For the scored run, the game generated its sounds using the main-thread path it already uses on the web, and looping PCM clips used their last valid sample as the loop endpoint. Both changes were tested together. The Godot engine, Android audio driver, shaders and visual assets came from the same build. The score applies to this locally adjusted APK. [Exact game-source changes](android-audio.patch)

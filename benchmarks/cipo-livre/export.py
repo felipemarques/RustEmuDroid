@@ -108,7 +108,25 @@ def measured_frame_set(root, recorded, period):
             "hud_at_end": hud_reading, "raw_frame_receipt_sha256": sha(file)}
 
 
-def run(name, folder, expected, settings):
+def apply_endpoint_review(root, intervals, review_path):
+    if not review_path:
+        return
+    reviews = read(review_path)
+    require(set(reviews) == {f"{case['scene']}-{case['repeat']}" for case in intervals},
+            "Each measured case requires an endpoint observation")
+    for case in intervals:
+        key = f"{case['scene']}-{case['repeat']}"
+        observed = reviews[key]
+        expected = "stationary" if case["scene"] == "forest" else "swimming"
+        require(observed["state"] in ("stationary", "swimming", "trotting", "on_vine")
+                and digest(observed["image_sha256"]) == sha(root / key / "after.png"),
+                f"Endpoint evidence does not match {key}")
+        case["endpoint_review"] = {"observed": observed["state"], "expected": expected,
+                                   "matched": observed["state"] == expected,
+                                   "image_sha256": observed["image_sha256"]}
+
+
+def run(name, folder, expected, settings, review_path=None):
     role = name.split("-")[0]
     require(role in PLAYERS and re.fullmatch(r"[a-z0-9-]+", name), "Unknown run label")
     root = folder / "game" if (folder / "game/results.json").is_file() else folder
@@ -135,6 +153,7 @@ def run(name, folder, expected, settings):
     require(version is None or re.fullmatch(r"v?\d+(?:\.\d+){1,4}", version),
             "Unexpected player version label")
     intervals = [measured_frame_set(root, case, period) for case in summary["cases"]]
+    apply_endpoint_review(root, intervals, review_path)
     cases = [(item["scene"], item["repeat"]) for item in intervals]
     require(cases and len(cases) == len(set(cases)), "Duplicate or missing replay cases")
     date_utc = datetime.fromtimestamp((root / "results.json").stat().st_mtime, UTC).date().isoformat()
@@ -161,6 +180,8 @@ def main():
     cli.add_argument("--build-receipt", type=Path, required=True)
     cli.add_argument("--run", action="append", required=True, metavar="RUN_ID=FOLDER")
     cli.add_argument("--settings", action="append", default=[], metavar="RUN_ID=JSON")
+    cli.add_argument("--endpoint-review", action="append", default=[], metavar="RUN_ID=JSON",
+                     help="Verify and attach a visual review of each case's final character state")
     cli.add_argument("--output", type=Path, required=True)
     args = cli.parse_args()
     build = read(args.build_receipt)
@@ -170,6 +191,8 @@ def main():
             "Unexpected QA build receipt")
     expected = digest(build["sha256"])
     runs, settings = pairs(args.run), pairs(args.settings)
+    reviews = pairs(args.endpoint_review)
+    require(reviews.keys() <= runs.keys(), "Endpoint evidence names a run that was not supplied")
     require(settings.keys() <= runs.keys(), "Preset evidence names a run that was not supplied")
     artifact = {key: build[key] for key in ("source_commit", "godot", "preset", "mode", "abi")}
     variant = build.get("qa_variant")
@@ -184,7 +207,8 @@ def main():
         artifact.update(renderer_requested="gl_compatibility", rendering_driver_requested="opengl3")
     result = {"schema": 1, "game_build": artifact, "timestamp_encoding": "first presentation at zero; "
               "frame-to-frame nanosecond deltas in sample order",
-              "runs": [run(name, folder, expected, settings.get(name)) for name, folder in runs.items()]}
+              "runs": [run(name, folder, expected, settings.get(name), reviews.get(name))
+                       for name, folder in runs.items()]}
     with args.output.open("x", encoding="utf-8", newline="\n") as output:
         output.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")) + "\n")
 

@@ -99,6 +99,58 @@
           "image_sha256": "d3582a83d14ddcf469cd7a8bde764a5999dd2bb656547e357bbf73cf89beecb1"
         }
       ]
+    },
+    {
+      "player": "RustEmuDroid 0.22.0 (Radeon 780M, first boot with gameplay)",
+      "samples": [
+        {
+          "run": "forest-1",
+          "character_state": "stationary",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "0c90d04cd8979fd4728c8375fb6536bf1c343617a592fbc2b2513f215ad3be2c"
+        },
+        {
+          "run": "walk-1",
+          "character_state": "swimming",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "d42fc3971ea227c5db3e11f4b3d0afd0709516aff0be49dac0ac5b1423529813"
+        },
+        {
+          "run": "forest-2",
+          "character_state": "trotting",
+          "game_hud_fps": 55,
+          "render_scale_percent": 80,
+          "image_sha256": "4d22d358cec710c429832cd7d0ac902708b2a542a15ee8d97042bf0ed9742d76"
+        },
+        {
+          "run": "walk-2",
+          "character_state": "on_vine",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "218de12a2514be10ba8b20e5cbb9a1f8e370d62c4af48b29f80f43a12e4a6f19"
+        }
+      ]
+    },
+    {
+      "player": "RustEmuDroid 0.22.0 (Radeon 780M, second boot with gameplay)",
+      "samples": [
+        {
+          "run": "forest-1",
+          "character_state": "stationary",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "b153c224bfb7136467181ab2ac930eab919a4a2ad36dc58f134ace1ef227677a"
+        },
+        {
+          "run": "walk-1",
+          "character_state": "swimming",
+          "game_hud_fps": 58,
+          "render_scale_percent": 70,
+          "image_sha256": "f930a642eec78a7f1302516d157765bff693ce0ab297feb3ef545dfb05ed16f8"
+        }
+      ]
     }
   ]
 }
