@@ -6,6 +6,8 @@ Na mesma **janela Rust da v0.21.1**, uma compilação experimental do motor Andr
 
 ## SuperTuxKart do primeiro protótipo até a v0.21.1
 
+Um segundo teste do motor Windows levou o jogo no Android 17 a **90,19 FPS** nas duas corridas com cache Vulkan. Com o cache desligado, o mesmo motor entregou **85,56 FPS** nas duas corridas de controle. O Android passou a apresentar **89,98 quadros/s**. Nos intervalos medidos, os quadros que demoraram mais de 16,667 ms passaram de **205 em 3.396** para **zero em 3.601**. Mantivemos a correção de relógio desligada. O P99 do BlueStacks continuou menor, em 11,11 ms, contra 14,53 a 14,63 ms no Rust experimental. [Quatro corridas, tempos de quadro e condições](../benchmarks/stk-1.5/windows-cached-memory-kart.md)
+
 Mesmo PC com Windows, Ryzen 9 8945HS e GeForce RTX 5070 Ti. A pista é o replay automático Black Forest do SuperTuxKart 1.5, com Android renderizando a 1600 × 900. Os valores são **FPS calculados pelo jogo**, a partir do número de quadros e da duração integral da corrida.
 
 | Teste na RTX 5070 Ti | RustEmuDroid | Kemu 0.7.1 | BlueStacks 5.22 Pie64 | Corridas por player |

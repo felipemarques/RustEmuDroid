@@ -6,6 +6,8 @@ With the same **v0.21.1 Rust window** and a separately rebuilt Android engine, a
 
 ## SuperTuxKart from the first prototype through v0.21.1
 
+A second Windows engine experiment brought the Android 17 game to **90.19 FPS** in both enabled runs. With cached Vulkan allocations disabled, the same engine delivered **85.56 FPS** across the two controls. Android presented **89.98 frames/s** with the cache enabled. Across the measured windows it went from **205 of 3,396** intervals longer than 16.667 ms to **0 of 3,601**. The virtual clock fix stayed off. The stock BlueStacks runs still had a lower Android P99 at 11.11 ms, compared with 14.53–14.63 ms on the experimental Rust setup. [Four replays, frame traces and conditions](../benchmarks/stk-1.5/windows-cached-memory-kart.md)
+
 One Windows PC with a Ryzen 9 8945HS and GeForce RTX 5070 Ti ran SuperTuxKart 1.5's built-in Black Forest replay at a guest resolution of 1600 × 900. The table reports **game FPS** from the game's frame count and full replay duration.
 
 | RTX 5070 Ti test | RustEmuDroid | Kemu 0.7.1 | BlueStacks 5.22 Pie64 | Replays per player |
