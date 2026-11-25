@@ -128,4 +128,6 @@ Use `--game-vsync off` with the same `compare.py` replay command and a new outpu
 | FIFO, VSync on | 82.790 / 82.920 | 82.855 | 81.204 / 82.258 per s | 81.731/s | 23.850 / 23.483 ms |
 | Mailbox, VSync off | 94.860 / 99.275 | 97.067 | 78.044 / 81.711 per s | 79.876/s | 24.349 / 23.602 ms |
 
+The integrated Windows panel processed **74.88 frames/s with FIFO** and **76.52 with Mailbox** across the complete panel reporting intervals inside the Android sampling windows. The per-replay rates were 74.26 and 75.50/s with FIFO and 73.40 and 79.65/s with Mailbox. A processed frame is one accepted by the Rust display code. These rates describe a different stage from Android presentation, and neither counter verifies physical monitor scanout. The BlueStacks runs did not include an equivalent panel measurement.
+
 Pooling divides the sum of frames or presentations by the sum of the respective observation durations. Mean `acquire` time dropped from 1.881 to 0.552 ms per frame and mean `endScene` time from 3.171 to 1.836 ms. The game loop produced more frames while Android delivered fewer presentations in these runs. These separate two-run batches do not establish whether the compositor rate difference would repeat. The game VSync preference was restored after the test. [Sanitized Android 17 mailbox data](windows-vulkan-90hz-scoped-native-mailbox.json)

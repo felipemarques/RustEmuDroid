@@ -65,6 +65,24 @@ def read_surface(path, android):
                                         "p99_interval_ms", "max_interval_ms", "intervals_over_250_ms")}
 
 
+def read_panel(path):
+    if not path.is_file():
+        return None
+    stats = read_json(path)
+    frames = elapsed = 0
+    for count, duration, width, height in stats["intervals"]:
+        if (width, height) != (1600, 900) or count < 0 or duration <= 0:
+            raise ValueError("Invalid frame counter interval for the 1600 x 900 Rust panel")
+        frames += count
+        elapsed += duration
+    if not elapsed or frames != stats["frames"] or elapsed != stats["duration_ms"]:
+        raise ValueError("Panel totals do not match the recorded intervals")
+    rate = frames * 1000 / elapsed
+    if abs(rate - stats["processed_frames_per_second"]) > 0.001:
+        raise ValueError("Inconsistent Rust panel rate")
+    return {"frames": frames, "duration_ms": elapsed, "processed_frames_per_second": rate}
+
+
 def run_record(source, index, result, apk, android, game_vsync):
     trial = source / f"lap-{index}"
     report = trial / "report.csv"
@@ -95,6 +113,7 @@ def run_record(source, index, result, apk, android, game_vsync):
             "game_fps": frames * 1000 / duration, "game_report_sha256": digest(report),
             "frame_profile_sha256": digest(profile), "graphics": dict(zip(names, values, strict=True)),
             "surface_flinger_period_ns": period, "surface_view": read_surface(trial / "presentations.json", android),
+            "rust_panel": read_panel(trial / "panel-stats.json"),
             "vulkan_renderer": renderers.pop(), "vulkan_api_version": versions.pop(),
             "vulkan_driver_version": drivers.pop(),
             "swapchains": [{"present_mode_id": mode, "present_mode": MODES[mode]} for mode in modes] if scoped else None,
