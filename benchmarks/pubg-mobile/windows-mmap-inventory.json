@@ -1,0 +1,1011 @@
+{
+  "conditions": {
+    "product": "RustEmuDroid 0.17.0 experimental copy",
+    "binary_sha256": "a1b35b8af82d845a284c9b73baaf577aa4c7aaa5bf9ab6e6858a609426f791e5",
+    "game": "PUBG MOBILE 4.7.0 (21718), arm64-v8a",
+    "android": "Android 17 Google Play",
+    "mode": "Same boot, 4 vCPUs, 8 GiB RAM, NVIDIA GeForce RTX 5070 Ti, ANGLE/Vulkan",
+    "resolution": "1600x900 at 320 dpi, no Android overrides",
+    "refresh_period_ns": 16666666,
+    "scene": "Customize > Lobby, Balanced/High, adaptive enabled, enhancements disabled",
+    "order": [
+      "A1 inline",
+      "B1 mmap",
+      "B2 mmap",
+      "A2 inline"
+    ],
+    "fresh_process_each_route": true,
+    "original_game_preset_restored": true
+  },
+  "method": {
+    "route": "Inventory opens at nominal 0, 12, 24 and 36 s and closes 7 s after each opening.",
+    "clocks": "Android timestamps use a route-relative offset estimated from the smallest poll response-end minus latest presentation. Tap fields are host subprocess bounds, not Android input arrival.",
+    "android": "Distinct SurfaceFlinger actual presentation timestamps in [0, 48) s. The relative CSV includes one adjacent presentation on each side. Ready uses the third column of the same history rows.",
+    "gaps": "Clip adjacent presentation intervals at route boundaries. Sorted percentile index is floor((N - 1) * 0.99). First close is the largest full gap between two presentations in [7, 12) s.",
+    "windows_cpu": "Windows GetProcessTimes summed across each process, interpolated to the two SurfaceFlinger poll midpoints nearest the start and end. CPU time excludes other Windows processes.",
+    "panel": "Complete video stats intervals between those nearest poll boundaries. Counters measure frames processed by the panel and stream sequence observations. These intervals are shorter than the 48 s Android sample.",
+    "scope": "Four Inventory routes in one guest. The figures count rendered surface updates, not game simulation or monitor scan-out."
+  },
+  "runs": [
+    {
+      "run": "A1",
+      "transport_name": "inline",
+      "surfaceflinger": {
+        "seconds": 48.0,
+        "presentations": 1213,
+        "hz": 25.270833333333332,
+        "p50_ms": 33.4285,
+        "p95_ms": 50.8082,
+        "p99_ms": 231.6599,
+        "max_ms": 1776.5718,
+        "over_100_ms": 20,
+        "over_250_ms": 12
+      },
+      "android_presentations_per_second_bin": [
+        29,
+        11,
+        11,
+        29,
+        29,
+        30,
+        28,
+        6,
+        1,
+        19,
+        24,
+        27,
+        20,
+        30,
+        29,
+        30,
+        29,
+        29,
+        30,
+        16,
+        30,
+        29,
+        28,
+        30,
+        18,
+        16,
+        27,
+        30,
+        29,
+        29,
+        30,
+        17,
+        30,
+        30,
+        28,
+        30,
+        30,
+        18,
+        24,
+        30,
+        29,
+        29,
+        30,
+        18,
+        30,
+        29,
+        29,
+        29
+      ],
+      "android_inventory_open_windows": [
+        {
+          "seconds": 7.0,
+          "presentations": 167,
+          "hz": 23.857142857142858,
+          "p50_ms": 33.4873,
+          "p95_ms": 58.8068,
+          "p99_ms": 333.2841,
+          "max_ms": 551.3505,
+          "over_100_ms": 4,
+          "over_250_ms": 3
+        },
+        {
+          "seconds": 7.0,
+          "presentations": 197,
+          "hz": 28.142857142857142,
+          "p50_ms": 33.4431,
+          "p95_ms": 48.7928,
+          "p99_ms": 54.2149,
+          "max_ms": 335.5875,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 7.0,
+          "presentations": 179,
+          "hz": 25.571428571428573,
+          "p50_ms": 33.4177,
+          "p95_ms": 51.1471,
+          "p99_ms": 232.1609,
+          "max_ms": 440.6857,
+          "over_100_ms": 3,
+          "over_250_ms": 2
+        },
+        {
+          "seconds": 7.0,
+          "presentations": 190,
+          "hz": 27.142857142857142,
+          "p50_ms": 33.2722,
+          "p95_ms": 50.3425,
+          "p99_ms": 105.5341,
+          "max_ms": 267.2308,
+          "over_100_ms": 3,
+          "over_250_ms": 2
+        }
+      ],
+      "android_inventory_close_windows": [
+        {
+          "seconds": 5.0,
+          "presentations": 77,
+          "hz": 15.4,
+          "p50_ms": 33.438,
+          "p95_ms": 140.5311,
+          "p99_ms": 231.6599,
+          "max_ms": 1776.5718,
+          "over_100_ms": 6,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 5.0,
+          "presentations": 133,
+          "hz": 26.6,
+          "p50_ms": 33.3476,
+          "p95_ms": 48.8024,
+          "p99_ms": 50.9307,
+          "max_ms": 469.1196,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 5.0,
+          "presentations": 135,
+          "hz": 27.0,
+          "p50_ms": 33.4036,
+          "p95_ms": 50.2848,
+          "p99_ms": 52.5252,
+          "max_ms": 448.8168,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 5.0,
+          "presentations": 135,
+          "hz": 27.0,
+          "p50_ms": 33.468,
+          "p95_ms": 48.686,
+          "p99_ms": 52.168,
+          "max_ms": 415.7108,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        }
+      ],
+      "first_close_ready": {
+        "ambiguous_presentations": 0,
+        "frames": 1213,
+        "unique_ready": 1213,
+        "first_close_present_gap_ms": 1776.5718,
+        "ready_gap_for_same_two_frames_ms": 1783.1194,
+        "possible_ready_gaps_ms": [
+          1783.1194
+        ],
+        "elapsed_start_gap_s": 7.1724394,
+        "median_ready_to_present_ms": 2.6972,
+        "ready_increasing": true
+      },
+      "tap_subprocess_start_from_nominal_ms": [
+        0.3534,
+        0.2007,
+        0.3487,
+        0.4206,
+        0.56,
+        0.1208,
+        0.0771,
+        0.1734
+      ],
+      "tap_subprocess_return_from_nominal_ms": [
+        152.2461,
+        148.8335,
+        141.116,
+        143.3915,
+        142.7433,
+        169.2069,
+        155.4484,
+        140.3153
+      ],
+      "host_cpu_window_ns": 48406918400,
+      "host_cpu_boundary_from_nominal_start_ns": [
+        -218060000,
+        48188858400
+      ],
+      "windows_processes": [
+        {
+          "role": "launcher",
+          "kernel_cpu_ms": 6919.8755,
+          "user_cpu_ms": 6268.5239,
+          "cpu_ms": 13188.3994,
+          "cpu_ms_per_second": 272.4486465141313,
+          "cpu_ms_per_android_presentation": 10.872546908491344,
+          "boundary_bracket_ms": [
+            42.1936,
+            150.0565
+          ]
+        },
+        {
+          "role": "qemu",
+          "kernel_cpu_ms": 25648.1446,
+          "user_cpu_ms": 77625.5846,
+          "cpu_ms": 103273.7292,
+          "cpu_ms_per_second": 2133.449775641988,
+          "cpu_ms_per_android_presentation": 85.13910074196208,
+          "boundary_bracket_ms": [
+            42.17885,
+            150.0352
+          ]
+        }
+      ],
+      "transport": {
+        "inline_in": 1202,
+        "mmap_in": 0,
+        "replaced": 6,
+        "seq_gaps": 0,
+        "seq_repeated": 0,
+        "panel_processed": 1196,
+        "interval_ms": 47541
+      }
+    },
+    {
+      "run": "B1",
+      "transport_name": "mmap",
+      "surfaceflinger": {
+        "seconds": 48.0,
+        "presentations": 1213,
+        "hz": 25.270833333333332,
+        "p50_ms": 33.3693,
+        "p95_ms": 50.977,
+        "p99_ms": 232.5145,
+        "max_ms": 1733.6446,
+        "over_100_ms": 20,
+        "over_250_ms": 12
+      },
+      "android_presentations_per_second_bin": [
+        19,
+        8,
+        13,
+        30,
+        29,
+        30,
+        29,
+        5,
+        3,
+        28,
+        21,
+        25,
+        17,
+        30,
+        29,
+        29,
+        30,
+        29,
+        29,
+        17,
+        28,
+        29,
+        30,
+        29,
+        30,
+        15,
+        25,
+        30,
+        29,
+        30,
+        29,
+        18,
+        29,
+        29,
+        30,
+        29,
+        29,
+        16,
+        27,
+        29,
+        30,
+        29,
+        30,
+        17,
+        29,
+        30,
+        29,
+        29
+      ],
+      "android_inventory_open_windows": [
+        {
+          "seconds": 7.0,
+          "presentations": 158,
+          "hz": 22.571428571428573,
+          "p50_ms": 33.3669,
+          "p95_ms": 52.3095,
+          "p99_ms": 350.2797,
+          "max_ms": 533.0933,
+          "over_100_ms": 5,
+          "over_250_ms": 4
+        },
+        {
+          "seconds": 7.0,
+          "presentations": 193,
+          "hz": 27.571428571428573,
+          "p50_ms": 33.3219,
+          "p95_ms": 50.2643,
+          "p99_ms": 52.0856,
+          "max_ms": 380.435,
+          "over_100_ms": 2,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 7.0,
+          "presentations": 188,
+          "hz": 26.857142857142858,
+          "p50_ms": 33.493,
+          "p95_ms": 50.9345,
+          "p99_ms": 115.0353,
+          "max_ms": 308.9541,
+          "over_100_ms": 3,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 7.0,
+          "presentations": 190,
+          "hz": 27.142857142857142,
+          "p50_ms": 33.2769,
+          "p95_ms": 50.4342,
+          "p99_ms": 66.0939,
+          "max_ms": 368.1101,
+          "over_100_ms": 2,
+          "over_250_ms": 2
+        }
+      ],
+      "android_inventory_close_windows": [
+        {
+          "seconds": 5.0,
+          "presentations": 82,
+          "hz": 16.4,
+          "p50_ms": 33.4771,
+          "p95_ms": 98.9641,
+          "p99_ms": 233.2599,
+          "max_ms": 1733.6446,
+          "over_100_ms": 5,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 5.0,
+          "presentations": 133,
+          "hz": 26.6,
+          "p50_ms": 33.3122,
+          "p95_ms": 49.9662,
+          "p99_ms": 53.333,
+          "max_ms": 484.1726,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 5.0,
+          "presentations": 135,
+          "hz": 27.0,
+          "p50_ms": 33.3246,
+          "p95_ms": 49.0802,
+          "p99_ms": 51.8103,
+          "max_ms": 446.7824,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 5.0,
+          "presentations": 134,
+          "hz": 26.8,
+          "p50_ms": 33.502,
+          "p95_ms": 47.927,
+          "p99_ms": 51.4276,
+          "max_ms": 450.6698,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        }
+      ],
+      "first_close_ready": {
+        "ambiguous_presentations": 0,
+        "frames": 1213,
+        "unique_ready": 1213,
+        "first_close_present_gap_ms": 1733.6446,
+        "ready_gap_for_same_two_frames_ms": 1733.1993,
+        "possible_ready_gaps_ms": [
+          1733.1993
+        ],
+        "elapsed_start_gap_s": 7.1551744,
+        "median_ready_to_present_ms": 2.5973,
+        "ready_increasing": true
+      },
+      "tap_subprocess_start_from_nominal_ms": [
+        0.5058,
+        0.4614,
+        0.1997,
+        0.4522,
+        0.6788,
+        0.1061,
+        0.0766,
+        0.2058
+      ],
+      "tap_subprocess_return_from_nominal_ms": [
+        149.2189,
+        143.8774,
+        163.4177,
+        156.2969,
+        145.4271,
+        158.2524,
+        145.8936,
+        146.8047
+      ],
+      "host_cpu_window_ns": 48401279700,
+      "host_cpu_boundary_from_nominal_start_ns": [
+        -218458800,
+        48182820900
+      ],
+      "windows_processes": [
+        {
+          "role": "launcher",
+          "kernel_cpu_ms": 6132.2783,
+          "user_cpu_ms": 4757.2783,
+          "cpu_ms": 10889.5566,
+          "cpu_ms_per_second": 224.9848902238839,
+          "cpu_ms_per_android_presentation": 8.977375597691674,
+          "boundary_bracket_ms": [
+            42.19515,
+            142.33195
+          ]
+        },
+        {
+          "role": "qemu",
+          "kernel_cpu_ms": 22572.2175,
+          "user_cpu_ms": 76812.8242,
+          "cpu_ms": 99385.0417,
+          "cpu_ms_per_second": 2053.3556615859475,
+          "cpu_ms_per_android_presentation": 81.93325779060181,
+          "boundary_bracket_ms": [
+            42.1856,
+            142.328
+          ]
+        }
+      ],
+      "transport": {
+        "inline_in": 0,
+        "mmap_in": 1205,
+        "replaced": 0,
+        "seq_gaps": 0,
+        "seq_repeated": 0,
+        "panel_processed": 1205,
+        "interval_ms": 47502
+      }
+    },
+    {
+      "run": "B2",
+      "transport_name": "mmap",
+      "surfaceflinger": {
+        "seconds": 48.0,
+        "presentations": 1209,
+        "hz": 25.1875,
+        "p50_ms": 33.3869,
+        "p95_ms": 50.8093,
+        "p99_ms": 233.3206,
+        "max_ms": 1573.1758,
+        "over_100_ms": 18,
+        "over_250_ms": 12
+      },
+      "android_presentations_per_second_bin": [
+        27,
+        7,
+        8,
+        27,
+        30,
+        29,
+        30,
+        5,
+        6,
+        29,
+        24,
+        24,
+        18,
+        29,
+        30,
+        29,
+        29,
+        30,
+        29,
+        15,
+        29,
+        29,
+        29,
+        30,
+        29,
+        15,
+        26,
+        30,
+        29,
+        29,
+        30,
+        17,
+        30,
+        29,
+        29,
+        29,
+        16,
+        18,
+        29,
+        28,
+        29,
+        30,
+        29,
+        18,
+        30,
+        29,
+        29,
+        30
+      ],
+      "android_inventory_open_windows": [
+        {
+          "seconds": 7.0,
+          "presentations": 158,
+          "hz": 22.571428571428573,
+          "p50_ms": 33.3672,
+          "p95_ms": 62.7259,
+          "p99_ms": 317.5872,
+          "max_ms": 715.6631,
+          "over_100_ms": 3,
+          "over_250_ms": 3
+        },
+        {
+          "seconds": 7.0,
+          "presentations": 194,
+          "hz": 27.714285714285715,
+          "p50_ms": 33.2346,
+          "p95_ms": 50.1521,
+          "p99_ms": 53.122,
+          "max_ms": 341.3686,
+          "over_100_ms": 2,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 7.0,
+          "presentations": 188,
+          "hz": 26.857142857142858,
+          "p50_ms": 33.4324,
+          "p95_ms": 50.3026,
+          "p99_ms": 83.4312,
+          "max_ms": 298.6157,
+          "over_100_ms": 2,
+          "over_250_ms": 2
+        },
+        {
+          "seconds": 7.0,
+          "presentations": 179,
+          "hz": 25.571428571428573,
+          "p50_ms": 33.4417,
+          "p95_ms": 50.5266,
+          "p99_ms": 233.3206,
+          "max_ms": 432.4506,
+          "over_100_ms": 3,
+          "over_250_ms": 2
+        }
+      ],
+      "android_inventory_close_windows": [
+        {
+          "seconds": 5.0,
+          "presentations": 88,
+          "hz": 17.6,
+          "p50_ms": 33.2141,
+          "p95_ms": 82.7985,
+          "p99_ms": 233.6463,
+          "max_ms": 1573.1758,
+          "over_100_ms": 5,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 5.0,
+          "presentations": 132,
+          "hz": 26.4,
+          "p50_ms": 33.4451,
+          "p95_ms": 48.6882,
+          "p99_ms": 66.4526,
+          "max_ms": 467.2432,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 5.0,
+          "presentations": 134,
+          "hz": 26.8,
+          "p50_ms": 33.3567,
+          "p95_ms": 48.9856,
+          "p99_ms": 50.8787,
+          "max_ms": 468.788,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 5.0,
+          "presentations": 136,
+          "hz": 27.2,
+          "p50_ms": 33.5307,
+          "p95_ms": 50.327,
+          "p99_ms": 51.6353,
+          "max_ms": 426.0468,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        }
+      ],
+      "first_close_ready": {
+        "ambiguous_presentations": 0,
+        "frames": 1209,
+        "unique_ready": 1209,
+        "first_close_present_gap_ms": 1573.1758,
+        "ready_gap_for_same_two_frames_ms": 1583.1855,
+        "possible_ready_gaps_ms": [
+          1583.1855
+        ],
+        "elapsed_start_gap_s": 7.1606472,
+        "median_ready_to_present_ms": 2.5968,
+        "ready_increasing": true
+      },
+      "tap_subprocess_start_from_nominal_ms": [
+        0.1348,
+        0.4239,
+        0.6414,
+        0.2956,
+        0.0938,
+        0.4251,
+        0.1971,
+        0.2927
+      ],
+      "tap_subprocess_return_from_nominal_ms": [
+        152.1893,
+        144.8383,
+        165.1169,
+        152.7161,
+        146.6323,
+        156.9997,
+        146.6366,
+        154.7144
+      ],
+      "host_cpu_window_ns": 48402768850,
+      "host_cpu_boundary_from_nominal_start_ns": [
+        -217178700,
+        48185590150
+      ],
+      "windows_processes": [
+        {
+          "role": "launcher",
+          "kernel_cpu_ms": 7414.4755,
+          "user_cpu_ms": 4531.25,
+          "cpu_ms": 11945.7255,
+          "cpu_ms_per_second": 246.79839157589845,
+          "cpu_ms_per_android_presentation": 9.880666253101737,
+          "boundary_bracket_ms": [
+            44.24435,
+            139.20125
+          ]
+        },
+        {
+          "role": "qemu",
+          "kernel_cpu_ms": 25435.6148,
+          "user_cpu_ms": 75305.2162,
+          "cpu_ms": 100740.83099999999,
+          "cpu_ms_per_second": 2081.3030616532587,
+          "cpu_ms_per_android_presentation": 83.32574937965259,
+          "boundary_bracket_ms": [
+            44.23305,
+            139.18185
+          ]
+        }
+      ],
+      "transport": {
+        "inline_in": 0,
+        "mmap_in": 1193,
+        "replaced": 0,
+        "seq_gaps": 0,
+        "seq_repeated": 0,
+        "panel_processed": 1193,
+        "interval_ms": 47286
+      }
+    },
+    {
+      "run": "A2",
+      "transport_name": "inline",
+      "surfaceflinger": {
+        "seconds": 48.0,
+        "presentations": 1216,
+        "hz": 25.333333333333332,
+        "p50_ms": 33.415,
+        "p95_ms": 50.6752,
+        "p99_ms": 234.8841,
+        "max_ms": 1649.9541,
+        "over_100_ms": 18,
+        "over_250_ms": 12
+      },
+      "android_presentations_per_second_bin": [
+        28,
+        12,
+        13,
+        27,
+        29,
+        29,
+        30,
+        5,
+        1,
+        22,
+        25,
+        27,
+        20,
+        29,
+        30,
+        29,
+        29,
+        30,
+        29,
+        17,
+        29,
+        30,
+        29,
+        29,
+        29,
+        11,
+        30,
+        29,
+        29,
+        29,
+        30,
+        18,
+        30,
+        29,
+        29,
+        29,
+        20,
+        16,
+        26,
+        30,
+        29,
+        29,
+        30,
+        18,
+        30,
+        29,
+        29,
+        30
+      ],
+      "android_inventory_open_windows": [
+        {
+          "seconds": 7.0,
+          "presentations": 168,
+          "hz": 24.0,
+          "p50_ms": 33.339,
+          "p95_ms": 52.2742,
+          "p99_ms": 333.4137,
+          "max_ms": 551.3539,
+          "over_100_ms": 3,
+          "over_250_ms": 3
+        },
+        {
+          "seconds": 7.0,
+          "presentations": 196,
+          "hz": 28.0,
+          "p50_ms": 33.3682,
+          "p95_ms": 48.1016,
+          "p99_ms": 57.7518,
+          "max_ms": 347.8275,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 7.0,
+          "presentations": 187,
+          "hz": 26.714285714285715,
+          "p50_ms": 33.4112,
+          "p95_ms": 50.286,
+          "p99_ms": 85.4474,
+          "max_ms": 415.967,
+          "over_100_ms": 2,
+          "over_250_ms": 2
+        },
+        {
+          "seconds": 7.0,
+          "presentations": 180,
+          "hz": 25.714285714285715,
+          "p50_ms": 33.4347,
+          "p95_ms": 50.4058,
+          "p99_ms": 235.0394,
+          "max_ms": 400.7266,
+          "over_100_ms": 3,
+          "over_250_ms": 2
+        }
+      ],
+      "android_inventory_close_windows": [
+        {
+          "seconds": 5.0,
+          "presentations": 80,
+          "hz": 16.0,
+          "p50_ms": 33.681,
+          "p95_ms": 118.9275,
+          "p99_ms": 234.8841,
+          "max_ms": 1649.9541,
+          "over_100_ms": 6,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 5.0,
+          "presentations": 134,
+          "hz": 26.8,
+          "p50_ms": 33.3469,
+          "p95_ms": 49.5469,
+          "p99_ms": 52.9376,
+          "max_ms": 466.1188,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 5.0,
+          "presentations": 135,
+          "hz": 27.0,
+          "p50_ms": 33.3983,
+          "p95_ms": 49.8273,
+          "p99_ms": 52.1457,
+          "max_ms": 416.3285,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        },
+        {
+          "seconds": 5.0,
+          "presentations": 136,
+          "hz": 27.2,
+          "p50_ms": 33.4213,
+          "p95_ms": 41.2128,
+          "p99_ms": 50.4138,
+          "max_ms": 416.7065,
+          "over_100_ms": 1,
+          "over_250_ms": 1
+        }
+      ],
+      "first_close_ready": {
+        "ambiguous_presentations": 0,
+        "frames": 1216,
+        "unique_ready": 1216,
+        "first_close_present_gap_ms": 1649.9541,
+        "ready_gap_for_same_two_frames_ms": 1649.5736,
+        "possible_ready_gaps_ms": [
+          1649.5736
+        ],
+        "elapsed_start_gap_s": 7.1620616,
+        "median_ready_to_present_ms": 2.89525,
+        "ready_increasing": true
+      },
+      "tap_subprocess_start_from_nominal_ms": [
+        0.2837,
+        0.3446,
+        0.4818,
+        0.5084,
+        0.4073,
+        0.207,
+        0.4216,
+        0.4996
+      ],
+      "tap_subprocess_return_from_nominal_ms": [
+        144.2344,
+        147.0358,
+        149.6577,
+        150.7724,
+        157.3014,
+        145.9398,
+        152.8734,
+        148.2971
+      ],
+      "host_cpu_window_ns": 48399473200,
+      "host_cpu_boundary_from_nominal_start_ns": [
+        -215074300,
+        48184398900
+      ],
+      "windows_processes": [
+        {
+          "role": "launcher",
+          "kernel_cpu_ms": 6815.2128,
+          "user_cpu_ms": 6646.0506,
+          "cpu_ms": 13461.2634,
+          "cpu_ms_per_second": 278.1283040907148,
+          "cpu_ms_per_android_presentation": 11.070117927631578,
+          "boundary_bracket_ms": [
+            47.68065,
+            135.36045
+          ]
+        },
+        {
+          "role": "qemu",
+          "kernel_cpu_ms": 23979.6227,
+          "user_cpu_ms": 81473.1124,
+          "cpu_ms": 105452.73509999999,
+          "cpu_ms_per_second": 2178.799233294134,
+          "cpu_ms_per_android_presentation": 86.7209992598684,
+          "boundary_bracket_ms": [
+            47.6774,
+            135.3366
+          ]
+        }
+      ],
+      "transport": {
+        "inline_in": 1201,
+        "mmap_in": 0,
+        "replaced": 4,
+        "seq_gaps": 0,
+        "seq_repeated": 0,
+        "panel_processed": 1197,
+        "interval_ms": 47364
+      }
+    }
+  ],
+  "aggregate": {
+    "inline": {
+      "routes": [
+        "A1",
+        "A2"
+      ],
+      "duration_s": 96,
+      "android_presentations": 2429,
+      "android_presentations_per_second": 25.302083333333332,
+      "first_close_present_ms": [
+        1776.5718,
+        1649.9541
+      ],
+      "first_close_ready_ms": [
+        1783.1194,
+        1649.5736
+      ],
+      "route_p99_ms": [
+        231.6599,
+        234.8841
+      ],
+      "intervals_over_250_ms": 24,
+      "panel_interval_ms": 94905,
+      "panel_processed": 2393,
+      "panel_processed_per_second": 25.214688372583108,
+      "windows_processes_cpu_ms_per_second": {
+        "launcher": 275.2882568964589,
+        "qemu": 2156.122760596729
+      }
+    },
+    "mmap": {
+      "routes": [
+        "B1",
+        "B2"
+      ],
+      "duration_s": 96,
+      "android_presentations": 2422,
+      "android_presentations_per_second": 25.229166666666668,
+      "first_close_present_ms": [
+        1733.6446,
+        1573.1758
+      ],
+      "first_close_ready_ms": [
+        1733.1993,
+        1583.1855
+      ],
+      "route_p99_ms": [
+        232.5145,
+        233.3206
+      ],
+      "intervals_over_250_ms": 24,
+      "panel_interval_ms": 94788,
+      "panel_processed": 2398,
+      "panel_processed_per_second": 25.29856099928261,
+      "windows_processes_cpu_ms_per_second": {
+        "launcher": 235.8918086799377,
+        "qemu": 2067.329576578954
+      }
+    }
+  }
+}

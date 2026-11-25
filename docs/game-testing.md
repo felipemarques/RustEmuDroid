@@ -439,6 +439,19 @@ Reducing the display pixel count by 36% left the first-close pause between the t
 
 The route opened Inventory at seconds 0, 12, 24 and 36 and closed it seven seconds after each open. Counts use the 48-second window, excluding its right endpoint. For the first close we took the largest interval whose two presentations fell between seconds 7 (inclusive) and 12 (exclusive), then compared readiness for those same buffers. The CSV includes one extra sample on each side of every run. The collector checked the foreground app and surface, and screenshots confirmed Lobby and Inventory. A native game crash before reaching the lobby and startup promotions before the first Inventory tap produced no timed samples. All rows above are complete routes.
 
+### Does shared-memory video improve PUBG Inventory FPS?
+
+We repeated the same 48-second route four times on Android 17 with the RTX 5070 Ti at 1600 × 900, 320 dpi and 60 Hz. The same experimental v0.17.0 client and VM stayed open. Each pass started a fresh PUBG MOBILE 4.7.0 process with the Lobby preset at Balanced/High. We opened Inventory at 0, 12, 24 and 36 seconds and closed it seven seconds after each opening. Android FPS below counts new presentations of the game's SurfaceView.
+
+| Pass | Video transport | Android frames in 48 s | P99 frame interval | Pause on first close | Intervals over 250 ms |
+|---|---|---:|---:|---:|---:|
+| A1 | Inline | 1,213 | 231.66 ms | 1.777 s | 12 |
+| B1 | Shared memory | 1,213 | 232.51 ms | 1.734 s | 12 |
+| B2 | Shared memory | 1,209 | 233.32 ms | 1.573 s | 12 |
+| A2 | Inline | 1,216 | 234.88 ms | 1.650 s | 12 |
+
+Across 96 seconds per transport, Android presented **25.30 FPS inline and 25.23 FPS through shared memory**. The panel processed 25.21 and 25.30 frames/s during its reporting intervals. The Rust process used 275 and 236 ms of CPU per second, respectively, a 14% reduction. On all four first closes, the gap in buffer-ready timestamps was within 11 ms of the presentation gap. The long pause was already visible on the Android side. Changing the desktop transport conserved CPU without resolving that pause. [Per-pass results and counting method](../benchmarks/pubg-mobile/windows-mmap-inventory.json) · [Relative presentation and ready timestamps](../benchmarks/pubg-mobile/windows-mmap-inventory.csv)
+
 ### Does the desktop frame copy affect the lobby?
 
 A local instrumented desktop build alternated the existing allocation-and-copy path with direct RGBA image construction in the same stationary lobby and guest session. Each kept block was about 18 seconds after trimming a second from both ends. The host timing measures elapsed time on the desktop UI thread while it prepares and submits an image to the texture queue. Its block statistic is the median of the reported one-second P95s.

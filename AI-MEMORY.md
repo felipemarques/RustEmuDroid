@@ -2,10 +2,11 @@
 
 ## Handoff
 
-Last updated 2026-11-24. A fresh clone contains the test summaries and benchmark data linked below. On the original Windows test PC, open `.rustemudroid/LOCAL-HANDOFF.md` for the matching traces, build recipes, boot logs and private disk locations.
+Last updated 2026-11-25. A fresh clone contains the test summaries and benchmark data linked below. On the original Windows test PC, open `.rustemudroid/LOCAL-HANDOFF.md` for the matching traces, build recipes, boot logs and private disk locations.
 
 | Area | Verified result | Where to resume |
 |---|---|---|
+| PUBG Inventory, Windows video transport | The same Android 17 guest presented 25.30 FPS inline and 25.23 FPS with shared memory. All four 48-second routes had 12 gaps over 250 ms. Launcher CPU dropped 14%. | On the first close, the frame was already late when its buffer became ready in Android. Investigate that producer-side gap. [Results and timestamps](docs/game-testing.md#does-shared-memory-video-improve-pubg-inventory-fps) |
 | SuperTuxKart, Windows video transport | On the RTX 5070 Ti at 90 Hz, two inline replays averaged 84.20 game FPS and two shared-memory replays averaged 84.93. Panel processing rose from 76.39–77.51 to 81.84–82.91 frames/s in the sampled segments. | This test used a private client. The shipping path uses inline video. Review shared-buffer coherence under load before deciding how to expose an alternative. [Replay results](docs/game-testing.md#supertuxkart-at-90-hz-with-shared-memory-video-on-windows) |
 | Windows screenshot transport | A second consumer on the existing Android 17 VM used 0.86 ms of CPU per received image with MMAP and 4.68 ms inline. All 600 MMAP images had a uniform color at the sampled points during a 60 Hz synthetic pattern. | A shared slot can be overwritten during a delayed read. Verify coherence and game performance before changing the shipping stream. [Method and raw counts](benchmarks/desktop-texture-upload/README.md#windows-screenshot-transport-on-android-17) |
 | PUBG on the Original Android 16 profile | v0.17.0 booted with lightweight Berberis and the RTX 5070 Ti. The character preview delivered 29.42 Android presentations/s over 20.018 s (P99 51.47 ms). Selecting Train on this installation led to character creation. | Repeat the Android 17 Training Grounds and Inventory routes once an Android 16 profile has access to the lobby. [Scene and timestamps](docs/game-testing.md#character-preview-on-android-16) |
