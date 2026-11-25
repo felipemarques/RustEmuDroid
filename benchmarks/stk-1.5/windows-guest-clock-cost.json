@@ -1,0 +1,789 @@
+{
+  "os": "Windows, WHPX, RTX 5070 Ti",
+  "ndk": "30.0.14904198",
+  "target": "x86_64-linux-android28",
+  "compiler_args": [
+    "-O2",
+    "-Wall",
+    "-Wextra",
+    "-Werror"
+  ],
+  "clock_elf_sha256": "c1334fdf3c9c1eec19a903f993b9e8970b0ace819d8478af49df954f54b9e5e8",
+  "cpuid_elf_sha256": "da48a8bf1126e5177331a6b361f03c50206a7142fe1fff88090d8a3576236030",
+  "sources": {
+    "android-clock-cost.c": "878e333ab0340d8e993c3a0eff1c4129379ab3607cca4a4e0ad25defb27522cf",
+    "android-timestamp-cpuid.c": "ae06a41f0c366a0f6c94415727a4ee90380925b75da5206fa1072f526866f2d3"
+  },
+  "guests": [
+    {
+      "name": "SDK 37.3.10, Android 17 Google Play r7",
+      "cpuid": {
+        "probe_stdout": "max_extended=0x80000021 leaf_available=1 extended_apm_edx=0x100 invariant_tsc=1",
+        "cpu_flags_vcpu_count": 4,
+        "cpu_flags_count": {
+          "constant_tsc": 4,
+          "nonstop_tsc": 4,
+          "tsc_known_freq": 0,
+          "hypervisor": 4,
+          "tsc": 4,
+          "rdtscp": 4
+        },
+        "boot_clocksource": [
+          "clocksource=pit"
+        ]
+      },
+      "runs": [
+        {
+          "condition": "control",
+          "csv_sha256": "55d94d1196a4bcef2b5b752761de2025f32f76733c7cd3d6c47833aa77f54954",
+          "median_ns_per_call": {
+            "libc_gettimeofday": {
+              "wall_ns_per_call": 8775.217499999999,
+              "cpu_ns_per_call": 8719.370825
+            },
+            "libc_clock_monotonic": {
+              "wall_ns_per_call": 8556.8425,
+              "cpu_ns_per_call": 8484.310925
+            },
+            "syscall_gettimeofday": {
+              "wall_ns_per_call": 8481.3225,
+              "cpu_ns_per_call": 8391.220425
+            }
+          },
+          "batches": [
+            {
+              "batch": 1,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 277392500,
+              "thread_cpu_ns": 215062930
+            },
+            {
+              "batch": 1,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 240939400,
+              "thread_cpu_ns": 199314819
+            },
+            {
+              "batch": 1,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 201443100,
+              "thread_cpu_ns": 194817471
+            },
+            {
+              "batch": 2,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 214475400,
+              "thread_cpu_ns": 211529518
+            },
+            {
+              "batch": 2,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 192837500,
+              "thread_cpu_ns": 191667061
+            },
+            {
+              "batch": 2,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 176844800,
+              "thread_cpu_ns": 176129611
+            },
+            {
+              "batch": 3,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 171933800,
+              "thread_cpu_ns": 169865681
+            },
+            {
+              "batch": 3,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 186535700,
+              "thread_cpu_ns": 179971050
+            },
+            {
+              "batch": 3,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 173249000,
+              "thread_cpu_ns": 171524861
+            },
+            {
+              "batch": 4,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 174163900,
+              "thread_cpu_ns": 172645222
+            },
+            {
+              "batch": 4,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 156610800,
+              "thread_cpu_ns": 156012693
+            },
+            {
+              "batch": 4,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 158934900,
+              "thread_cpu_ns": 158377919
+            },
+            {
+              "batch": 5,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 164517100,
+              "thread_cpu_ns": 164123956
+            },
+            {
+              "batch": 5,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 170339900,
+              "thread_cpu_ns": 169506756
+            },
+            {
+              "batch": 5,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 159220900,
+              "thread_cpu_ns": 157838510
+            },
+            {
+              "batch": 6,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 165634100,
+              "thread_cpu_ns": 165075153
+            },
+            {
+              "batch": 6,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 161104200,
+              "thread_cpu_ns": 160553174
+            },
+            {
+              "batch": 6,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 166003900,
+              "thread_cpu_ns": 163915747
+            }
+          ]
+        },
+        {
+          "condition": "gpu",
+          "csv_sha256": "68c9820713b3181a0d4c7882a40e0ca78f61102e8ee9410084aec65af7263e8f",
+          "median_ns_per_call": {
+            "libc_gettimeofday": {
+              "wall_ns_per_call": 8436.4575,
+              "cpu_ns_per_call": 8417.36435
+            },
+            "libc_clock_monotonic": {
+              "wall_ns_per_call": 8488.294999999998,
+              "cpu_ns_per_call": 8345.342649999999
+            },
+            "syscall_gettimeofday": {
+              "wall_ns_per_call": 8264.245,
+              "cpu_ns_per_call": 8188.859850000001
+            }
+          },
+          "batches": [
+            {
+              "batch": 1,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 258379800,
+              "thread_cpu_ns": 209463224
+            },
+            {
+              "batch": 1,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 193706400,
+              "thread_cpu_ns": 184260163
+            },
+            {
+              "batch": 1,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 196119400,
+              "thread_cpu_ns": 195786765
+            },
+            {
+              "batch": 2,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 204400400,
+              "thread_cpu_ns": 204103211
+            },
+            {
+              "batch": 2,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 180417500,
+              "thread_cpu_ns": 180361104
+            },
+            {
+              "batch": 2,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 169553200,
+              "thread_cpu_ns": 169505162
+            },
+            {
+              "batch": 3,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 171377600,
+              "thread_cpu_ns": 166039574
+            },
+            {
+              "batch": 3,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 189454700,
+              "thread_cpu_ns": 176504676
+            },
+            {
+              "batch": 3,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 167264700,
+              "thread_cpu_ns": 165421611
+            },
+            {
+              "batch": 4,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 161200800,
+              "thread_cpu_ns": 160743268
+            },
+            {
+              "batch": 4,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 159505200,
+              "thread_cpu_ns": 159219186
+            },
+            {
+              "batch": 4,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 156814300,
+              "thread_cpu_ns": 155741524
+            },
+            {
+              "batch": 5,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 162029500,
+              "thread_cpu_ns": 161629962
+            },
+            {
+              "batch": 5,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 168154200,
+              "thread_cpu_ns": 167774132
+            },
+            {
+              "batch": 5,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 167905100,
+              "thread_cpu_ns": 167189412
+            },
+            {
+              "batch": 6,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 161910500,
+              "thread_cpu_ns": 161782364
+            },
+            {
+              "batch": 6,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 161988500,
+              "thread_cpu_ns": 161660369
+            },
+            {
+              "batch": 6,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 163305100,
+              "thread_cpu_ns": 162132783
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Kemu 0.7.1, Android 16",
+      "cpuid": {
+        "probe_stdout": "max_extended=0x80000021 leaf_available=1 extended_apm_edx=0x100 invariant_tsc=1",
+        "cpu_flags_vcpu_count": 4,
+        "cpu_flags_count": {
+          "constant_tsc": 4,
+          "nonstop_tsc": 4,
+          "tsc_known_freq": 0,
+          "hypervisor": 4,
+          "tsc": 4,
+          "rdtscp": 4
+        },
+        "boot_clocksource": [
+          "clocksource=pit"
+        ]
+      },
+      "runs": [
+        {
+          "condition": "idle before replay",
+          "csv_sha256": "4c49fbd8280a94bc632a03efe7680899d0e2aba519d473230d032645aef2298c",
+          "median_ns_per_call": {
+            "libc_gettimeofday": {
+              "wall_ns_per_call": 18.0309,
+              "cpu_ns_per_call": 17.947975
+            },
+            "libc_clock_monotonic": {
+              "wall_ns_per_call": 17.62265,
+              "cpu_ns_per_call": 17.565775000000002
+            },
+            "syscall_gettimeofday": {
+              "wall_ns_per_call": 247.2604,
+              "cpu_ns_per_call": 220.840475
+            }
+          },
+          "batches": [
+            {
+              "batch": 1,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 586115,
+              "thread_cpu_ns": 582499
+            },
+            {
+              "batch": 1,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 4647551,
+              "thread_cpu_ns": 4521218
+            },
+            {
+              "batch": 1,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 347895,
+              "thread_cpu_ns": 347214
+            },
+            {
+              "batch": 2,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 6015129,
+              "thread_cpu_ns": 4896717
+            },
+            {
+              "batch": 2,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 377700,
+              "thread_cpu_ns": 376728
+            },
+            {
+              "batch": 2,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 363142,
+              "thread_cpu_ns": 360617
+            },
+            {
+              "batch": 3,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 352253,
+              "thread_cpu_ns": 350439
+            },
+            {
+              "batch": 3,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 356991,
+              "thread_cpu_ns": 356030
+            },
+            {
+              "batch": 3,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 6680301,
+              "thread_cpu_ns": 4374011
+            },
+            {
+              "batch": 4,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 606713,
+              "thread_cpu_ns": 419397
+            },
+            {
+              "batch": 4,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 5147192,
+              "thread_cpu_ns": 4376114
+            },
+            {
+              "batch": 4,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 348565,
+              "thread_cpu_ns": 347674
+            },
+            {
+              "batch": 5,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 4743224,
+              "thread_cpu_ns": 4457505
+            },
+            {
+              "batch": 5,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 385593,
+              "thread_cpu_ns": 383200
+            },
+            {
+              "batch": 5,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 358094,
+              "thread_cpu_ns": 357302
+            },
+            {
+              "batch": 6,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 352653,
+              "thread_cpu_ns": 352192
+            },
+            {
+              "batch": 6,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 356079,
+              "thread_cpu_ns": 355599
+            },
+            {
+              "batch": 6,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 4357650,
+              "thread_cpu_ns": 4245333
+            }
+          ]
+        },
+        {
+          "condition": "gpu",
+          "csv_sha256": "d763f5e92295444f859c602b80f0bea352e93d616a55c358d31a453ed191ee1d",
+          "median_ns_per_call": {
+            "libc_gettimeofday": {
+              "wall_ns_per_call": 18.121850000000002,
+              "cpu_ns_per_call": 17.960549999999998
+            },
+            "libc_clock_monotonic": {
+              "wall_ns_per_call": 17.207875,
+              "cpu_ns_per_call": 17.1513
+            },
+            "syscall_gettimeofday": {
+              "wall_ns_per_call": 232.90275,
+              "cpu_ns_per_call": 213.067525
+            }
+          },
+          "batches": [
+            {
+              "batch": 1,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 357814,
+              "thread_cpu_ns": 356150
+            },
+            {
+              "batch": 1,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 4084412,
+              "thread_cpu_ns": 4044890
+            },
+            {
+              "batch": 1,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 354147,
+              "thread_cpu_ns": 353436
+            },
+            {
+              "batch": 2,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 5344036,
+              "thread_cpu_ns": 4933191
+            },
+            {
+              "batch": 2,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 345811,
+              "thread_cpu_ns": 344178
+            },
+            {
+              "batch": 2,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 356541,
+              "thread_cpu_ns": 355359
+            },
+            {
+              "batch": 3,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 347524,
+              "thread_cpu_ns": 346903
+            },
+            {
+              "batch": 3,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 365618,
+              "thread_cpu_ns": 364967
+            },
+            {
+              "batch": 3,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 4296695,
+              "thread_cpu_ns": 4189568
+            },
+            {
+              "batch": 4,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 411242,
+              "thread_cpu_ns": 359837
+            },
+            {
+              "batch": 4,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 4527143,
+              "thread_cpu_ns": 4333133
+            },
+            {
+              "batch": 4,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 342365,
+              "thread_cpu_ns": 341874
+            },
+            {
+              "batch": 5,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 4788967,
+              "thread_cpu_ns": 4152399
+            },
+            {
+              "batch": 5,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 342504,
+              "thread_cpu_ns": 341793
+            },
+            {
+              "batch": 5,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 359256,
+              "thread_cpu_ns": 358585
+            },
+            {
+              "batch": 6,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 342235,
+              "thread_cpu_ns": 341764
+            },
+            {
+              "batch": 6,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 693656,
+              "thread_cpu_ns": 629327
+            },
+            {
+              "batch": 6,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 8830269,
+              "thread_cpu_ns": 7977862
+            }
+          ]
+        },
+        {
+          "condition": "control",
+          "csv_sha256": "b458958c7c170d5b9ee9850525ee86936fa562109b90e90efcc4355fa423cfb6",
+          "median_ns_per_call": {
+            "libc_gettimeofday": {
+              "wall_ns_per_call": 17.988575,
+              "cpu_ns_per_call": 17.947000000000003
+            },
+            "libc_clock_monotonic": {
+              "wall_ns_per_call": 17.389725,
+              "cpu_ns_per_call": 17.365425000000002
+            },
+            "syscall_gettimeofday": {
+              "wall_ns_per_call": 215.39907499999998,
+              "cpu_ns_per_call": 210.819075
+            }
+          },
+          "batches": [
+            {
+              "batch": 1,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 436700,
+              "thread_cpu_ns": 396385
+            },
+            {
+              "batch": 1,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 4673854,
+              "thread_cpu_ns": 4639630
+            },
+            {
+              "batch": 1,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 356120,
+              "thread_cpu_ns": 355459
+            },
+            {
+              "batch": 2,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 4195157,
+              "thread_cpu_ns": 4122663
+            },
+            {
+              "batch": 2,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 345781,
+              "thread_cpu_ns": 345230
+            },
+            {
+              "batch": 2,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 372180,
+              "thread_cpu_ns": 371609
+            },
+            {
+              "batch": 3,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 345751,
+              "thread_cpu_ns": 345220
+            },
+            {
+              "batch": 3,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 358945,
+              "thread_cpu_ns": 358314
+            },
+            {
+              "batch": 3,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 4256791,
+              "thread_cpu_ns": 4154361
+            },
+            {
+              "batch": 4,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 356801,
+              "thread_cpu_ns": 356120
+            },
+            {
+              "batch": 4,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 5622082,
+              "thread_cpu_ns": 5482735
+            },
+            {
+              "batch": 4,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 605422,
+              "thread_cpu_ns": 604531
+            },
+            {
+              "batch": 5,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 4359172,
+              "thread_cpu_ns": 4270266
+            },
+            {
+              "batch": 5,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 348115,
+              "thread_cpu_ns": 347584
+            },
+            {
+              "batch": 5,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 355959,
+              "thread_cpu_ns": 355499
+            },
+            {
+              "batch": 6,
+              "method": "libc_clock_monotonic",
+              "calls": 20000,
+              "elapsed_ns": 347474,
+              "thread_cpu_ns": 347033
+            },
+            {
+              "batch": 6,
+              "method": "libc_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 360598,
+              "thread_cpu_ns": 359566
+            },
+            {
+              "batch": 6,
+              "method": "syscall_gettimeofday",
+              "calls": 20000,
+              "elapsed_ns": 4217789,
+              "thread_cpu_ns": 4162497
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

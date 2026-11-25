@@ -36,3 +36,5 @@ python benchmarks/stk-1.5/summarize-race-update-scopes.py \
 ```
 
 A follow-up QA replay can give the two existing markers distinct names and count graphics updates and simulation ticks. Compare wall time with sampled main-thread CPU time and measure the cost of the clock reads and markers on each guest. Keep a matched control to check whether the new instrumentation changes engine frame rate. This can distinguish more invocations, more on-CPU work per invocation and more elapsed waiting.
+
+A standalone x86-64 probe measured the cost of the two guest clocks used in these code paths. [Clock cost and guest CPU capabilities](windows-guest-clock-cost.md)
