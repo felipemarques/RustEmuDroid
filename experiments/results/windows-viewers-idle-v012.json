@@ -1,0 +1,129 @@
+{
+  "tag": "gpui-lab-v0.1.2",
+  "revision": "061526aa305d2ffc4da2dc8497454d1a2e6bcce6",
+  "workflow": "https://github.com/felipemarques/RustEmuDroid/actions/runs/45649969656",
+  "release": "https://github.com/felipemarques/RustEmuDroid/releases/tag/gpui-lab-v0.1.2",
+  "archive_sha256": {
+    "gpui-lab-v0.1.2-windows-x86_64.zip": "d80d58038c7596727bf79d29cfde15de0921cce4eff1399a7d4fe764bbf35302",
+    "gpui-lab-v0.1.2-linux-x86_64.tar.gz": "3db64197f3cc1e622649bbe353351b8481ff9f997241008ce0c8d18b08dd6533"
+  },
+  "windows_executable_sha256": {
+    "glow-baseline.exe": "d508ca5d62da8df994090541c93f305169f4ff9262bd2865bd5fe85102df7b20",
+    "gpui-viewer.exe": "3d69256933302b7624d30cea23851801f6e1a36cd78ad6755dce21c6cee31c51"
+  },
+  "raw_32x18_source_sha256": "292a2a5892645afef2ab0aa1da1f8500d265f7ca0b402ef5f3d2f8ead814a9e9",
+  "functional_cases": [
+    {
+      "viewer": "gpui-viewer",
+      "case": "static",
+      "exit_code": 0,
+      "new_images": 0,
+      "received_duplicates": 60,
+      "latency_ms": {
+        "mean": null,
+        "p50": null,
+        "p95": null,
+        "max": null
+      }
+    },
+    {
+      "viewer": "gpui-viewer",
+      "case": "moving",
+      "exit_code": 0
+    },
+    {
+      "viewer": "gpui-viewer",
+      "case": "empty",
+      "exit_code": 1
+    },
+    {
+      "viewer": "gpui-viewer",
+      "case": "truncated",
+      "exit_code": 1
+    },
+    {
+      "viewer": "gpui-viewer",
+      "case": "early-eof",
+      "exit_code": 1
+    },
+    {
+      "viewer": "glow-baseline",
+      "case": "static",
+      "exit_code": 0,
+      "new_images": 0,
+      "received_duplicates": 60,
+      "latency_ms": {
+        "max": null,
+        "mean": null,
+        "p50": null,
+        "p95": null
+      }
+    },
+    {
+      "viewer": "glow-baseline",
+      "case": "moving",
+      "exit_code": 0
+    },
+    {
+      "viewer": "glow-baseline",
+      "case": "empty",
+      "exit_code": 1
+    },
+    {
+      "viewer": "glow-baseline",
+      "case": "truncated",
+      "exit_code": 1
+    },
+    {
+      "viewer": "glow-baseline",
+      "case": "early-eof",
+      "exit_code": 1
+    }
+  ],
+  "stationary_home": {
+    "client": "RustEmuDroid v0.21.1",
+    "guest": "Android 17 Google Play",
+    "viewer": "GPUI on Radeon 780M",
+    "one_existing_vm_before_and_after": true,
+    "complete_frames_sent_including_warmup": 2,
+    "measurement": {
+      "backend": "gpui",
+      "source": "raw",
+      "width": 640,
+      "height": 360,
+      "target_fps": 60,
+      "window_width": 1040,
+      "window_height": 585,
+      "client_width_px": 1040,
+      "client_height_px": 585,
+      "scale_factor": 1.0,
+      "layers": 1,
+      "warmup_seconds": 2,
+      "bytes_per_frame": 921600,
+      "pixel_transport": "rgba_vec_in_place_bgra_then_gpui_atlas_upload",
+      "requested_seconds": 6,
+      "elapsed_seconds": 6.0,
+      "produced": 0,
+      "replaced": 0,
+      "late_slots": 0,
+      "duplicates": 0,
+      "processed": 0,
+      "processed_fps": 0.0,
+      "first_processed_sequence": null,
+      "last_processed_sequence": null,
+      "measurement_point": "first successful GPUI paint_image for the source sequence",
+      "latency_ms": {
+        "mean": null,
+        "p50": null,
+        "p95": null,
+        "max": null
+      },
+      "adapter": {
+        "is_software_emulated": false,
+        "device_name": "AMD Radeon 780M Graphics",
+        "driver_name": "AMD Corporation",
+        "driver_info": "Unknown Driver"
+      }
+    }
+  }
+}
