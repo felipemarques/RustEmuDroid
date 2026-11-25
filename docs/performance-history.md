@@ -4,6 +4,8 @@
 
 With the same **v0.21.1 Rust window** and a separately rebuilt Android engine, a Windows virtual clock fix improved the game from **85.65 to 87.46 FPS (+2.11%)** in four cold-boot replays. Android presentation gaps over 16.667 ms fell from **5.08% to 3.18%**. The release still ships with its regular runtime setup. [Per-lap results and frame traces](../benchmarks/stk-1.5/windows-whpx-clock-kart.md)
 
+With the v0.22.0 client and the newly linked Windows engine, the same kart replay measured **84.73 game FPS with the cache off and 90.16 with it on**. Android P99 fell from 23.17 to 14.46 ms. The Rust panel processed 86.32 frames/s with the cache on. This pair qualified the build made with FFmpeg and libvpx sources. [Build identity, sampling and traces](../benchmarks/stk-1.5/windows-source-media-cache-rtx.md)
+
 ## SuperTuxKart from the first prototype through v0.21.1
 
 With Vulkan caching active in all four RTX runs, synchronizing the virtual clock reduced QEMU CPU use by **18.7%**, from 2,188 to 1,778 ms of CPU time per second. Pooled game rates were **90.17 FPS with the regular clock** and **90.02 with synchronization**. The Android P99 ranges overlapped. Both configurations approached the 90 Hz FIFO ceiling. [Combined cache and clock experiment](../benchmarks/stk-1.5/windows-cache-tsc-kart-rtx.md)

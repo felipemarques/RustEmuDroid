@@ -44,6 +44,8 @@ python .\experiments\whpx-clock\stage.py stage --overlay-zip 'D:\Downloads\whpx-
 
 Se o próprio RustEmuDroid instalou essas versões das ferramentas, use `--stock-sdk "$env:LOCALAPPDATA\RustEmuDroid\runtime"`. Após as três verificações, abra o RustEmuDroid v0.22.0 ou superior e escolha a pasta de destino em **Configurações → Runtime, imagem e perfil → Cache de memória Vulkan**. Os jogos ficam no perfil Android que você já usava. [Tela em português](../../docs/screenshots/pt-br/vulkan-cache-settings.png)
 
+O ZIP do motor Windows recompilado com FFmpeg 4.4.2 e libvpx 1.12.0 tem SHA-256 `a67d12ec5abbb220cce81ecf623174d278fab08dd5d0a08441be51c642395146`. Para conferir o download e seus módulos antes de escolher o destino, troque o comando `stage` após `stage.py` por `check` e remova `--out` e `--smoke`. Ao concluir, ele mostra o hash do ZIP e os **20** caminhos de instalação esperados. A preparação grava o hash em `staging.json`. Para voltar ao motor anterior, escolha **Voltar ao motor padrão** no mesmo perfil, salve e reinicie o Android.
+
 O SuperTuxKart escreve dados dos objetos em um buffer que a CPU pode acessar. Na RTX 5070 Ti, medimos o efeito de usar memória com cache para essas escritas. Para experimentar, use a variante `cache` da receita de compilação e aponte `--sdk` para esse motor. O parâmetro `--fix vulkan-cache` deixa o ajuste de relógio desligado nos dois modos. [Medições de memória](../../benchmarks/stk-1.5/windows-vulkan-mapped-writes.md)
 
 ```powershell

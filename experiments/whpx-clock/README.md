@@ -59,6 +59,8 @@ python .\experiments\whpx-clock\stage.py stage --overlay-zip 'D:\Downloads\whpx-
 
 For a RustEmuDroid-managed installation of those tool versions, set `--stock-sdk` to `"$env:LOCALAPPDATA\RustEmuDroid\runtime"`. After the three checks pass, open the v0.22.0 or newer desktop client and select the new folder in the profile's [Vulkan cache setting](../../README.md#choose-a-profile).
 
+The Windows kit rebuilt with FFmpeg 4.4.2 and libvpx 1.12.0 has ZIP SHA-256 `a67d12ec5abbb220cce81ecf623174d278fab08dd5d0a08441be51c642395146`. To verify the download and its modules before choosing a destination, replace `stage` after `stage.py` with `check` and omit `--out` and `--smoke`. A successful check prints the ZIP digest and the expected **20** installation paths. Staging records the digest in `staging.json`. To switch back after testing, select **Use default engine** in the same profile, save and restart Android.
+
 Obtain Google's x64 Android Emulator 37.3.10 build 16970787 and Platform Tools 37.0.0 separately. Extract them so the stock directory contains `emulator/` and `platform-tools/`. Google's catalog gives the emulator archive size as 456,613,348 bytes and SHA-1 as `7599293267e61ce67423f87848ff8219da09258b`. The stager separately verifies the stock launcher, original core, gfxstream renderer and ADB by SHA-256. [Google release notes](https://developer.android.com/studio/releases/emulator) [Emulator ZIP](https://dl.google.com/android/repository/emulator-windows_x64-16970787.zip) [Platform Tools ZIP](https://dl.google.com/android/repository/platform-tools_r37.0.0-win.zip)
 
 ```powershell

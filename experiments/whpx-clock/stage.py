@@ -30,6 +30,11 @@ COMPONENTS = ("emulator", "platform-tools")
 FORBIDDEN = {".android", "avd", "system-images", "licenses", "adbkey", "adbkey.pub", "accounts.db", "credentials"}
 TSC_GATE = "RUSTEMUDROID_QA_WHPX_SYNC_TSC"
 CACHE_GATE = "RUSTEMUDROID_QA_VULKAN_CACHED_HOST"
+MEDIA_CACHE_ZIP_SHA256 = "a67d12ec5abbb220cce81ecf623174d278fab08dd5d0a08441be51c642395146"
+MEDIA_CACHE_MODULES = {
+    CORE: {"bytes": 66279424, "sha256": "b9feb63b82209b4b93ef39131687d25782bc291219bfc59b1a91909076a519c8"},
+    "lib64/libemugl_common.dll": {"bytes": 147968, "sha256": "72c8a9c83f991d0d9b57fbaf2be35754418b119aabfa6aa2a97edeae50956565"},
+}
 
 
 def require(value, message):
@@ -291,11 +296,20 @@ def stock_inputs(stock, data):
         checked(inside(stock, name), sha)
 
 
+def cache_reference(data, core_bytes):
+    # Size selects a candidate. overlay_plan verifies the full hash of every module in that set.
+    if core_bytes == MEDIA_CACHE_MODULES[CORE]["bytes"]:
+        return data | {"cache_variant": data["cache_variant"] | {"reference_overrides": MEDIA_CACHE_MODULES}}
+    return data
+
+
 def overlay_plan(artifacts, dia, data, *, strict=False, requested=None):
     if strict:
         expected, proof_sha, local_dia, variant = {}, None, None, requested or "clock"
     else:
         expected, proof_sha, local_dia, variant = validate_build(artifacts, data, requested)
+    if strict and variant == "cache" and (artifacts / CORE).is_file():
+        data = cache_reference(data, inside(artifacts, CORE).stat().st_size)
     overrides = data["cache_variant"]["reference_overrides"] if strict and variant == "cache" else {}
     plan = []
     for row in data["overlay"]:
@@ -325,9 +339,16 @@ def overlay_plan(artifacts, dia, data, *, strict=False, requested=None):
 
 def unpack_cache_overlay(archive, folder, data):
     """Read just the reference cache modules. The build manifest owns their paths and sizes."""
-    overrides = data["cache_variant"]["reference_overrides"]
-    with ZipFile(archive) as source:
+    with archive.open("rb") as stream, ZipFile(stream) as source:
+        stream.seek(0)
+        archive_sha = file_digest(stream, "sha256").hexdigest()
         names = source.namelist()
+        if "artifacts/" + CORE in names:
+            core_bytes = source.getinfo("artifacts/" + CORE).file_size
+            data = cache_reference(data, core_bytes)
+            if core_bytes == MEDIA_CACHE_MODULES[CORE]["bytes"]:
+                require(archive_sha == MEDIA_CACHE_ZIP_SHA256, "Source-built media ZIP checksum mismatch")
+        overrides = data["cache_variant"]["reference_overrides"]
         for row in data["overlay"]:
             if row["origin"] == "microsoft_dia":
                 continue
@@ -341,6 +362,7 @@ def unpack_cache_overlay(archive, folder, data):
             destination.parent.mkdir(parents=True, exist_ok=True)
             with source.open(info) as incoming, destination.open("xb") as output:
                 shutil.copyfileobj(incoming, output, length=1024 * 1024)
+    return archive_sha
 
 
 def clean_component(stock, name):
@@ -449,13 +471,15 @@ def main():
                 require(requested in (None, "cache"), "The prebuilt module ZIP is for the cache variant")
                 strict, requested = True, "cache"
                 artifacts = Path(cleanup.enter_context(TemporaryDirectory(prefix="rustemudroid-cache-"))).resolve()
-                unpack_cache_overlay(args.overlay_zip, artifacts, data)
+                archive_sha = unpack_cache_overlay(args.overlay_zip, artifacts, data)
             else:
                 artifacts = args.artifacts.resolve(strict=True)
             plan, proof, variant = overlay_plan(artifacts, dia, data, strict=strict, requested=requested)
             receipt = {"variant": variant, "reference_artifact_hashes_required": strict, "build_receipt_sha256": proof,
                        "overlay_manifest_sha256": lf_digest(MANIFEST), "copied_optional_dia": dia is not None,
                        "android_started": False, "overlay_path_count": sum(len(paths) for _, paths, _, _ in plan)}
+            if args.overlay_zip:
+                receipt["binary_archive_sha256"] = archive_sha
             if args.action == "stage":
                 out = new_out(args.out, stock, artifacts, *([dia] if dia else []))
                 stage(out, stock, plan, receipt, data, args.smoke)

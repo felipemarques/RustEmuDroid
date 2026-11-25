@@ -65,6 +65,38 @@ class LabTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "digest"):
                         LAB["overlay_plan"](dest, None, data, strict=True, requested="cache")
 
+    def test_source_media_zip_requires_its_digest_and_matched_companion(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            dll = "lib64/libemugl_common.dll"
+            for name in (CORE, dll):
+                pe(root / name)
+            with (root / CORE).open("ab") as core:
+                core.write(b"RUSTEMUDROID_QA_VULKAN_CACHED_HOST\0RustEmuDroid QA: requested cached Vulkan host allocations")
+            modules = {name: {"sha256": LAB["digest"](root / name), "bytes": (root / name).stat().st_size}
+                       for name in (CORE, dll)}
+            rows = [{"source": name, "origin": "locally_linked", "destinations": [name]} for name in modules]
+            data = {"overlay": rows, "cache_variant": {"reference_overrides": {}}}
+            archive = root / "media.zip"
+            with ZipFile(archive, "w") as out:
+                for name in modules:
+                    out.write(root / name, "artifacts/" + name)
+            expected_sha = LAB["digest"](archive)
+            with patch.dict(SCOPE, MEDIA_CACHE_MODULES=modules, MEDIA_CACHE_ZIP_SHA256=expected_sha):
+                extracted = root / "extracted"
+                self.assertEqual(LAB["unpack_cache_overlay"](archive, extracted, data), expected_sha)
+                plan, _, _ = LAB["overlay_plan"](extracted, None, data, strict=True, requested="cache")
+                self.assertEqual([sha for _, _, sha, _ in plan], [modules[name]["sha256"] for name in modules])
+                with (extracted / dll).open("r+b") as module:
+                    module.seek(-1, 2)
+                    module.write(b"?")
+                with self.assertRaisesRegex(ValueError, "digest"):
+                    LAB["overlay_plan"](extracted, None, data, strict=True, requested="cache")
+                with ZipFile(archive, "a") as out:
+                    out.comment = b"changed envelope"
+                with self.assertRaisesRegex(ValueError, "ZIP checksum"):
+                    LAB["unpack_cache_overlay"](archive, root / "modified", data)
+
     def test_public_manifest(self):
         data = LAB["manifest"]()
         projects, patches = LAB["source_inputs"](data)

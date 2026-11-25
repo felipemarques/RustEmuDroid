@@ -4,6 +4,8 @@
 
 Na mesma **janela Rust da v0.21.1**, uma compilação experimental do motor Android com o relógio virtual corrigido elevou o jogo de **85,65 para 87,46 FPS (+2,11%)** em quatro corridas. A proporção dos intervalos de apresentação do Android acima de 16,667 ms caiu de **5,08% para 3,18%**. A versão publicada ainda usa a configuração habitual do motor. [Resultados por corrida e tempos de quadro](../benchmarks/stk-1.5/windows-whpx-clock-kart.md)
 
+Com o cliente v0.22.0 e a nova compilação do motor Windows, o mesmo replay do kart marcou **84,73 FPS com o cache desligado e 90,16 com ele ligado**. O P99 do Android caiu de 23,17 para 14,46 ms. O painel Rust processou 86,32 quadros/s com o cache ligado. O par de corridas verificou a compilação feita com as fontes do FFmpeg e do libvpx. [Identidade do motor, método e dados](../benchmarks/stk-1.5/windows-source-media-cache-rtx.md)
+
 ## SuperTuxKart do primeiro protótipo até a v0.21.1
 
 Com o cache Vulkan ativo nas quatro corridas da RTX, sincronizar o relógio virtual reduziu o uso de CPU do QEMU em **18,7%**, de 2.188 para 1.778 ms de CPU por segundo. O jogo marcou **90,17 FPS com o relógio padrão** e **90,02 com sincronização**. Os intervalos de P99 do Android se sobrepuseram. As duas configurações chegaram perto do teto de 90 Hz em FIFO. [Ensaio combinado de cache e relógio](../benchmarks/stk-1.5/windows-cache-tsc-kart-rtx.md)
