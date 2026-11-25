@@ -79,6 +79,13 @@ Para jugar en una ventana pequeña, activa **Ajustes → Gráficos → Ajustar e
 
 En Windows, abre **Ajustes → Entorno, imagen y perfil → Caché de memoria Vulkan (experimental)** para probar un motor SDK preparado. Usa **Elegir carpeta del motor…** para seleccionar su carpeta `sdk` o la carpeta que la contiene. Después, guarda y reinicia Android. El motor utiliza la imagen de Android y los datos de aplicaciones del perfil seleccionado. Para recuperar el motor habitual, pulsa **Volver al motor predeterminado** y guarda. [Preparar el motor con caché, instrucciones de compilación en inglés](experiments/whpx-clock/README.md#2-create-the-private-runtime).
 
+<details>
+<summary>Ver el ajuste de caché Vulkan</summary>
+
+![Ajustes de la caché Vulkan en Windows](docs/screenshots/es-es/vulkan-cache-settings.png)
+
+</details>
+
 ![Ajustes de idioma, perfil, renderizado, GPU y cámara](docs/screenshots/es-es/settings.png)
 
 ## Utilizar los controles de escritorio

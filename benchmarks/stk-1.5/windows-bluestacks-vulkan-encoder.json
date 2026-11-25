@@ -1,0 +1,52 @@
+{
+  "product": "BlueStacks 5.22.166.1003 Pie64, copied x86-64 guest system",
+  "method": "Read-only extraction of the two Android vendor libraries from the private system SquashFS. REA inspected ELF dynamic symbols and DT_NEEDED entries. No game or guest process was traced in this inspection.",
+  "libraries": [
+    {
+      "path": "/system/vendor/lib64/hw/vulkan.default.so",
+      "sha256": "d853793077f226b3650ed2d02011185a5e2e9d6fb434323c9c83d84e8c51a8c5",
+      "export_evidence": "ev_5f85aee3f74fed37537786e3d62ce05a1a9804239e4f3be8c21294c9b3130510",
+      "dependencies_evidence": "ev_3622ecbd526f21b0126db8bc064d6ff82ede2f1f7e9df6c90a4936d27f310623",
+      "exports": 38,
+      "selected_exports": [
+        "HMI",
+        "vk_icdGetInstanceProcAddr"
+      ],
+      "needed": [
+        "libOpenglSystemCommon.so",
+        "libvulkan_enc.so",
+        "libsync.so",
+        "libnativewindow.so",
+        "liblog.so",
+        "libdrm.so",
+        "lib_renderControl_enc.so",
+        "libGLESv2_enc.so",
+        "libGLESv1_enc.so",
+        "libPgaLogger.so",
+        "libcutils.so",
+        "libutils.so",
+        "libbinder.so",
+        "libc++.so",
+        "libc.so",
+        "libm.so",
+        "libdl.so"
+      ]
+    },
+    {
+      "path": "/system/vendor/lib64/libvulkan_enc.so",
+      "sha256": "cde2a89080fbeb687c4e8c464dbaa0e254941a92f67177412fe73b394a25b027",
+      "export_evidence": "ev_d6409d487bc130cc902ecd1c107d7e8722b863ea798a4aed5eac073b1ebc4fb9",
+      "dependencies_evidence": "ev_282ba4ed04c7768af3dd57747f0e9136e0ba23dc9a37802f7290007349d494df",
+      "exports": 4410
+    }
+  ],
+  "hal_imports_matched_to_encoder_exports": [
+    "_ZN9gfxstream2vk9VkEncoder11vkMapMemoryEP10VkDevice_TP16VkDeviceMemory_TmmjPPvj",
+    "_ZN9gfxstream2vk15ResourceTracker25on_vkBindBufferMemory2KHREPv8VkResultP10VkDevice_TjPK22VkBindBufferMemoryInfo",
+    "_ZN9gfxstream2vk15ResourceTracker21on_vkBindBufferMemoryEPv8VkResultP10VkDevice_TP10VkBuffer_TP16VkDeviceMemory_Tm",
+    "_ZN9gfxstream2vk15ResourceTracker19on_vkAllocateMemoryEPv8VkResultP10VkDevice_TPK20VkMemoryAllocateInfoPK21VkAllocationCallbacksPP16VkDeviceMemory_T",
+    "_ZN9gfxstream2vk9VkEncoder33vkMapMemoryIntoAddressSpaceGOOGLEEP10VkDevice_TP16VkDeviceMemory_TPmj",
+    "_ZN9gfxstream2vk15ResourceTracker22on_vkBindBufferMemory2EPv8VkResultP10VkDevice_TjPK22VkBindBufferMemoryInfo"
+  ],
+  "limitations": "Matching dynamic declarations establish available interfaces. They do not establish invocation rates, actual memory cache policy, host backend implementation or a particular performance gain."
+}

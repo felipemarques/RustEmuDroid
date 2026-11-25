@@ -77,6 +77,13 @@ In a smaller window, enable **Settings → Graphics → Fit video frames to the 
 
 On Windows, open **Settings → Runtime, image, and profile → Vulkan memory cache (experimental)** to try a prepared SDK engine. Select its `sdk` folder or the folder containing it with **Choose runtime folder…**, then save and restart Android. The engine uses the selected profile’s Android image and app data. To restore the regular engine, choose **Use default engine** and save. [Prepare the cache engine](experiments/whpx-clock/README.md#2-create-the-private-runtime).
 
+<details>
+<summary>Show the Vulkan cache setting</summary>
+
+![Vulkan cache settings on Windows](docs/screenshots/en-us/vulkan-cache-settings.png)
+
+</details>
+
 ![Settings with profile selection, rendering mode, Vulkan adapter and webcam](docs/screenshots/en-us/settings.png)
 
 ## Use the desktop controls

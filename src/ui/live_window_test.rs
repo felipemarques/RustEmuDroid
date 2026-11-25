@@ -147,6 +147,193 @@ fn capture_localized_session_dialogs() {
     .unwrap();
 }
 
+#[test]
+#[ignore = "captures the real Windows Settings dialog in all three languages without starting Android"]
+fn capture_localized_vulkan_cache_settings() {
+    #[derive(Clone, Copy)]
+    enum Step {
+        Scroll,
+        Expand,
+        Release(egui::Pos2),
+        Reveal,
+        Capture,
+    }
+
+    struct SettingsCapture {
+        app: Launcher,
+        output: PathBuf,
+        captured: Rc<Cell<usize>>,
+        step: Step,
+        input: Vec<egui::Event>,
+        next: Instant,
+        deadline: Instant,
+        pending: bool,
+    }
+
+    fn label_position(ctx: &egui::Context, label: &str) -> Option<egui::Pos2> {
+        let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("launcher-settings"));
+        ctx.graphics(|layers| {
+            layers.get(layer)?.all_entries().find_map(|entry| {
+                let egui::Shape::Text(text) = &entry.shape else {
+                    return None;
+                };
+                let center = text.visual_bounding_rect().center();
+                (text.galley.text() == label && entry.clip_rect.contains(center)).then_some(center)
+            })
+        })
+    }
+
+    fn scroll(point: egui::Pos2) -> [egui::Event; 2] {
+        [
+            egui::Event::PointerMoved(point),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0., -650.),
+                modifiers: egui::Modifiers::NONE,
+            },
+        ]
+    }
+
+    fn click(pos: egui::Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    impl App for SettingsCapture {
+        fn raw_input_hook(&mut self, _: &egui::Context, raw: &mut egui::RawInput) {
+            for event in &raw.events {
+                if let egui::Event::Screenshot { image, .. } = event
+                    && self.pending
+                {
+                    let directory = self.output.join(self.app.config.locale.tag());
+                    std::fs::create_dir_all(&directory).unwrap();
+                    WindowTest::save(&directory, "vulkan-cache-settings", image);
+                    self.pending = false;
+                    let count = self.captured.get() + 1;
+                    self.captured.set(count);
+                    if let Some(&locale) = Locale::ALL.get(count) {
+                        self.app.config.locale = locale;
+                        self.app.settings.as_mut().unwrap().locale = locale;
+                        self.next = Instant::now() + Duration::from_millis(250);
+                    }
+                }
+            }
+            raw.events.append(&mut self.input);
+        }
+
+        fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+            if self.captured.get() == Locale::ALL.len() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                return;
+            }
+            assert!(Instant::now() < self.deadline, "settings capture timed out");
+            self.app.update(ctx, frame);
+            assert!(self.app.settings.is_some() && self.app.task.is_none());
+            ctx.request_repaint_after(Duration::from_millis(25));
+            if self.pending || Instant::now() < self.next {
+                return;
+            }
+            let locale = self.app.config.locale;
+            match self.step {
+                Step::Scroll => {
+                    let label = locale.pick("Painel Rust", "Rust panel", "Panel Rust");
+                    let Some(point) = label_position(ctx, label) else {
+                        return;
+                    };
+                    self.input.extend(scroll(point));
+                    self.step = Step::Expand;
+                }
+                Step::Expand => {
+                    let label = locale.pick(
+                        "Runtime, imagem e perfil",
+                        "Runtime, image, and profile",
+                        "Entorno, imagen y perfil",
+                    );
+                    let Some(point) = label_position(ctx, label) else {
+                        return;
+                    };
+                    self.input
+                        .extend([egui::Event::PointerMoved(point), click(point, true)]);
+                    self.step = Step::Release(point);
+                    return;
+                }
+                Step::Release(point) => {
+                    self.input.push(click(point, false));
+                    self.step = Step::Reveal;
+                }
+                Step::Reveal => {
+                    let label = locale.pick("Câmera", "Camera", "Cámara");
+                    let Some(point) = label_position(ctx, label) else {
+                        return;
+                    };
+                    self.input.extend(scroll(point));
+                    self.step = Step::Capture;
+                }
+                Step::Capture => {
+                    let title = locale.pick(
+                        "Cache de memória Vulkan (experimental)",
+                        "Vulkan memory cache (experimental)",
+                        "Caché de memoria Vulkan (experimental)",
+                    );
+                    let button = locale.pick(
+                        "Escolher pasta do motor…",
+                        "Choose runtime folder…",
+                        "Elegir carpeta del motor…",
+                    );
+                    if label_position(ctx, title).is_none() || label_position(ctx, button).is_none()
+                    {
+                        return;
+                    }
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+                    self.pending = true;
+                }
+            }
+            self.next = Instant::now() + Duration::from_millis(300);
+        }
+    }
+
+    let output = PathBuf::from(
+        std::env::var_os("RUSTEMUDROID_TEST_CAPTURES").expect("choose a capture directory"),
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let prefs = temp.path().join("launcher.json");
+    let mut config = LaunchConfig::load(None, temp.path().into(), None, &prefs);
+    config.locale = Locale::ALL[0];
+    config.animate_mascot = false;
+    config.state = "android-17".into();
+    let captured = Rc::new(Cell::new(0));
+    let counter = captured.clone();
+    let (mut options, brand) = branded_window().unwrap();
+    options.event_loop_builder = Some(Box::new(|builder| {
+        builder.with_any_thread(true);
+    }));
+    eframe::run_native(
+        "RustEmuDroid",
+        options,
+        Box::new(move |cc| {
+            let mut app = Launcher::new(install_window(cc, brand), config.clone(), prefs, false);
+            app.settings = Some(config);
+            let now = Instant::now();
+            Ok(Box::new(SettingsCapture {
+                app,
+                output,
+                captured: counter,
+                step: Step::Scroll,
+                input: Vec::new(),
+                next: now + Duration::from_millis(250),
+                deadline: now + Duration::from_secs(18),
+                pending: false,
+            }))
+        }),
+    )
+    .unwrap();
+    assert_eq!(captured.get(), Locale::ALL.len());
+}
+
 impl WindowTest {
     fn exercise_game_tools(&mut self, ctx: &egui::Context) {
         match self.demo {
