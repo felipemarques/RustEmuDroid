@@ -7,6 +7,7 @@ import subprocess
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
+from zipfile import ZipFile
 
 HERE = Path(__file__).resolve().parent
 LAB = runpy.run_path(str(HERE / "stage.py"))
@@ -37,6 +38,33 @@ def commit(root):
 
 
 class LabTests(unittest.TestCase):
+    def test_prebuilt_zip_uses_only_reference_paths_sizes_and_hashes(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            dll = "lib64/test.dll"
+            blob = pe(root / dll).read_bytes()
+            row = {"source": dll, "destinations": [dll], "origin": "locally_linked", "bytes": 1, "sha256": ""}
+            data = {"overlay": [row], "cache_variant": {"reference_overrides": {
+                dll: {"bytes": len(blob), "sha256": LAB["digest"](root / dll)}}}}
+            archive = root / "overlay.zip"
+            for i, value in enumerate((blob, blob[:-1], blob[:-1] + b"?")):
+                dest = root / str(i)
+                with ZipFile(archive, "w") as out:
+                    out.writestr("artifacts/" + dll, value)
+                    out.writestr("../unexpected", b"ignored")
+                if len(value) != len(blob):
+                    with self.assertRaisesRegex(ValueError, "size"):
+                        LAB["unpack_cache_overlay"](archive, dest, data)
+                    continue
+                LAB["unpack_cache_overlay"](archive, dest, data)
+                self.assertFalse((root / "unexpected").exists())
+                if value == blob:
+                    plan, _, variant = LAB["overlay_plan"](dest, None, data, strict=True, requested="cache")
+                    self.assertEqual((plan[0][0], variant), (dest / dll, "cache"))
+                else:
+                    with self.assertRaisesRegex(ValueError, "digest"):
+                        LAB["overlay_plan"](dest, None, data, strict=True, requested="cache")
+
     def test_public_manifest(self):
         data = LAB["manifest"]()
         projects, patches = LAB["source_inputs"](data)
@@ -132,6 +160,9 @@ class LabTests(unittest.TestCase):
             secret.unlink()
             with self.assertRaisesRegex(ValueError, "overlaps"):
                 LAB["new_out"](stock / "new", stock)
+            deep = LAB["new_out"](root / "private" / "engines" / "cache", stock)
+            self.assertTrue(deep.parent.is_dir())
+            self.assertFalse(deep.exists())
             with patch("shutil.copytree", side_effect=OSError("interrupted copy")):
                 with self.assertRaisesRegex(OSError, "interrupted"):
                     LAB["stage"](out, stock, plan, {}, data, False)

@@ -51,6 +51,14 @@ The completed build writes `build-receipt.json`. It records the source revisions
 
 ## 2. Create the private runtime
 
+If you have the reference cache binary kit, you can skip the compiler and source checkout. Use Python 3.11 or newer from the project folder and supply the stock Windows runtime described below. Choose a new destination folder. The stager verifies the ZIP modules against the project's SHA-256 list and copies the separately installed emulator tools. The Android image and games continue to use their usual locations.
+
+```powershell
+python .\experiments\whpx-clock\stage.py stage --overlay-zip 'D:\Downloads\whpx-cache-windows-x86_64.zip' --stock-sdk "$env:LOCALAPPDATA\Android\Sdk" --out 'D:\Android\CacheEngine' --smoke
+```
+
+For a RustEmuDroid-managed installation of those tool versions, set `--stock-sdk` to `"$env:LOCALAPPDATA\RustEmuDroid\runtime"`. After the three checks pass, open the v0.22.0 or newer desktop client and select the new folder in the profile's [Vulkan cache setting](../../README.md#choose-a-profile).
+
 Obtain Google's x64 Android Emulator 37.3.10 build 16970787 and Platform Tools 37.0.0 separately. Extract them so the stock directory contains `emulator/` and `platform-tools/`. Google's catalog gives the emulator archive size as 456,613,348 bytes and SHA-1 as `7599293267e61ce67423f87848ff8219da09258b`. The stager separately verifies the stock launcher, original core, gfxstream renderer and ADB by SHA-256. [Google release notes](https://developer.android.com/studio/releases/emulator) [Emulator ZIP](https://dl.google.com/android/repository/emulator-windows_x64-16970787.zip) [Platform Tools ZIP](https://dl.google.com/android/repository/platform-tools_r37.0.0-win.zip)
 
 ```powershell

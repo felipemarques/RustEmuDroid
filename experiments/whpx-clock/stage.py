@@ -1,5 +1,6 @@
 """Build or stage a source-checked Windows WHPX clock lab SDK without booting Android."""
 import argparse
+from contextlib import ExitStack
 from hashlib import file_digest, sha256
 import json
 import mmap
@@ -13,6 +14,7 @@ import subprocess
 import sys
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from xml.etree import ElementTree
+from zipfile import BadZipFile, ZipFile
 
 HERE = Path(__file__).resolve().parent
 PROJECT = HERE.parents[1]
@@ -225,10 +227,11 @@ def invoke_logged(command, path, source, *, append=False):
 
 
 def new_out(path, *inputs):
-    path = path.parent.resolve(strict=True) / path.name
+    path = path.parent.resolve() / path.name
     require(all(not path.is_relative_to(root) and not root.is_relative_to(path) for root in inputs),
             "Output overlaps an input directory")
     require(not path.exists() and not path.is_symlink(), "Output must be a fresh path")
+    path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -320,6 +323,26 @@ def overlay_plan(artifacts, dia, data, *, strict=False, requested=None):
     return plan, proof_sha, variant
 
 
+def unpack_cache_overlay(archive, folder, data):
+    """Read just the reference cache modules. The build manifest owns their paths and sizes."""
+    overrides = data["cache_variant"]["reference_overrides"]
+    with ZipFile(archive) as source:
+        names = source.namelist()
+        for row in data["overlay"]:
+            if row["origin"] == "microsoft_dia":
+                continue
+            relative = row["source"]
+            member = "artifacts/" + relative
+            expected = row | overrides.get(relative, {})
+            require(names.count(member) == 1, f"Expected one ZIP member for {relative}")
+            info = source.getinfo(member)
+            require(info.file_size == expected["bytes"], f"Unexpected ZIP member size: {relative}")
+            destination = folder / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with source.open(info) as incoming, destination.open("xb") as output:
+                shutil.copyfileobj(incoming, output, length=1024 * 1024)
+
+
 def clean_component(stock, name):
     folder = stock / name
     require(folder.resolve(strict=True) == folder and folder.is_dir(), f"Expected a local SDK {name} component")
@@ -401,7 +424,9 @@ def main():
     for action in ("check", "stage"):
         cmd = commands.add_parser(action)
         cmd.add_argument("--stock-sdk", type=Path, required=True)
-        cmd.add_argument("--artifacts", type=Path, required=True)
+        inputs = cmd.add_mutually_exclusive_group(required=True)
+        inputs.add_argument("--artifacts", type=Path, help="Locally built or extracted artifacts")
+        inputs.add_argument("--overlay-zip", type=Path, help="Prebuilt Windows cache module ZIP")
         cmd.add_argument("--variant", choices=VARIANTS, help="Expected variant; default reads the local build receipt")
         cmd.add_argument("--strict-reference", action="store_true", help="Require the published archived PE checksums")
         cmd.add_argument("--dia", type=Path, help="Optional separately obtained Microsoft DIA runtime DLL")
@@ -416,18 +441,26 @@ def main():
             build_local(args.source, args.out, data, args.resume, args.variant)
             return
         stock = args.stock_sdk.resolve(strict=True)
-        artifacts = args.artifacts.resolve(strict=True)
         dia = args.dia.resolve(strict=True) if args.dia else None
         stock_inputs(stock, data)
-        plan, proof, variant = overlay_plan(artifacts, dia, data, strict=args.strict_reference, requested=args.variant)
-        receipt = {"variant": variant, "reference_artifact_hashes_required": args.strict_reference, "build_receipt_sha256": proof,
-                   "overlay_manifest_sha256": lf_digest(MANIFEST), "copied_optional_dia": dia is not None,
-                   "android_started": False, "overlay_path_count": sum(len(paths) for _, paths, _, _ in plan)}
-        if args.action == "stage":
-            out = new_out(args.out, stock, artifacts, *([dia] if dia else []))
-            stage(out, stock, plan, receipt, data, args.smoke)
+        with ExitStack() as cleanup:
+            strict, requested = args.strict_reference, args.variant
+            if args.overlay_zip:
+                require(requested in (None, "cache"), "The prebuilt module ZIP is for the cache variant")
+                strict, requested = True, "cache"
+                artifacts = Path(cleanup.enter_context(TemporaryDirectory(prefix="rustemudroid-cache-"))).resolve()
+                unpack_cache_overlay(args.overlay_zip, artifacts, data)
+            else:
+                artifacts = args.artifacts.resolve(strict=True)
+            plan, proof, variant = overlay_plan(artifacts, dia, data, strict=strict, requested=requested)
+            receipt = {"variant": variant, "reference_artifact_hashes_required": strict, "build_receipt_sha256": proof,
+                       "overlay_manifest_sha256": lf_digest(MANIFEST), "copied_optional_dia": dia is not None,
+                       "android_started": False, "overlay_path_count": sum(len(paths) for _, paths, _, _ in plan)}
+            if args.action == "stage":
+                out = new_out(args.out, stock, artifacts, *([dia] if dia else []))
+                stage(out, stock, plan, receipt, data, args.smoke)
         print(json.dumps(receipt, indent=2))
-    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+    except (OSError, ValueError, KeyError, BadZipFile, subprocess.SubprocessError) as error:
         cli.exit(1, f"{error}\n")
 
 
