@@ -52,6 +52,8 @@ Uma compilação experimental do QEMU para Windows já inicia a mesma imagem Goo
 
 ## Radeon 780M integrada, PUBG e memória
 
+Na **Radeon 780M integrada a 90 Hz**, a mesma janela Rust com Android 17 e o mesmo QEMU experimental passaram de **84,36 FPS com o cache desligado para 90,17 FPS com ele ligado (+6,89%)**. O P99 do intervalo entre quadros do Android caiu de **23,10–23,22 ms para 12,88–13,34 ms**. O painel Rust processou 86,72 quadros/s com o cache ligado. Os contadores do Windows confirmaram atividade na Radeon nas quatro corridas. A v0.22.0 para Windows permite selecionar esse motor por perfil. [Condições, quatro corridas e dados de cada quadro](../benchmarks/stk-1.5/windows-cached-memory-radeon780m.md) · [Como configurar na v0.22.0](releases/v0.22.0.md)
+
 | Medição | RustEmuDroid | Kemu | BlueStacks |
 |---|---:|---:|---:|
 | Kart, Radeon 780M, Alta, OpenGL ES, alvo 60 · FPS do jogo | 55,49 | 59,87 | 59,99 |
