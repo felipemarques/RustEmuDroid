@@ -560,6 +560,14 @@ impl Launcher {
         {
             display.set_package(controls.foreground_package(ctx));
         }
+        let android_fps = self.config.show_fps && self.config.android_fps;
+        let native_fps = android_fps && self.playing && self.home_ready && !self.stopping();
+        if let Some(controls) = &mut self.controls {
+            controls.update_surface_fps(native_fps, ctx);
+        }
+        #[cfg(windows)]
+        self.blue_mirror
+            .update_surface_fps(android_fps && self.blue_mirror.active(), ctx);
         let toggling_fullscreen = (self.has_player_view() || fullscreen)
             && ctx.input(|i| {
                 i.events.iter().any(|e| {

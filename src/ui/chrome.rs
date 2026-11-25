@@ -76,20 +76,28 @@ impl Launcher {
                                 }
                             }
                         });
-                        if self.config.show_fps
-                            && let Some(display) = &self.display
-                        {
+                    }
+                    if self.config.show_fps && self.has_player_view() {
+                        if self.config.android_fps {
+                            let fps = self.controls.as_ref().and_then(|c| c.surface_fps.value());
+                            #[cfg(windows)]
+                            let fps = if self.blue_mirror.active() { self.blue_mirror.surface_fps() } else { fps };
+                            let value = fps.map_or_else(|| "—".to_owned(), |v| format!("{v:.0}"));
                             divider(ui);
-                            ui.label(
-                                RichText::new(format!("{:.0} FPS", display.fps()))
-                                    .size(12.)
-                                    .color(MINT),
-                            )
-                            .on_hover_text(locale.pick(
-                                "Quadros por segundo exibidos no painel",
-                                "Frames per second presented in the window",
-                                "Fotogramas por segundo mostrados en la ventana",
-                            ));
+                            ui.label(RichText::new(format!("Android {value} FPS")).size(12.).color(MINT))
+                                .on_hover_text(locale.pick(
+                                    "Quadros apresentados na superfície do jogo em primeiro plano. O traço indica que não há medição disponível.",
+                                    "Frames presented on the foreground game surface. A dash means a measurement is unavailable.",
+                                    "Fotogramas presentados en la superficie del juego en primer plano. El guion indica que no hay medición disponible.",
+                                ));
+                        } else if let Some(display) = &self.display {
+                            divider(ui);
+                            ui.label(RichText::new(format!("{:.0} FPS", display.fps())).size(12.).color(MINT))
+                                .on_hover_text(locale.pick(
+                                    "Quadros por segundo processados pelo painel Rust",
+                                    "Frames processed per second by the Rust panel",
+                                    "Fotogramas por segundo procesados por el panel Rust",
+                                ));
                         }
                     }
 

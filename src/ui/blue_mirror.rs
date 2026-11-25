@@ -1,9 +1,10 @@
 use super::{Locale, Tool, theme};
 use crate::bluestacks::{
     mirror_control::{KeyAction, TouchAction},
-    mirror_session::{MirrorEvent, MirrorInput, MirrorSession},
+    mirror_session::{MirrorEvent, MirrorInput, MirrorSession, SurfaceFpsQuery},
     preview::{PreviewRect, ThumbnailPreview},
 };
+use crate::surface_fps::SurfaceFps;
 use eframe::egui::{self, Event, Key, PointerButton};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
@@ -41,6 +42,9 @@ pub(super) struct MirrorPanel {
     input_error: Option<String>,
     view_error: Option<String>,
     mapped: MappedControls,
+    surface_fps: SurfaceFps,
+    surface_foreground: Option<(u64, String)>,
+    surface_query: Option<SurfaceFpsQuery>,
 }
 
 impl MirrorPanel {
@@ -50,6 +54,7 @@ impl MirrorPanel {
     }
 
     pub(super) fn disconnect(&mut self) {
+        self.reset_surface_fps();
         self.release();
         if let Some(preview) = self.preview.take() {
             let _ = preview.detach();
@@ -76,6 +81,47 @@ impl MirrorPanel {
 
     pub(super) fn active(&self) -> bool {
         self.pending.is_some() || self.session.is_some()
+    }
+
+    pub(super) fn update_surface_fps(&mut self, enabled: bool, ctx: &egui::Context) {
+        if !enabled
+            || self
+                .surface_query
+                .as_ref()
+                .is_some_and(|query| !query.current())
+        {
+            self.reset_surface_fps();
+        }
+        if !enabled {
+            return;
+        }
+        let Some((epoch, package)) = &self.surface_foreground else {
+            return;
+        };
+        if self.surface_query.is_none() {
+            self.surface_query = self
+                .session
+                .as_ref()
+                .and_then(|session| session.surface_fps_query(*epoch));
+        }
+        if let Some(query) = self.surface_query.clone() {
+            self.surface_fps
+                .update(Some(package), ctx, move |command| query.run(command));
+        }
+    }
+
+    pub(super) fn surface_fps(&self) -> Option<f32> {
+        self.surface_query
+            .as_ref()
+            .filter(|query| query.current())?;
+        self.surface_fps.value()
+    }
+
+    fn reset_surface_fps(&mut self) {
+        if let Some(query) = self.surface_query.take() {
+            query.revoke();
+            self.surface_fps.reset();
+        }
     }
 
     pub(super) fn update(
@@ -117,6 +163,16 @@ impl MirrorPanel {
         match event {
             MirrorEvent::Player(pid, created) => self.player = Some((pid, created)),
             MirrorEvent::Foreground(epoch, package) => {
+                let foreground = package.as_deref().map(|package| (epoch, package));
+                if self
+                    .surface_foreground
+                    .as_ref()
+                    .map(|(epoch, package)| (*epoch, package.as_str()))
+                    != foreground
+                {
+                    self.reset_surface_fps();
+                    self.surface_foreground = package.clone().map(|package| (epoch, package));
+                }
                 if self.mapped.epoch != Some(epoch) {
                     self.release();
                     self.mapped.set_foreground(epoch, package.as_deref());
@@ -131,6 +187,8 @@ impl MirrorPanel {
                 self.set_display_size(size);
             }
             MirrorEvent::ViewOnly(error) => {
+                self.reset_surface_fps();
+                self.surface_foreground = None;
                 eprintln!("BlueStacks mirror (input): {error}");
                 self.size = None;
                 self.input_error = Some(error);
@@ -138,6 +196,8 @@ impl MirrorPanel {
                 self.release();
             }
             MirrorEvent::Failed(error) => {
+                self.reset_surface_fps();
+                self.surface_foreground = None;
                 eprintln!("BlueStacks mirror (player): {error}");
                 self.size = None;
                 self.player = None;

@@ -288,7 +288,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: tools/tests
 
-      - name: Scroll both Android Home grids with the desktop mouse wheel
+      - name: Check the desktop mouse wheel, control profiles and Android FPS
         shell: bash
         run: |
           set -eu -o pipefail

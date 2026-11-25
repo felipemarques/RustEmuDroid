@@ -1342,21 +1342,38 @@ fn adb_output(
     serial: &str,
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
 ) -> Option<String> {
+    bounded_adb(Command::new(&sdk.adb).args(["-s", serial]).args(args))
+}
+
+pub(crate) fn bounded_adb(command: &mut Command) -> Option<String> {
+    use std::io::Read;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
     let mut child = RunningProcess(
-        Command::new(&sdk.adb)
-            .args(["-s", serial])
-            .args(args)
+        command
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
             .ok()?,
     );
-    if !wait_for_exit(&mut child.0, Duration::from_secs(4)).ok()? {
+    let stdout = child.0.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    // Drain the pipe while adb is running: a layer list may exceed a Windows pipe buffer.
+    std::thread::spawn(move || {
+        let mut output = String::new();
+        let read = stdout.take(1024 * 1024).read_to_string(&mut output);
+        let _ = tx.send(read.ok().filter(|&size| size < 1024 * 1024).map(|_| output));
+    });
+    let timeout = Duration::from_secs(4);
+    let start = Instant::now();
+    let output = rx.recv_timeout(timeout).ok()??;
+    if !wait_for_exit(&mut child.0, timeout.saturating_sub(start.elapsed())).ok()? {
         return None;
     }
-    let mut stdout = child.0.stdout.take()?;
-    let mut output = String::new();
-    io::Read::read_to_string(&mut stdout, &mut output).ok()?;
     child.0.wait().ok()?.success().then_some(output)
 }
 

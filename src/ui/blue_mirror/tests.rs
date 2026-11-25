@@ -11,6 +11,25 @@ const GUEST: [u32; 2] = [200, 100];
 const CENTER: Pos2 = Pos2::new(300.0, 150.0);
 const TOOLBAR: Pos2 = Pos2::new(40.0, 15.0);
 
+#[test]
+fn surface_fps_follows_the_live_foreground_without_requiring_a_mapping() {
+    let mut panel = MirrorPanel::default();
+    panel.apply_event(MirrorEvent::Foreground(5, Some("org.example.game".into())));
+    assert_eq!(
+        panel
+            .surface_foreground
+            .as_ref()
+            .map(|(epoch, package)| (*epoch, package.as_str())),
+        Some((5, "org.example.game")),
+    );
+    panel.apply_event(MirrorEvent::Foreground(6, None));
+    assert!(panel.surface_foreground.is_none());
+    panel.apply_event(MirrorEvent::Foreground(7, Some("org.example.other".into())));
+    panel.disconnect();
+    assert!(panel.surface_foreground.is_none());
+    assert!(panel.surface_fps().is_none());
+}
+
 fn primary(pos: Pos2, pressed: bool) -> Event {
     Event::PointerButton {
         pos,

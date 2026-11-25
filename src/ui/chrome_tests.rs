@@ -218,6 +218,7 @@ fn title_bar_layout_and_window_actions() {
             hardware: Default::default(),
             amd_uma_vulkan_by_profile: Default::default(),
             show_fps: true,
+            android_fps: false,
             animate_mascot: true,
             locale: Locale::default(),
         };
@@ -339,6 +340,74 @@ fn settings_combo_and_footer_at_minimum_window_size() {
     assert!(app.settings.is_none());
     assert!(matches!(app.config.gpu, Gpu::Host));
     assert!(!app.prefs_file.is_file());
+}
+
+#[test]
+fn settings_save_android_surface_fps_without_restarting_play() {
+    for locale in Locale::ALL {
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = dir.path().join("launcher.json");
+        let mut config = LaunchConfig::load(None, dir.path().into(), Some(Gpu::Host), &prefs);
+        config.locale = locale;
+        let brand = ctx.load_texture(
+            "brand",
+            egui::ColorImage::filled([2, 2], INK),
+            Default::default(),
+        );
+        let mut app = Launcher::new(brand, config.clone(), prefs.clone(), false);
+        app.playing = true;
+        app.stage = BootStage::Booted;
+        app.settings = Some(config);
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1080., 680.));
+        let mut tick = |events| {
+            ctx.run(
+                RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| app.show_settings(ctx, None),
+            )
+        };
+        for _ in 0..3 {
+            tick(vec![]);
+        }
+        let default = locale.pick("Painel Rust", "Rust panel", "Panel Rust");
+        let android = locale.pick(
+            "Superfície do jogo no Android",
+            "Android game surface",
+            "Superficie del juego en Android",
+        );
+        let save = locale.pick("Salvar", "Save", "Guardar");
+        let seek = |out: &FullOutput, text: &str| {
+            let targets = labels(out, text);
+            assert_eq!(targets.len(), 1, "{text} for {}", locale.tag());
+            let point = targets[0].center();
+            assert!(
+                screen.contains(point),
+                "{text} is outside the settings window"
+            );
+            point
+        };
+        let combo = seek(&tick(vec![]), default);
+        tick(vec![Event::PointerMoved(combo), button(combo, true)]);
+        tick(vec![button(combo, false)]);
+        let option = seek(&tick(vec![]), android);
+        tick(vec![Event::PointerMoved(option), button(option, true)]);
+        tick(vec![button(option, false)]);
+        let selected = tick(vec![]);
+        seek(&selected, android);
+        let save = seek(&selected, save);
+        tick(vec![Event::PointerMoved(save), button(save, true)]);
+        tick(vec![button(save, false)]);
+        assert!(app.settings.is_none() && app.config.android_fps && app.config.show_fps);
+        assert!(!app.restart && !app.stop.load(std::sync::atomic::Ordering::Acquire));
+        assert!(app.task.is_none());
+        let saved = LaunchConfig::load(None, dir.path().into(), None, &prefs);
+        assert!(saved.android_fps && saved.show_fps);
+    }
 }
 
 #[test]

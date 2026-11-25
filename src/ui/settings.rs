@@ -25,6 +25,8 @@ pub(super) struct LaunchConfig {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub amd_uma_vulkan_by_profile: BTreeMap<PathBuf, bool>,
     pub show_fps: bool,
+    #[serde(default)]
+    pub android_fps: bool,
     #[serde(default = "super::mascot::enabled_by_default")]
     pub animate_mascot: bool,
     #[serde(default)]
@@ -76,6 +78,7 @@ impl LaunchConfig {
                 hardware: Hardware::default(),
                 amd_uma_vulkan_by_profile: BTreeMap::new(),
                 show_fps: true,
+                android_fps: false,
                 animate_mascot: true,
                 locale: Locale::default(),
             });
@@ -615,7 +618,22 @@ impl Launcher {
                             "Elige una frecuencia que el monitor admita actualmente. Durante la sesión, el emulador solicita esa frecuencia a Android e intenta habilitar más de 60 Hz para los juegos. Cada juego fija su propio límite.",
                         ));
                     }
-                    ui.checkbox(&mut draft.show_fps, locale.pick("Mostrar FPS no painel", "Show FPS in the title bar", "Mostrar FPS en la barra de título"));
+                    let sources = [
+                        locale.pick("Desligado", "Off", "Desactivado"),
+                        locale.pick("Painel Rust", "Rust panel", "Panel Rust"),
+                        locale.pick("Superfície do jogo no Android", "Android game surface", "Superficie del juego en Android"),
+                    ];
+                    let mut source = if !draft.show_fps { 0 } else if draft.android_fps { 2 } else { 1 };
+                    ui.horizontal(|ui| {
+                        let label = theme::label(ui, locale.pick("Contador de FPS", "FPS counter", "Contador de FPS"));
+                        theme::select(ui, "fps-source", sources[source], |ui| {
+                            for (index, label) in sources.into_iter().enumerate() {
+                                ui.selectable_value(&mut source, index, label);
+                            }
+                        }).labelled_by(label.id);
+                    });
+                    draft.show_fps = source != 0;
+                    draft.android_fps = source == 2;
                     ui.checkbox(&mut draft.animate_mascot, locale.pick(
                         "Animar o mascote",
                         "Animate the mascot",

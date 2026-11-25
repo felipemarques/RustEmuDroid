@@ -67,6 +67,10 @@ impl ForegroundWatch {
     pub(super) fn epoch(&self) -> u64 {
         self.epoch.load(Ordering::Acquire)
     }
+
+    pub(super) fn shared_epoch(&self) -> Arc<AtomicU64> {
+        self.epoch.clone()
+    }
 }
 
 impl Drop for ForegroundWatch {

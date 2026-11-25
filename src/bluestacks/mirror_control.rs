@@ -326,7 +326,7 @@ fn log_text(log: &mut File, tail: bool) -> io::Result<String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-fn read_editor_frame(
+pub(super) fn read_bounded(
     mut reader: impl Read,
     limit: usize,
     deadline: Instant,
@@ -335,14 +335,14 @@ fn read_editor_frame(
     let mut bytes = Vec::new();
     let mut buffer = [0; 8192];
     loop {
-        check_editor_capture(deadline, &cancelled)?;
+        check_read(deadline, &cancelled)?;
         match reader.read(&mut buffer) {
             Ok(0) => return Ok(bytes),
             Ok(count) if bytes.len() + count <= limit => bytes.extend_from_slice(&buffer[..count]),
             Ok(_) => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    "Editor frame is too large",
+                    "ADB response is too large",
                 ));
             }
             Err(error)
@@ -357,17 +357,17 @@ fn read_editor_frame(
     }
 }
 
-fn check_editor_capture(deadline: Instant, cancelled: &impl Fn() -> bool) -> io::Result<()> {
+fn check_read(deadline: Instant, cancelled: &impl Fn() -> bool) -> io::Result<()> {
     if cancelled() {
         return Err(io::Error::new(
             io::ErrorKind::Interrupted,
-            "Editor capture cancelled",
+            "ADB response cancelled",
         ));
     }
     if Instant::now() >= deadline {
         return Err(io::Error::new(
             io::ErrorKind::TimedOut,
-            "Editor capture timed out",
+            "ADB response timed out",
         ));
     }
     Ok(())
@@ -597,13 +597,13 @@ impl MirrorControl {
         cancelled: impl Fn() -> bool,
     ) -> io::Result<Vec<u8>> {
         let deadline = Instant::now() + SHORT_COMMAND;
-        check_editor_capture(deadline, &cancelled)?;
+        check_read(deadline, &cancelled)?;
         let mut stream = self.server.adb.socket()?;
-        check_editor_capture(deadline, &cancelled)?;
+        check_read(deadline, &cancelled)?;
         service(&mut stream, "exec:screencap -p")?;
         stream.set_read_timeout(Some(EDITOR_FRAME_POLL))?;
-        let png = read_editor_frame(stream, EDITOR_FRAME_LIMIT, deadline, &cancelled)?;
-        check_editor_capture(deadline, &cancelled)?;
+        let png = read_bounded(stream, EDITOR_FRAME_LIMIT, deadline, &cancelled)?;
+        check_read(deadline, &cancelled)?;
         if editor_frame_size(&png) != Some(display) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -1004,7 +1004,7 @@ mod tests {
     fn editor_capture_rejects_oversize_late_cancelled_or_invalid_frames() {
         let header = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\x06\x40\0\0\x03\x84";
         let deadline = Instant::now() + SHORT_IO;
-        let captured = read_editor_frame(&header[..], header.len(), deadline, || false).unwrap();
+        let captured = read_bounded(&header[..], header.len(), deadline, || false).unwrap();
         assert_eq!(editor_frame_size(&captured), Some([1600, 900]));
         assert_eq!(editor_frame_size(&captured[..16]), None);
         assert_eq!(editor_frame_size(b"failed to capture"), None);
@@ -1019,7 +1019,7 @@ mod tests {
             (header.len(), deadline, true, io::ErrorKind::Interrupted),
         ] {
             assert_eq!(
-                read_editor_frame(&header[..], limit, deadline, || cancelled)
+                read_bounded(&header[..], limit, deadline, || cancelled)
                     .unwrap_err()
                     .kind(),
                 error

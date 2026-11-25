@@ -11,6 +11,8 @@ mod display;
 mod locale;
 mod runtime_install;
 #[cfg(feature = "ui")]
+mod surface_fps;
+#[cfg(feature = "ui")]
 mod toolbar;
 #[cfg(feature = "ui")]
 mod ui;

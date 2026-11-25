@@ -577,3 +577,154 @@ fn live_player_routes_raw_input_through_the_launcher() {
         "mirror fixture did not complete; inspect the private receipt"
     );
 }
+
+#[test]
+#[ignore = "requires the operator's BlueStacks lab with an animated game in the foreground"]
+fn live_player_measures_and_disables_android_surface_fps() {
+    struct FpsWindow {
+        app: Launcher,
+        pid: u32,
+        package: String,
+        file: File,
+        started: Instant,
+        sample: Option<Instant>,
+        epoch: Option<u64>,
+        count: u32,
+        disabling: Option<(Instant, super::SurfaceFpsQuery)>,
+        closing: bool,
+        passed: bool,
+        finished: Rc<Cell<bool>>,
+    }
+
+    impl App for FpsWindow {
+        fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+            if self.closing {
+                if !self.app.blue_mirror.poll_cleanup(ctx) {
+                    append(&mut self.file, self.started, "closed_clean", json!({}));
+                    self.finished.set(self.passed);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                return;
+            }
+            if self.started.elapsed() >= Duration::from_secs(32) {
+                append(
+                    &mut self.file,
+                    self.started,
+                    "timed_out",
+                    json!({"samples": self.count}),
+                );
+                self.app.blue_mirror.disconnect();
+                self.closing = true;
+                ctx.request_repaint();
+                return;
+            }
+            self.app.update(ctx, frame);
+            let panel = &self.app.blue_mirror;
+            if let Some((pid, _)) = panel.player {
+                assert_eq!(pid, self.pid, "unexpected BlueStacks player");
+            }
+            if let Some((since, query)) = &self.disabling {
+                assert!(panel.surface_fps().is_none());
+                assert!(!query.current() && panel.surface_query.is_none());
+                if since.elapsed() >= Duration::from_millis(650) {
+                    append(
+                        &mut self.file,
+                        self.started,
+                        "disabled",
+                        json!({"samples": self.count}),
+                    );
+                    self.passed = true;
+                    self.app.blue_mirror.disconnect();
+                    self.closing = true;
+                }
+            } else if let Some((epoch, package)) = &panel.surface_foreground
+                && package == &self.package
+                && let Some(value) = panel.surface_fps()
+                && let Some(sample) = panel.surface_fps.sample_time()
+                && self.sample.is_none_or(|previous| sample > previous)
+            {
+                assert!(
+                    (10.0..=120.0).contains(&value),
+                    "implausible game FPS {value}"
+                );
+                assert_eq!(
+                    *self.epoch.get_or_insert(*epoch),
+                    *epoch,
+                    "foreground changed during sampling"
+                );
+                self.count += 1;
+                self.sample = Some(sample);
+                append(
+                    &mut self.file,
+                    self.started,
+                    "sample",
+                    json!({
+                        "number": self.count, "fps": value, "package": package, "epoch": epoch
+                    }),
+                );
+                if self.count == 3 {
+                    self.disabling = Some((Instant::now(), panel.surface_query.clone().unwrap()));
+                    self.app.config.android_fps = false;
+                }
+            }
+            ctx.request_repaint_after(Duration::from_millis(40));
+        }
+    }
+
+    let instance = env::var("RUSTEMUDROID_MIRROR_LIVE_INSTANCE").expect("select the running lab");
+    let pid: u32 = env::var("RUSTEMUDROID_MIRROR_LIVE_PID")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let adb = PathBuf::from(env::var_os("RUSTEMUDROID_MIRROR_LIVE_ADB").unwrap());
+    let package = env::var("RUSTEMUDROID_SURFACE_FPS_PACKAGE").expect("selected foreground game");
+    assert!(
+        pid != 0
+            && adb.is_absolute()
+            && adb.is_file()
+            && crate::bluestacks::valid_package(&package)
+    );
+    let receipt = PathBuf::from(env::var_os("RUSTEMUDROID_MIRROR_LIVE_RECEIPT").unwrap());
+    assert!(receipt.is_absolute());
+    let dir = receipt.parent().unwrap().canonicalize().unwrap();
+    let root = fs::canonicalize(env!("CARGO_MANIFEST_DIR")).unwrap();
+    assert!(!dir.starts_with(&root) || dir.starts_with(root.join(".rustemudroid/qa")));
+    let file = File::create_new(dir.join(receipt.file_name().unwrap())).unwrap();
+    let state = tempfile::tempdir_in(&dir).unwrap();
+    let prefs = state.path().join("launcher.json");
+    let mut config = LaunchConfig::load(None, state.path().to_owned(), None, &prefs);
+    config.show_fps = true;
+    config.android_fps = true;
+    let (mut options, brand) = branded_window().unwrap();
+    options.event_loop_builder = Some(Box::new(|builder| {
+        builder.with_any_thread(true);
+    }));
+    let finished = Rc::new(Cell::new(false));
+    let result = finished.clone();
+    eframe::run_native(
+        "RustEmuDroid BlueStacks Surface FPS fixture",
+        options,
+        Box::new(move |creation| {
+            let mut app = Launcher::new(install_window(creation, brand), config, prefs, false);
+            app.blue_mirror.instance = instance.clone();
+            app.blue_mirror.session =
+                Some(MirrorSession::start_existing_for_test(instance, pid, adb));
+            Ok(Box::new(FpsWindow {
+                app,
+                pid,
+                file,
+                package,
+                started: Instant::now(),
+                sample: None,
+                epoch: None,
+                count: 0,
+                disabling: None,
+                closing: false,
+                passed: false,
+                finished: result,
+            }))
+        }),
+    )
+    .unwrap();
+    assert!(finished.get(), "Surface FPS fixture did not complete");
+}

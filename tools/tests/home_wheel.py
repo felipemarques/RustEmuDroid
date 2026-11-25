@@ -1,4 +1,4 @@
-"""Exercise library scrolling and the per-game profile shortcut through the packaged X11 window."""
+"""Exercise Home scrolling, the profile shortcut and Android frame counting on Linux."""
 import json
 import os
 from pathlib import Path
@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import time
 import xml.etree.ElementTree as ET
+import zipfile
 
 
 def run(*args, **kwargs):
@@ -31,14 +32,15 @@ def build_fixtures(work, sdk):
         "-alias", "fixture", "-keyalg", "RSA", "-dname", "CN=CI fixture", "-validity", "2")
     for kind in ("Games", "Apps"):
         package = f"org.rustemudroid.qa.{kind.lower()}"
-        attrs = {'android:name': 'android.app.Activity', 'android:exported': 'false'}
+        game = kind == "Games"
+        activity = f"{package}.FrameActivity" if game else "android.app.Activity"
         manifest = ET.Element("manifest", {"xmlns:android": "http://schemas.android.com/apk/res/android", "package": package})
         ET.SubElement(manifest, "uses-sdk", {"android:minSdkVersion": "26", "android:targetSdkVersion": "32"})
-        app = ET.SubElement(manifest, "application", {"android:hasCode": "false", "android:appCategory": "game" if kind == "Games" else "productivity"})
-        ET.SubElement(app, "activity", attrs)
+        app = ET.SubElement(manifest, "application", {"android:hasCode": str(game).lower(), "android:appCategory": "game" if game else "productivity"})
+        ET.SubElement(app, "activity", {"android:name": activity, "android:exported": "false"})
         for i in range(40):
             alias = ET.SubElement(app, "activity-alias", {"android:name": f".Card{i}", "android:label": f"AA {kind} {i:02d}",
-                "android:targetActivity": "android.app.Activity", "android:exported": "true"})
+                "android:targetActivity": activity, "android:exported": "true"})
             intent = ET.SubElement(alias, "intent-filter")
             ET.SubElement(intent, "action", {"android:name": "android.intent.action.MAIN"})
             ET.SubElement(intent, "category", {"android:name": "android.intent.category.LAUNCHER"})
@@ -48,6 +50,12 @@ def build_fixtures(work, sdk):
         aligned = work / f"{kind}-aligned.apk"
         signed = work / f"{kind}.apk"
         run(tools / "aapt", "package", "-f", "-M", path, "-I", jar, "-F", unsigned)
+        if game:
+            run("javac", "--release", "8", "-cp", jar, "-d", work, Path(__file__).with_name("FrameActivity.java"))
+            run(tools / "d8", "--lib", jar, "--min-api", "26", "--output", work,
+                work / "org/rustemudroid/qa/games/FrameActivity.class")
+            with zipfile.ZipFile(unsigned, "a", compression=zipfile.ZIP_DEFLATED) as apk:
+                apk.write(work / "classes.dex", "classes.dex")
         run(tools / "zipalign", "-f", "4", unsigned, aligned)
         run(tools / "apksigner", "sign", "--ks", key, "--ks-pass", "pass:fixture", "--out", signed, aligned)
         yield signed
@@ -157,6 +165,12 @@ def main():
                 run("xdotool", "key", "--clearmodifiers", "ctrl+shift+p")
                 wait_for(f"saved profile {expected}", lambda: json.loads(maps.read_text())[game]["active"] == expected, 7)
             print("Game profiles: On foot -> Driving -> On foot via Ctrl+Shift+P", flush=True)
+            counter = run(temp / "test-bin/runtime-install-test", "--exact",
+                "controls::tests::live_android_surface_counter_tracks_the_selected_game", "--ignored", "--nocapture",
+                env=dict(env, RUSTEMUDROID_TEST_ADB=str(adb), RUSTEMUDROID_TEST_PORT=serial.split("-")[1],
+                         RUSTEMUDROID_TEST_AVD=str(avd), RUSTEMUDROID_TEST_PACKAGE=game))
+            assert "1 passed; 0 failed" in counter and "counter disabled and cleared" in counter, counter
+            print(counter, flush=True)
         except Exception:
             if serial:
                 report = temp / "boot-report"

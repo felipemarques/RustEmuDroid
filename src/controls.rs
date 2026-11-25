@@ -1,4 +1,11 @@
-use std::{collections::VecDeque, ffi::OsStr, path::PathBuf, process::Command, sync::mpsc, thread};
+use std::{
+    collections::VecDeque,
+    ffi::OsStr,
+    path::PathBuf,
+    process::Command,
+    sync::{Arc, Mutex, mpsc},
+    thread,
+};
 
 use eframe::egui;
 
@@ -32,9 +39,46 @@ struct Guest {
     serial: String,
     avd: PathBuf,
     locale: Locale,
+    fps_transport: Arc<Mutex<Option<String>>>,
 }
 
 impl Guest {
+    fn surface_query(&self, command: &str) -> Option<String> {
+        let mut transport = self.fps_transport.lock().ok()?;
+        // Pin latency reads to the specific ADB connection that owns this profile.
+        if command == "dumpsys SurfaceFlinger --list" || transport.is_none() {
+            *transport = None;
+            let devices =
+                crate::android::bounded_adb(Command::new(&self.adb).args(["devices", "-l"]))?;
+            let mut id = devices.lines().filter_map(|line| {
+                let mut fields = line.split_whitespace();
+                (fields.next() == Some(self.serial.as_str()) && fields.next() == Some("device"))
+                    .then(|| fields.find_map(|v| v.strip_prefix("transport_id:")))?
+            });
+            let selected = id.next()?.parse::<std::num::NonZeroU64>().ok()?.to_string();
+            if id.next().is_some() {
+                return None;
+            }
+            // "emu" addresses the emulator console by serial; shell queries use the pinned transport.
+            let path = crate::android::bounded_adb(Command::new(&self.adb).args([
+                "-s",
+                &self.serial,
+                "emu",
+                "avd",
+                "path",
+            ]))?;
+            if std::path::Path::new(path.lines().next()?.trim()) != self.avd {
+                return None;
+            }
+            *transport = Some(selected);
+        }
+        crate::android::bounded_adb(Command::new(&self.adb).args([
+            "-t",
+            transport.as_deref()?,
+            "shell",
+            command,
+        ]))
+    }
     fn home_apk_available(&self) -> bool {
         self.command([
             "shell",
@@ -410,7 +454,8 @@ impl Guest {
 }
 
 pub struct Controls {
-    guest: Guest,
+    guest: Arc<Guest>,
+    pub(crate) surface_fps: crate::surface_fps::SurfaceFps,
     pending: Option<mpsc::Receiver<Result<Update, String>>>,
     queue: VecDeque<Action>,
     pub message: Option<Result<String, String>>,
@@ -436,12 +481,14 @@ impl Controls {
     }
     pub fn new(adb: PathBuf, port: u16, avd: PathBuf) -> Self {
         Self {
-            guest: Guest {
+            guest: Arc::new(Guest {
                 adb,
                 serial: format!("emulator-{port}"),
                 avd,
                 locale: Locale::default(),
-            },
+                fps_transport: Arc::default(),
+            }),
+            surface_fps: Default::default(),
             pending: None,
             queue: VecDeque::new(),
             message: None,
@@ -454,12 +501,25 @@ impl Controls {
     }
     pub fn set_locale(&mut self, locale: Locale) {
         if self.guest.locale != locale {
-            self.guest.locale = locale;
+            Arc::make_mut(&mut self.guest).locale = locale;
             self.message = None;
         }
     }
     pub fn busy(&self) -> bool {
         self.pending.is_some()
+    }
+
+    pub(crate) fn update_surface_fps(&mut self, enabled: bool, ctx: &egui::Context) {
+        if !enabled {
+            self.surface_fps.reset();
+            return;
+        }
+        self.foreground_package(ctx);
+        let guest = self.guest.clone();
+        self.surface_fps
+            .update(self.foreground.as_deref(), ctx, move |command| {
+                guest.surface_query(command)
+            });
     }
 
     pub(crate) fn library_wheel(&mut self, delta: i32, interactive: bool, ctx: &egui::Context) {
@@ -543,18 +603,23 @@ impl Controls {
             self.foreground_query = Some(rx);
             self.next_foreground = now + std::time::Duration::from_secs(1);
             thread::spawn(move || {
-                let package = guest
-                    .command(["shell", "dumpsys", "activity", "top-resumed"])
-                    .ok()
-                    .and_then(|s| {
-                        s.lines().find_map(|line| {
-                            line.trim()
-                                .strip_prefix("packageName=")?
-                                .split_whitespace()
-                                .next()
-                                .map(str::to_owned)
-                        })
-                    });
+                let package = crate::android::bounded_adb(Command::new(&guest.adb).args([
+                    "-s",
+                    &guest.serial,
+                    "shell",
+                    "dumpsys",
+                    "activity",
+                    "top-resumed",
+                ]))
+                .and_then(|s| {
+                    s.lines().find_map(|line| {
+                        line.trim()
+                            .strip_prefix("packageName=")?
+                            .split_whitespace()
+                            .next()
+                            .map(str::to_owned)
+                    })
+                });
                 let _ = tx.send(package);
                 ctx.request_repaint();
             });
@@ -619,6 +684,46 @@ mod tests {
     use super::*;
     use egui::{Event, Modifiers, PointerButton, RawInput, pos2, vec2};
     use std::time::{Duration, Instant};
+
+    #[test]
+    #[ignore = "requires the selected AVD to be showing an animated game SurfaceView"]
+    fn live_android_surface_counter_tracks_the_selected_game() {
+        let env = |key| std::env::var(key).unwrap();
+        let package = env("RUSTEMUDROID_TEST_PACKAGE");
+        let mut controls = Controls::new(
+            env("RUSTEMUDROID_TEST_ADB").into(),
+            env("RUSTEMUDROID_TEST_PORT").parse().unwrap(),
+            env("RUSTEMUDROID_TEST_AVD").into(),
+        );
+        controls.guest.verify_session().unwrap();
+        let ctx = egui::Context::default();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut last = None;
+        let mut readings = Vec::new();
+        while Instant::now() < deadline && readings.len() < 5 {
+            controls.update_surface_fps(true, &ctx);
+            if let Some(fps) = controls.surface_fps.value()
+                && controls.surface_fps.sample_time() != last
+                && fps > 0.
+            {
+                assert_eq!(controls.foreground.as_deref(), Some(package.as_str()));
+                assert!(fps.is_finite());
+                last = controls.surface_fps.sample_time();
+                readings.push(fps);
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        assert_eq!(
+            readings.len(),
+            5,
+            "Expected five distinct samples for {package}: {readings:?}"
+        );
+        controls.update_surface_fps(false, &ctx);
+        assert_eq!(controls.surface_fps.value(), None);
+        println!(
+            "Android SurfaceView {package}: {readings:?} frames/s; counter disabled and cleared"
+        );
+    }
 
     // Click the actual egui widgets and independently read AudioService on a selected live AVD.
     #[test]

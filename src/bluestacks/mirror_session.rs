@@ -8,8 +8,8 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
     thread::{self, JoinHandle},
@@ -20,7 +20,7 @@ use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use super::{
     Installation, configured_instances, launch,
-    mirror_control::{MirrorControl, query_display_size},
+    mirror_control::{MirrorControl, query_display_size, read_bounded, service, transport_socket},
     mirror_foreground::ForegroundWatch,
     mirror_target::{ConfiguredTarget, MirrorTarget, TargetError, configured_target},
     player_process::{PlayerError, PlayerSource, find_preview_player, verify_adb_player},
@@ -37,6 +37,9 @@ const WAIT_DEVICE: Duration = Duration::from_secs(10);
 const ADB_VERSION_TIMEOUT: Duration = Duration::from_secs(3);
 const ROTATION_SETTLE: Duration = Duration::from_millis(600);
 const ROTATION_REFRESH_WINDOW: Duration = Duration::from_secs(3);
+const SURFACE_FPS_TIMEOUT: Duration = Duration::from_secs(2);
+const SURFACE_FPS_READ_TICK: Duration = Duration::from_millis(100);
+const SURFACE_FPS_OUTPUT_LIMIT: usize = 256 * 1024;
 
 #[derive(Debug)]
 pub(crate) enum MirrorEvent {
@@ -81,7 +84,92 @@ pub(crate) struct MirrorSession {
     pub(crate) events: Receiver<MirrorEvent>,
     pub(crate) input: Sender<MirrorInput>,
     cancelled: Arc<AtomicBool>,
+    surface_target: Arc<Mutex<Option<Arc<SurfaceTarget>>>>,
     worker: Option<JoinHandle<()>>,
+}
+
+struct SurfaceTarget {
+    configured: ConfiguredTarget,
+    transport: MirrorTarget,
+    epoch: Arc<AtomicU64>,
+    active: AtomicBool,
+}
+
+/// A read-only SurfaceFlinger query bound to one enabled UI generation.
+#[derive(Clone)]
+pub(crate) struct SurfaceFpsQuery {
+    target: Arc<SurfaceTarget>,
+    cancelled: Arc<AtomicBool>,
+    enabled: Arc<AtomicBool>,
+    epoch: u64,
+}
+
+impl SurfaceFpsQuery {
+    pub(crate) fn revoke(&self) {
+        self.enabled.store(false, Ordering::Release);
+    }
+
+    pub(crate) fn current(&self) -> bool {
+        self.enabled.load(Ordering::Acquire)
+            && !self.cancelled.load(Ordering::Acquire)
+            && self.target.active.load(Ordering::Acquire)
+            && current_epoch(self.epoch, self.target.epoch.load(Ordering::Acquire))
+    }
+
+    pub(crate) fn run(&self, command: &str) -> Option<String> {
+        if !valid_surface_command(command) || !self.current() {
+            return None;
+        }
+        let deadline = Instant::now() + SURFACE_FPS_TIMEOUT;
+        // Server restarts can recycle transport IDs. Keep the endpoint/ID pair from this session.
+        if adb_target(self.target.configured).ok()?.ok()? != self.target.transport
+            || !self.current()
+            || Instant::now() >= deadline
+        {
+            return None;
+        }
+        let mut stream = transport_socket(self.target.transport.transport_id.get()).ok()?;
+        if !self.current() || Instant::now() >= deadline {
+            return None;
+        }
+        service(&mut stream, &format!("shell:{command}")).ok()?;
+        stream.set_read_timeout(Some(SURFACE_FPS_READ_TICK)).ok()?;
+        let bytes = read_bounded(stream, SURFACE_FPS_OUTPUT_LIMIT, deadline, || {
+            !self.current()
+        })
+        .ok()?;
+        if !self.current() || Instant::now() >= deadline {
+            return None;
+        }
+        String::from_utf8(bytes).ok()
+    }
+}
+
+fn valid_surface_command(command: &str) -> bool {
+    if command == "dumpsys SurfaceFlinger --list" {
+        return true;
+    }
+    if command.len() > 8192 || command.chars().any(char::is_control) {
+        return false;
+    }
+    let Some(mut literal) = command
+        .strip_prefix("dumpsys SurfaceFlinger --latency '")
+        .and_then(|layer| layer.strip_suffix('\''))
+        .filter(|layer| !layer.is_empty())
+    else {
+        return false;
+    };
+    while let Some(quote) = literal.find('\'') {
+        let quoted = &literal[quote..];
+        let Some(rest) = quoted
+            .strip_prefix("'\\''")
+            .or_else(|| quoted.strip_prefix("'\"'\"'"))
+        else {
+            return false;
+        };
+        literal = rest;
+    }
+    true
 }
 
 impl MirrorSession {
@@ -106,6 +194,7 @@ impl MirrorSession {
             events,
             input,
             cancelled: Arc::new(AtomicBool::new(false)),
+            surface_target: Arc::new(Mutex::new(None)),
             worker: None,
         };
         (session, receiver)
@@ -120,10 +209,12 @@ impl MirrorSession {
         let (event_sender, events) = mpsc::channel();
         let (input, input_receiver) = mpsc::channel();
         let cancelled = Arc::new(AtomicBool::new(false));
+        let surface_target = Arc::new(Mutex::new(None));
         let worker = Worker {
             cancelled: cancelled.clone(),
             events: event_sender.clone(),
             input: input_receiver,
+            surface_target: surface_target.clone(),
         };
         let worker = match thread::Builder::new()
             .name("bluestacks-mirror".into())
@@ -139,6 +230,7 @@ impl MirrorSession {
             events,
             input,
             cancelled,
+            surface_target,
             worker,
         }
     }
@@ -150,6 +242,16 @@ impl MirrorSession {
 
     pub(crate) fn is_finished(&self) -> bool {
         self.worker.as_ref().is_none_or(JoinHandle::is_finished)
+    }
+
+    pub(crate) fn surface_fps_query(&self, epoch: u64) -> Option<SurfaceFpsQuery> {
+        let query = SurfaceFpsQuery {
+            target: self.surface_target.lock().ok()?.as_ref()?.clone(),
+            cancelled: self.cancelled.clone(),
+            enabled: Arc::new(AtomicBool::new(true)),
+            epoch,
+        };
+        query.current().then_some(query)
     }
 }
 
@@ -166,6 +268,7 @@ struct Worker {
     cancelled: Arc<AtomicBool>,
     events: Sender<MirrorEvent>,
     input: Receiver<MirrorInput>,
+    surface_target: Arc<Mutex<Option<Arc<SurfaceTarget>>>>,
 }
 
 impl Worker {
@@ -296,6 +399,12 @@ impl Worker {
         )?;
         self.check_cancelled()?;
         let foreground = ForegroundWatch::start(target, mirrored, self.events.clone());
+        *self.surface_target.lock().unwrap() = Some(Arc::new(SurfaceTarget {
+            configured: target,
+            transport: mirrored,
+            epoch: foreground.shared_epoch(),
+            active: AtomicBool::new(true),
+        }));
         let result = self.forward(
             &mut control,
             &adb,
@@ -305,6 +414,10 @@ impl Worker {
             latest_preview,
             &foreground,
         );
+        // Dropping the watcher joins it. Revoke the capability immediately, even on close error.
+        if let Some(surface) = self.surface_target.lock().unwrap().take() {
+            surface.active.store(false, Ordering::Release);
+        }
         // close() releases held controls and removes only the resources created by this session.
         result.and(control.close())
     }
@@ -860,6 +973,62 @@ fn parse_version(output: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn allows_only_the_two_surfaceflinger_commands_with_a_literal_layer() {
+        assert!(valid_surface_command("dumpsys SurfaceFlinger --list"));
+        assert!(valid_surface_command(
+            "dumpsys SurfaceFlinger --latency 'SurfaceView[org.example.app/.Game]#0'"
+        ));
+        assert!(valid_surface_command(
+            r#"dumpsys SurfaceFlinger --latency 'SurfaceView - Alice'\''s game'"#
+        ));
+        assert!(valid_surface_command(
+            r#"dumpsys SurfaceFlinger --latency 'SurfaceView - Alice'"'"'s game'"#
+        ));
+        for command in [
+            "dumpsys SurfaceFlinger --list; id",
+            "dumpsys SurfaceFlinger --latency SurfaceView",
+            "dumpsys SurfaceFlinger --latency 'layer'; 'id'",
+            "dumpsys SurfaceFlinger --latency ''",
+            "dumpsys SurfaceFlinger --latency 'layer\nname'",
+        ] {
+            assert!(!valid_surface_command(command), "{command:?}");
+        }
+    }
+
+    #[test]
+    fn surface_queries_are_revoked_on_disable_epoch_change_and_disconnect() {
+        let (session, _) = MirrorSession::input_recorder();
+        assert!(session.surface_fps_query(1).is_none());
+        let configured = configured_target(
+            "bst.enable_adb_access=\"1\"\nbst.instance.Pie64.adb_port=\"5585\"\nbst.instance.Pie64.status.adb_port=\"5585\"",
+            "Pie64",
+        ).unwrap();
+        let source = Arc::new(SurfaceTarget {
+            configured,
+            transport: MirrorTarget {
+                endpoint: configured.endpoint(),
+                transport_id: std::num::NonZeroU64::new(41).unwrap(),
+            },
+            epoch: Arc::new(AtomicU64::new(1)),
+            active: AtomicBool::new(true),
+        });
+        *session.surface_target.lock().unwrap() = Some(source.clone());
+        let query = session.surface_fps_query(1).unwrap();
+        assert!(query.current());
+        query.revoke();
+        assert!(!query.current());
+        assert_eq!(query.run("dumpsys SurfaceFlinger --list"), None);
+
+        let first_epoch = session.surface_fps_query(1).unwrap();
+        source.epoch.store(2, Ordering::Release);
+        assert!(!first_epoch.current());
+        assert!(session.surface_fps_query(1).is_none());
+        let current = session.surface_fps_query(2).unwrap();
+        session.cancel();
+        assert!(!current.current());
+    }
 
     #[test]
     fn mapped_commands_require_the_observed_foreground_epoch() {
