@@ -1,6 +1,7 @@
 mod canvas;
 mod editor;
 mod gestures;
+mod pad;
 mod quick;
 mod sensitivity;
 
@@ -115,6 +116,7 @@ pub(crate) struct Mapping {
     load_failed: bool,
     gamepad: Option<Gilrs>,
     pad_initialized: bool,
+    pads: pad::Pads,
     active: HashMap<String, Contact>,
     directions: HashSet<String>,
     wheel_releases: HashSet<&'static str>,
@@ -561,6 +563,7 @@ impl Mapping {
         }
         self.directions.clear();
         self.wheel_releases.clear();
+        self.pads = pad::Pads::default();
         self.analog = [0.; 2];
         self.modifiers = [false; 4];
         self.set_mouse_capture(None);
@@ -737,7 +740,7 @@ impl Mapping {
             return;
         };
         let mut movement = vec2(self.analog[0], self.analog[1]);
-        if movement.length() < 0.16 {
+        if movement.length_sq() < pad::STICK_DEADZONE * pad::STICK_DEADZONE {
             movement = Vec2::ZERO;
         }
         for dir in &self.directions {
@@ -772,6 +775,52 @@ impl Mapping {
             };
             self.stick_touch = Some(c);
             changes.push(c);
+        }
+    }
+
+    fn pad_button(
+        &mut self,
+        id: usize,
+        button: Button,
+        pressed: bool,
+        frame: &Frame<'_>,
+        changes: &mut Vec<Contact>,
+    ) {
+        if button != Button::Unknown && self.pads.button(id, button, pressed) {
+            self.handle_input(&format!("Pad:{button:?}"), pressed, frame, changes);
+        }
+    }
+
+    fn sync_pad_sticks(&mut self) {
+        let [left, right] = self.pads.sticks();
+        self.analog = [left.x, left.y];
+        self.gestures.left = left;
+        self.gestures.right = right;
+    }
+
+    fn pad_axis(&mut self, id: usize, axis: Axis, value: f32) {
+        self.pads.axis(id, axis, value);
+        self.sync_pad_sticks();
+    }
+
+    fn pad_disconnected(&mut self, id: usize, frame: &Frame<'_>, changes: &mut Vec<Contact>) {
+        let released = self.pads.disconnect(id);
+        self.sync_pad_sticks();
+        for button in released {
+            let input = format!("Pad:{button:?}");
+            self.tilt_held.remove(&input);
+            self.control(&input, false, changes);
+            let controls = Self::advanced_layout(&self.profiles, self.package.as_deref());
+            let taken = self.taken();
+            self.gestures.cancel_input(
+                controls,
+                &input,
+                &Frame {
+                    taken: &taken,
+                    ..*frame
+                },
+                changes,
+            );
         }
     }
 
@@ -954,26 +1003,16 @@ impl Mapping {
             }
         }
         while let Some(event) = self.gamepad.as_mut().and_then(Gilrs::next_event) {
+            let id = usize::from(event.id);
             match event.event {
-                EventType::ButtonPressed(b, _) | EventType::ButtonReleased(b, _)
-                    if b != Button::Unknown =>
-                {
-                    self.handle_input(
-                        &format!("Pad:{b:?}"),
-                        matches!(event.event, EventType::ButtonPressed(..)),
-                        &frame,
-                        &mut changes,
-                    );
+                EventType::ButtonPressed(button, _) => {
+                    self.pad_button(id, button, true, &frame, &mut changes)
                 }
-                EventType::AxisChanged(Axis::LeftStickX, value, _) => self.analog[0] = value,
-                EventType::AxisChanged(Axis::LeftStickY, value, _) => self.analog[1] = -value,
-                EventType::AxisChanged(Axis::RightStickX, value, _) => {
-                    self.gestures.right.x = value
+                EventType::ButtonReleased(button, _) => {
+                    self.pad_button(id, button, false, &frame, &mut changes)
                 }
-                EventType::AxisChanged(Axis::RightStickY, value, _) => {
-                    self.gestures.right.y = -value
-                }
-                EventType::Disconnected => changes.extend(self.release()),
+                EventType::AxisChanged(axis, value, _) => self.pad_axis(id, axis, value),
+                EventType::Disconnected => self.pad_disconnected(id, &frame, &mut changes),
                 _ => {}
             }
         }
@@ -1538,6 +1577,132 @@ mod tests {
         assert!(!map.captures(Key::Space));
         map.select(Some("test.game"));
         assert!(map.captures(Key::Space));
+    }
+
+    #[test]
+    fn shared_gamepad_button_stays_down_until_its_last_source_releases() {
+        let mut map = Mapping::default();
+        map.profiles.insert(
+            "test.game".into(),
+            GameProfiles::from_layout(Layout {
+                buttons: BTreeMap::from([
+                    ("Space".into(), [0.1, 0.1]),
+                    ("Pad:South".into(), [0.2, 0.2]),
+                    ("Pad:East".into(), [0.3, 0.3]),
+                ]),
+                ..Layout::default()
+            }),
+        );
+        map.select(Some("test.game"));
+        let frame = Frame {
+            time: 0.,
+            dt: 0.,
+            size: vec2(1600., 900.),
+            taken: &[],
+            cursor: None,
+            edge_cursor: None,
+        };
+        let mut out = Vec::new();
+        map.handle_input("Space", true, &frame, &mut out);
+        map.pad_button(1, Button::South, true, &frame, &mut out);
+        map.pad_button(2, Button::South, true, &frame, &mut out);
+        map.pad_button(2, Button::South, false, &frame, &mut out);
+        assert_eq!(out.len(), 2);
+        assert!(out.iter().all(|contact| contact.down));
+        let keyboard = out[0].id;
+        let south = out[1].id;
+
+        out.clear();
+        map.pad_axis(1, Axis::LeftStickX, 1.);
+        map.pad_axis(2, Axis::LeftStickY, 1.);
+        map.pad_button(2, Button::South, true, &frame, &mut out);
+        map.pad_button(2, Button::East, true, &frame, &mut out);
+        map.pad_disconnected(2, &frame, &mut out);
+        assert_eq!(map.analog, [1., 0.]);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].id, out[1].id);
+        assert_eq!([out[0].down, out[1].down], [true, false]);
+        assert!(map.active.contains_key("Space"));
+        assert!(map.active.contains_key("Pad:South"));
+
+        out.clear();
+        map.pad_button(1, Button::South, false, &frame, &mut out);
+        map.handle_input("Space", false, &frame, &mut out);
+        assert_eq!(
+            out.iter().map(|contact| contact.id).collect::<Vec<_>>(),
+            [south, keyboard]
+        );
+        assert!(out.iter().all(|contact| !contact.down));
+    }
+
+    #[test]
+    fn each_stick_stays_with_one_gamepad_and_another_can_take_over() {
+        let mut map = Mapping::default();
+        map.pad_axis(1, Axis::LeftStickX, 0.7);
+        map.pad_axis(2, Axis::LeftStickY, 0.9);
+        map.pad_axis(2, Axis::RightStickY, -0.6);
+        map.pad_axis(1, Axis::RightStickX, 0.8);
+        assert_eq!(map.analog, [0.7, 0.]);
+        assert_eq!(map.gestures.right, vec2(0., 0.6));
+
+        map.pad_axis(1, Axis::LeftStickX, 0.05);
+        map.pad_axis(2, Axis::RightStickY, -0.05);
+        assert_eq!(map.analog, [0., -0.9]);
+        assert_eq!(map.gestures.right, vec2(0.8, 0.));
+
+        let frame = Frame {
+            time: 0.,
+            dt: 0.,
+            size: vec2(1600., 900.),
+            taken: &[],
+            cursor: None,
+            edge_cursor: None,
+        };
+        map.pad_axis(1, Axis::LeftStickX, 0.7);
+        map.pad_disconnected(2, &frame, &mut Vec::new());
+        assert_eq!(map.analog, [0.7, 0.]);
+        assert_eq!(map.gestures.right, vec2(0.8, 0.));
+
+        map.release();
+        map.pad_axis(1, Axis::LeftStickY, 0.7);
+        assert_eq!(map.analog, [0., -0.7]);
+        assert_eq!(map.gestures.right, Vec2::ZERO);
+    }
+
+    #[test]
+    fn unplugging_the_source_does_not_complete_a_quick_cast() {
+        let mut map = Mapping::default();
+        map.profiles.insert(
+            "test.game".into(),
+            GameProfiles::from_layout(Layout {
+                controls: vec![Binding {
+                    input: "Pad:South".into(),
+                    at: [0.5, 0.5],
+                    gesture: Gesture::Moba {
+                        radius: 0.1,
+                        quick_cast: true,
+                    },
+                }],
+                ..Layout::default()
+            }),
+        );
+        map.select(Some("test.game"));
+        let frame = Frame {
+            time: 0.,
+            dt: 0.,
+            size: vec2(1600., 900.),
+            taken: &[],
+            cursor: Some([0.75, 0.5]),
+            edge_cursor: None,
+        };
+        let mut out = Vec::new();
+        map.pad_button(1, Button::South, true, &frame, &mut out);
+        map.pad_disconnected(1, &frame, &mut out);
+        assert!(out.is_empty());
+        map.pad_button(2, Button::South, true, &frame, &mut out);
+        map.pad_button(2, Button::South, false, &frame, &mut out);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].down);
     }
 
     #[test]

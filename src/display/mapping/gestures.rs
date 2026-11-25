@@ -274,45 +274,7 @@ impl Gestures {
         changes: &mut Vec<Contact>,
     ) {
         if !down {
-            if !self.held.remove(input) {
-                return;
-            }
-            for (i, binding) in controls
-                .iter()
-                .enumerate()
-                .filter(|(_, b)| b.captures(input))
-            {
-                match binding.gesture {
-                    Gesture::Dpad { .. } => self.update_dpad(i, binding, frame, changes),
-                    Gesture::FreeLook {
-                        mouse,
-                        ref directions,
-                        ..
-                    } if mouse || self.direction_vector(directions) == Vec2::ZERO => {
-                        self.stop(i, changes);
-                        self.deadlines.remove(&i);
-                    }
-                    Gesture::Rotate { wheel: Some(_), .. } => {
-                        self.update_wheel(i, binding, frame, changes)
-                    }
-                    Gesture::Hold | Gesture::Repeat { .. } | Gesture::Aim { toggle: false, .. } => {
-                        self.stop(i, changes);
-                        self.deadlines.remove(&i);
-                    }
-                    Gesture::Moba { radius, quick_cast } => {
-                        if quick_cast {
-                            if self.start(i, &[binding.at], frame, changes)
-                                && let Some(active) = self.active.get_mut(&i)
-                            {
-                                active.target = Some(moba_target(binding.at, radius, frame));
-                            }
-                        } else {
-                            self.stop(i, changes);
-                        }
-                    }
-                    _ => {}
-                }
-            }
+            self.release_input(controls, input, false, frame, changes);
             return;
         }
         if !self.held.insert(input.to_owned()) {
@@ -374,6 +336,74 @@ impl Gestures {
                 self.update_wheel(i, binding, frame, changes);
             } else if let Gesture::Rotate { radius, .. } = binding.gesture {
                 self.start(i, &pair(frame.size, binding.at, radius, 0.), frame, changes);
+            }
+        }
+    }
+
+    pub(super) fn cancel_input(
+        &mut self,
+        controls: &[Binding],
+        input: &str,
+        frame: &Frame<'_>,
+        changes: &mut Vec<Contact>,
+    ) {
+        self.release_input(controls, input, true, frame, changes);
+    }
+
+    fn release_input(
+        &mut self,
+        controls: &[Binding],
+        input: &str,
+        cancelled: bool,
+        frame: &Frame<'_>,
+        changes: &mut Vec<Contact>,
+    ) {
+        if !self.held.remove(input) {
+            return;
+        }
+        for (i, binding) in controls
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.captures(input))
+        {
+            match binding.gesture {
+                Gesture::Dpad { .. } => self.update_dpad(i, binding, frame, changes),
+                Gesture::FreeLook {
+                    mouse,
+                    ref directions,
+                    ..
+                } => {
+                    if mouse || self.direction_vector(directions) == Vec2::ZERO {
+                        self.stop(i, changes);
+                        self.deadlines.remove(&i);
+                    }
+                }
+                Gesture::Rotate { wheel: Some(_), .. } => {
+                    self.update_wheel(i, binding, frame, changes)
+                }
+                Gesture::Moba {
+                    radius,
+                    quick_cast: true,
+                } if !cancelled => {
+                    if self.start(i, &[binding.at], frame, changes)
+                        && let Some(active) = self.active.get_mut(&i)
+                    {
+                        active.target = Some(moba_target(binding.at, radius, frame));
+                    }
+                }
+                Gesture::Hold
+                | Gesture::Repeat { .. }
+                | Gesture::Aim { toggle: false, .. }
+                | Gesture::Moba { .. } => {
+                    self.stop(i, changes);
+                    self.deadlines.remove(&i);
+                }
+                _ if cancelled => {
+                    self.stop(i, changes);
+                    self.deadlines.remove(&i);
+                    self.toggled.remove(&i);
+                }
+                _ => {}
             }
         }
     }
@@ -904,7 +934,8 @@ fn repeat_period(ms: u32) -> f64 {
 }
 
 fn deadzone(v: Vec2) -> Vec2 {
-    if v.length_sq() < 0.16 * 0.16 {
+    let threshold = super::pad::STICK_DEADZONE;
+    if v.length_sq() < threshold * threshold {
         Vec2::ZERO
     } else {
         limited(v, 1.)
