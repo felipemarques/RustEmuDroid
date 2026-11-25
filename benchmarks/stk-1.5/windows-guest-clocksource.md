@@ -21,6 +21,8 @@ Kemu 0.7.1's published WHPX code suspends partition time while setting a vCPU TS
 
 [Sanitized data and evidence hashes](windows-guest-clocksource.json)
 
+Post-boot measurements separately read the counters on each vCPU and bound their offsets using alternating migration order. They found a persistent difference of about 1.877 s on Android 17 and a sub-millisecond bound on Kemu. [Clock alignment and host-time checks](windows-guest-clock-alignment.md)
+
 ## Android Emulator 37.4.2 on the same Android 17 image
 
 On November 25, 2026, the Windows package for **37.4.2 (build 16982698)** from Google's preview channel booted the same four-vCPU Android 17 Google Play r7 test AVD on the RTX 5070 Ti. The package ran from a separate directory. Both boots reported the same Android fingerprint. The newer engine again recorded a synchronization failure between vCPUs 0 and 1 and selected **HPET at 1.529 s** after measuring a TSC skew of 8,427,190,359 cycles. This reproduces the fallback seen in stable 37.3.10 (build 16970787). Each build contributed one diagnostic cold boot. Skew magnitude can vary with startup scheduling. [Google package catalog](https://dl.google.com/android/repository/repository2-3.xml) · [Package digest, fingerprint and kernel timestamps](windows-guest-clocksource.json)

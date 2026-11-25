@@ -1,0 +1,620 @@
+{
+  "host": "Windows 11, Ryzen 9 8945HS",
+  "rounds_per_guest": 9,
+  "interval_seconds": 1,
+  "origins": "For each guest, first host send, first RAW read and first TSC sample have been subtracted independently from the corresponding columns.",
+  "sdk_37_3_10_google_play_android_17": {
+    "binary_sha256": "3714a30fe76cb9199965ca42c0c85a717a22af371499bc2de4b8d50b6014067e",
+    "raw_input_sha256": "b185c1b51f4579fc14fedb2a5b79c71e1ea35d6cc34c821e7af72a7e976dff6f",
+    "host_clock": "QueryPerformanceCounter()",
+    "guest_clock": "CLOCK_MONOTONIC_RAW",
+    "summary": {
+      "allowed_cpus": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "guest_raw_minus_host_rate_bounds_ppm_by_cpu": {
+        "0": [
+          -808.2047877120413,
+          299.03095735761553
+        ],
+        "1": [
+          -893.2527839067284,
+          214.1255453742552
+        ],
+        "2": [
+          -853.167259661669,
+          260.04695566950176
+        ],
+        "3": [
+          -844.8565426548704,
+          262.1892075194143
+        ]
+      },
+      "sampled_regressions": [],
+      "max_host_batch_round_trip_ms": 7.321,
+      "ordered_tsc_offset_bounds_cycles_relative_to_first_cpu": {
+        "0": [
+          0,
+          0
+        ],
+        "1": [
+          -7485662441,
+          -7485196320
+        ],
+        "2": [
+          -7490097199,
+          -7488170546
+        ],
+        "3": [
+          -7495511482,
+          -7492607080
+        ]
+      },
+      "estimated_tsc_ticks_per_ns": 3.9925898817968424,
+      "per_round_spread_of_time_adjusted_tsc_offsets_ns": [
+        1877051376.9012651,
+        1877051713.6765935,
+        1877052097.4008536,
+        1877072185.3294485,
+        1876991785.22301,
+        1877061930.3896685,
+        1877050979.3433306,
+        1877053027.462468,
+        1877050942.4631793
+      ],
+      "largest_guest_clock_bracket_ns": 86500
+    },
+    "median_offset_ns_relative_to_vcpu0": {
+      "0": 0.0,
+      "1": -1874845581.7014983,
+      "2": -1875805805.2316868,
+      "3": -1877051713.6765935
+    },
+    "relative_batches": [
+      {
+        "host_send_ns": 0,
+        "host_end_ns": 2437200,
+        "cpus": {
+          "0": {
+            "before_ns": 0,
+            "ticks": 0,
+            "after_ns": 8600
+          },
+          "1": {
+            "before_ns": 753700,
+            "ticks": -7482478802,
+            "after_ns": 765300
+          },
+          "2": {
+            "before_ns": 846400,
+            "ticks": -7485939159,
+            "after_ns": 857400
+          },
+          "3": {
+            "before_ns": 932800,
+            "ticks": -7490574842,
+            "after_ns": 940000
+          }
+        }
+      },
+      {
+        "host_send_ns": 1002683900,
+        "host_end_ns": 1005011200,
+        "cpus": {
+          "3": {
+            "before_ns": 1003066800,
+            "ticks": -3489463456,
+            "after_ns": 1003074300
+          },
+          "2": {
+            "before_ns": 1003154200,
+            "ticks": -3484138519,
+            "after_ns": 1003163700
+          },
+          "1": {
+            "before_ns": 1003272200,
+            "ticks": -3479832842,
+            "after_ns": 1003280000
+          },
+          "0": {
+            "before_ns": 1003408500,
+            "ticks": 4006205279,
+            "after_ns": 1003419400
+          }
+        }
+      },
+      {
+        "host_send_ns": 2005425500,
+        "host_end_ns": 2009910300,
+        "cpus": {
+          "0": {
+            "before_ns": 2005910600,
+            "ticks": 8008778279,
+            "after_ns": 2005918000
+          },
+          "1": {
+            "before_ns": 2006296500,
+            "ticks": 524830878,
+            "after_ns": 2006306100
+          },
+          "2": {
+            "before_ns": 2006347700,
+            "ticks": 521199600,
+            "after_ns": 2006356400
+          },
+          "3": {
+            "before_ns": 2006585800,
+            "ticks": 517174864,
+            "after_ns": 2006593200
+          }
+        }
+      },
+      {
+        "host_send_ns": 3010517200,
+        "host_end_ns": 3013903500,
+        "cpus": {
+          "3": {
+            "before_ns": 3011074900,
+            "ticks": 4527707239,
+            "after_ns": 3011132400
+          },
+          "2": {
+            "before_ns": 3011256000,
+            "ticks": 4533384760,
+            "after_ns": 3011263100
+          },
+          "1": {
+            "before_ns": 3011640600,
+            "ticks": 4538759678,
+            "after_ns": 3011652800
+          },
+          "0": {
+            "before_ns": 3011685200,
+            "ticks": 12024422119,
+            "after_ns": 3011692000
+          }
+        }
+      },
+      {
+        "host_send_ns": 4014380800,
+        "host_end_ns": 4021701800,
+        "cpus": {
+          "0": {
+            "before_ns": 4016778100,
+            "ticks": 16037352105,
+            "after_ns": 4016800900
+          },
+          "1": {
+            "before_ns": 4016989300,
+            "ticks": 8552700479,
+            "after_ns": 4016996100
+          },
+          "2": {
+            "before_ns": 4017068800,
+            "ticks": 8549181559,
+            "after_ns": 4017075900
+          },
+          "3": {
+            "before_ns": 4017211300,
+            "ticks": 8545027078,
+            "after_ns": 4017236000
+          }
+        }
+      },
+      {
+        "host_send_ns": 5022094400,
+        "host_end_ns": 5024849700,
+        "cpus": {
+          "3": {
+            "before_ns": 5022627200,
+            "ticks": 12559030038,
+            "after_ns": 5022675900
+          },
+          "2": {
+            "before_ns": 5022933200,
+            "ticks": 12565500281,
+            "after_ns": 5023019700
+          },
+          "1": {
+            "before_ns": 5023085700,
+            "ticks": 12569631159,
+            "after_ns": 5023097600
+          },
+          "0": {
+            "before_ns": 5023329700,
+            "ticks": 20056099041,
+            "after_ns": 5023341200
+          }
+        }
+      },
+      {
+        "host_send_ns": 6025293700,
+        "host_end_ns": 6028701800,
+        "cpus": {
+          "0": {
+            "before_ns": 6025319700,
+            "ticks": 24056634240,
+            "after_ns": 6025332700
+          },
+          "1": {
+            "before_ns": 6025539600,
+            "ticks": 16572017480,
+            "after_ns": 6025546900
+          },
+          "2": {
+            "before_ns": 6025636500,
+            "ticks": 16568577650,
+            "after_ns": 6025648900
+          },
+          "3": {
+            "before_ns": 6025745300,
+            "ticks": 16564027160,
+            "after_ns": 6025752500
+          }
+        }
+      },
+      {
+        "host_send_ns": 7029190100,
+        "host_end_ns": 7030976800,
+        "cpus": {
+          "3": {
+            "before_ns": 7029388800,
+            "ticks": 20571170278,
+            "after_ns": 7029400200
+          },
+          "2": {
+            "before_ns": 7029500600,
+            "ticks": 20576584561,
+            "after_ns": 7029507800
+          },
+          "1": {
+            "before_ns": 7029588600,
+            "ticks": 20580772839,
+            "after_ns": 7029595700
+          },
+          "0": {
+            "before_ns": 7029692900,
+            "ticks": 28066681760,
+            "after_ns": 7029701500
+          }
+        }
+      },
+      {
+        "host_send_ns": 8031371800,
+        "host_end_ns": 8037814300,
+        "cpus": {
+          "0": {
+            "before_ns": 8031326700,
+            "ticks": 32065789240,
+            "after_ns": 8031335500
+          },
+          "1": {
+            "before_ns": 8031399800,
+            "ticks": 24580592920,
+            "after_ns": 8031407500
+          },
+          "2": {
+            "before_ns": 8031814100,
+            "ticks": 24578621210,
+            "after_ns": 8031868900
+          },
+          "3": {
+            "before_ns": 8031963500,
+            "ticks": 24574037520,
+            "after_ns": 8031972500
+          }
+        }
+      }
+    ]
+  },
+  "kemu_0_7_1_android_16": {
+    "binary_sha256": "3714a30fe76cb9199965ca42c0c85a717a22af371499bc2de4b8d50b6014067e",
+    "raw_input_sha256": "0f6aa2c7f1c5628a72a7a5a9472d9caaa6eb3122a72ddd4ba32804336c994e8a",
+    "host_clock": "QueryPerformanceCounter()",
+    "guest_clock": "CLOCK_MONOTONIC_RAW",
+    "summary": {
+      "allowed_cpus": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "guest_raw_minus_host_rate_bounds_ppm_by_cpu": {
+        "0": [
+          -210.60673852690837,
+          239.24530182828363
+        ],
+        "1": [
+          -206.7943886778778,
+          243.05425275317205
+        ],
+        "2": [
+          -204.08882594358246,
+          245.75853805730574
+        ],
+        "3": [
+          -202.41748638361034,
+          247.44073324245443
+        ]
+      },
+      "sampled_regressions": [],
+      "max_host_batch_round_trip_ms": 2.4841,
+      "ordered_tsc_offset_bounds_cycles_relative_to_first_cpu": {
+        "0": [
+          0,
+          0
+        ],
+        "1": [
+          -426721,
+          336801
+        ],
+        "2": [
+          -823000,
+          635762
+        ],
+        "3": [
+          -1032121,
+          955561
+        ]
+      },
+      "estimated_tsc_ticks_per_ns": 3.9925827441155057,
+      "per_round_spread_of_time_adjusted_tsc_offsets_ns": [
+        44.949526441283524,
+        15.398166697297711,
+        10.753733811085112,
+        10.036185223725624,
+        0.22126443369779736,
+        10.095447660336504,
+        15.203852122882381,
+        9.734789204390836,
+        10.10979280747415
+      ],
+      "largest_guest_clock_bracket_ns": 131
+    },
+    "median_offset_ns_relative_to_vcpu0": {
+      "0": 0.0,
+      "1": -4.9361774156132014,
+      "2": -0.22126443369779736,
+      "3": -4.692249005194753
+    },
+    "relative_batches": [
+      {
+        "host_send_ns": 0,
+        "host_end_ns": 1533600,
+        "cpus": {
+          "0": {
+            "before_ns": 0,
+            "ticks": 0,
+            "after_ns": 131
+          },
+          "1": {
+            "before_ns": 84437,
+            "ticks": 336801,
+            "after_ns": 84487
+          },
+          "2": {
+            "before_ns": 159306,
+            "ticks": 635762,
+            "after_ns": 159366
+          },
+          "3": {
+            "before_ns": 239394,
+            "ticks": 955561,
+            "after_ns": 239495
+          }
+        }
+      },
+      {
+        "host_send_ns": 1001767300,
+        "host_end_ns": 1003754300,
+        "cpus": {
+          "3": {
+            "before_ns": 1002045366,
+            "ticks": 4000748800,
+            "after_ns": 1002045456
+          },
+          "2": {
+            "before_ns": 1002085680,
+            "ticks": 4000909800,
+            "after_ns": 1002085781
+          },
+          "1": {
+            "before_ns": 1002190936,
+            "ticks": 4001329880,
+            "after_ns": 1002190986
+          },
+          "0": {
+            "before_ns": 1002303905,
+            "ticks": 4001780921,
+            "after_ns": 1002303955
+          }
+        }
+      },
+      {
+        "host_send_ns": 2004319200,
+        "host_end_ns": 2006527800,
+        "cpus": {
+          "0": {
+            "before_ns": 2004696515,
+            "ticks": 8003916441,
+            "after_ns": 2004696605
+          },
+          "1": {
+            "before_ns": 2004808272,
+            "ticks": 8004362681,
+            "after_ns": 2004808362
+          },
+          "2": {
+            "before_ns": 2004964982,
+            "ticks": 8004988280,
+            "after_ns": 2004965032
+          },
+          "3": {
+            "before_ns": 2005083613,
+            "ticks": 8005461961,
+            "after_ns": 2005083703
+          }
+        }
+      },
+      {
+        "host_send_ns": 3006946600,
+        "host_end_ns": 3009265900,
+        "cpus": {
+          "3": {
+            "before_ns": 3006937853,
+            "ticks": 12005447920,
+            "after_ns": 3006937933
+          },
+          "2": {
+            "before_ns": 3007116595,
+            "ticks": 12006161481,
+            "after_ns": 3007116645
+          },
+          "1": {
+            "before_ns": 3007243751,
+            "ticks": 12006669200,
+            "after_ns": 3007243811
+          },
+          "0": {
+            "before_ns": 3007807426,
+            "ticks": 12008919721,
+            "after_ns": 3007807476
+          }
+        }
+      },
+      {
+        "host_send_ns": 4009397700,
+        "host_end_ns": 4011881800,
+        "cpus": {
+          "0": {
+            "before_ns": 4009899107,
+            "ticks": 16009853721,
+            "after_ns": 4009899188
+          },
+          "1": {
+            "before_ns": 4010044387,
+            "ticks": 16010433761,
+            "after_ns": 4010044467
+          },
+          "2": {
+            "before_ns": 4010183595,
+            "ticks": 16010989560,
+            "after_ns": 4010183675
+          },
+          "3": {
+            "before_ns": 4010298358,
+            "ticks": 16011447761,
+            "after_ns": 4010298438
+          }
+        }
+      },
+      {
+        "host_send_ns": 5012255700,
+        "host_end_ns": 5014183100,
+        "cpus": {
+          "3": {
+            "before_ns": 5012240141,
+            "ticks": 20011783240,
+            "after_ns": 5012240221
+          },
+          "2": {
+            "before_ns": 5012513868,
+            "ticks": 20012876160,
+            "after_ns": 5012513949
+          },
+          "1": {
+            "before_ns": 5012630374,
+            "ticks": 20013341280,
+            "after_ns": 5012630455
+          },
+          "0": {
+            "before_ns": 5012737263,
+            "ticks": 20013768001,
+            "after_ns": 5012737313
+          }
+        }
+      },
+      {
+        "host_send_ns": 6014446500,
+        "host_end_ns": 6015942000,
+        "cpus": {
+          "0": {
+            "before_ns": 6014277762,
+            "ticks": 24012501320,
+            "after_ns": 6014277812
+          },
+          "1": {
+            "before_ns": 6014421745,
+            "ticks": 24013076226,
+            "after_ns": 6014421836
+          },
+          "2": {
+            "before_ns": 6014524319,
+            "ticks": 24013485760,
+            "after_ns": 6014524379
+          },
+          "3": {
+            "before_ns": 6014590873,
+            "ticks": 24013751481,
+            "after_ns": 6014590933
+          }
+        }
+      },
+      {
+        "host_send_ns": 7016153400,
+        "host_end_ns": 7018191700,
+        "cpus": {
+          "3": {
+            "before_ns": 7016143434,
+            "ticks": 28012532880,
+            "after_ns": 7016143484
+          },
+          "2": {
+            "before_ns": 7016462937,
+            "ticks": 28013808600,
+            "after_ns": 7016463017
+          },
+          "1": {
+            "before_ns": 7016560137,
+            "ticks": 28014196680,
+            "after_ns": 7016560207
+          },
+          "0": {
+            "before_ns": 7016669069,
+            "ticks": 28014631600,
+            "after_ns": 7016669149
+          }
+        }
+      },
+      {
+        "host_send_ns": 8018439200,
+        "host_end_ns": 8020512600,
+        "cpus": {
+          "0": {
+            "before_ns": 8018823557,
+            "ticks": 32015816282,
+            "after_ns": 8018823607
+          },
+          "1": {
+            "before_ns": 8018938490,
+            "ticks": 32016275201,
+            "after_ns": 8018938580
+          },
+          "2": {
+            "before_ns": 8019035069,
+            "ticks": 32016660760,
+            "after_ns": 8019035129
+          },
+          "3": {
+            "before_ns": 8019128603,
+            "ticks": 32017034281,
+            "after_ns": 8019128703
+          }
+        }
+      }
+    ]
+  }
+}
