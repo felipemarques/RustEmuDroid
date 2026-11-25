@@ -1,0 +1,51 @@
+name: Windows Android engine lab
+
+on:
+  push:
+    branches: [main]
+    tags: ['windows-engine-lab-v*']
+    paths:
+      - .github/workflows/windows-engine-lab.yml
+      - experiments/whpx-clock/**
+      - benchmarks/stk-1.5/whpx-windows-build-manifest.xml
+      - benchmarks/stk-1.5/whpx-tsc-sync.patch
+      - benchmarks/stk-1.5/gfxstream-cached-host-qa.patch
+  pull_request:
+    paths:
+      - .github/workflows/windows-engine-lab.yml
+      - experiments/whpx-clock/**
+      - benchmarks/stk-1.5/whpx-windows-build-manifest.xml
+      - benchmarks/stk-1.5/whpx-tsc-sync.patch
+      - benchmarks/stk-1.5/gfxstream-cached-host-qa.patch
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify source provenance, staging and launcher fixtures
+        run: python -B -m unittest discover -v -s experiments/whpx-clock -p "test_*.py"
+
+  release:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/windows-engine-lab-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the tagged source kit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^windows-engine-lab-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          base="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 0; fi
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false \
+            --title "Windows Android engine lab ${GITHUB_REF_NAME#windows-engine-lab-}" \
+            --notes "Source kit for the Windows WHPX clock and Vulkan memory experiments. Download the source archive below and follow the [build guide]($base/experiments/whpx-clock/README.md) or the [Portuguese launcher guide]($base/experiments/whpx-clock/README.pt-BR.md). The game measurements are available in the [performance report]($base/docs/performance-history.md)."

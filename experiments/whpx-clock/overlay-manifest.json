@@ -1,0 +1,179 @@
+{
+  "version": 1,
+  "target": "windows-x86_64",
+  "basis": {
+    "android_emulator_revision": "37.3.10",
+    "google_build_id": "16970787",
+    "candidate_build_id": "qa-whpx-16970787",
+    "qemu_source_commit": "538bcdea5479b3857cd8885cbb9306bfec9c7247",
+    "upstream_source": "https://android.googlesource.com/platform/external/qemu/+/538bcdea5479b3857cd8885cbb9306bfec9c7247",
+    "public_manifest_path": "benchmarks/stk-1.5/whpx-windows-build-manifest.xml",
+    "public_manifest_sha256": "f3b9420ea72b0161e45595096752b4cbefa7c031e9d4f59128b239e95d762f65",
+    "effective_local_manifest_sha256": "f3020409d23ba6e9420de1a2ba54f2c7c0781bce61fc378b0b458e43a67d9192",
+    "public_patch_path": "benchmarks/stk-1.5/whpx-tsc-sync.patch",
+    "public_patch_sha256": "8b81a6900924fb9f434ef1cab81580f00c804d0a94479971bd0bb41e2f532eee",
+    "link_log_sha256": "180b9924547ee5a1e5e713813efa0094b78b0b357d8c860d34bf359f0913c5a6",
+    "link_pdb_signature": "9EF358FFF37BEE094C4C44205044422E1",
+    "compiler": "AOSP clang-r596125 22.0.2 (MSVC-style Windows x64)",
+    "recipe": "../../benchmarks/stk-1.5/whpx-tsc-sync.md",
+    "windows_compiled_target": "qemu-system-x86_64",
+    "project_count": 60
+  },
+  "stock_download_metadata": {
+    "catalog": "https://dl.google.com/android/repository/repository2-3.xml",
+    "url": "https://dl.google.com/android/repository/emulator-windows_x64-16970787.zip",
+    "catalog_sha1": "7599293267e61ce67423f87848ff8219da09258b",
+    "bytes": 456613348,
+    "platform_tools_url": "https://dl.google.com/android/repository/platform-tools_r37.0.0-win.zip",
+    "platform_tools_revision": "37.0.0"
+  },
+  "stock_checks": {
+    "emulator/emulator.exe": "7476c5d7cf249182b7310d45e5304778bd5a337e8d6d11890edb27954b0f9717",
+    "emulator/qemu/windows-x86_64/qemu-system-x86_64.exe": "fae5ffdf64cf8cbd350af1aa726e407c5dce7f335821787cd2b15a5c1671dcf8",
+    "emulator/lib64/libgfxstream_backend.dll": "4769b6be73db471ccee75bfad2a5590d86991d836258eaf383ea2ffe99757238",
+    "platform-tools/adb.exe": "957e46b8615f7af5b7292a2ddabe98d2e61940c3fb2b0545756507f080613e71"
+  },
+  "overlay": [
+    {
+      "source": "lib64/libandroid-emu-agents.dll",
+      "destinations": [
+        "lib64/libandroid-emu-agents.dll",
+        "libandroid-emu-agents.dll"
+      ],
+      "sha256": "d3eacf9eb344d9d6247fc91146b3894aa11da928f95b6c1aad2a05c5fa6a3332",
+      "bytes": 19968,
+      "origin": "locally_linked"
+    },
+    {
+      "source": "lib64/libandroid-emu-base-logging.dll",
+      "destinations": [
+        "lib64/libandroid-emu-base-logging.dll",
+        "libandroid-emu-base-logging.dll"
+      ],
+      "sha256": "860e6cd924ae97c10171733705a672aaeaf7415700cf050f5a3f7c1bb3b469f4",
+      "bytes": 55296,
+      "origin": "locally_linked"
+    },
+    {
+      "source": "lib64/libandroid-emu-curl.dll",
+      "destinations": [
+        "lib64/libandroid-emu-curl.dll",
+        "libandroid-emu-curl.dll"
+      ],
+      "sha256": "47b4c722f5967305cdd3b0bad092b434ba956473d46aab6b2ef181827611ad81",
+      "bytes": 453120,
+      "origin": "locally_linked"
+    },
+    {
+      "source": "lib64/libandroid-emu-metrics.dll",
+      "destinations": [
+        "lib64/libandroid-emu-metrics.dll",
+        "libandroid-emu-metrics.dll"
+      ],
+      "sha256": "133b504be481783932c65011a256741e01b9dfe00ff2442ed20072863e4e4d40",
+      "bytes": 12529152,
+      "origin": "locally_linked"
+    },
+    {
+      "source": "lib64/libandroid-emu-protos.dll",
+      "destinations": [
+        "lib64/libandroid-emu-protos.dll",
+        "libandroid-emu-protos.dll"
+      ],
+      "sha256": "07080a0f0e18c0bc047c53515960093faaafa77b3a762d2405716f6b483b45b5",
+      "bytes": 1427456,
+      "origin": "locally_linked"
+    },
+    {
+      "source": "lib64/libandroid-emu-tracing.dll",
+      "destinations": [
+        "lib64/libandroid-emu-tracing.dll",
+        "libandroid-emu-tracing.dll"
+      ],
+      "sha256": "d387b4a863d62b1ef7f17ab9398657745d9162fcf45a9fbe0ea53c76ad1fb9f3",
+      "bytes": 69632,
+      "origin": "locally_linked"
+    },
+    {
+      "source": "lib64/libemugl_common.dll",
+      "destinations": [
+        "lib64/libemugl_common.dll",
+        "libemugl_common.dll"
+      ],
+      "sha256": "1c699ee39088b04b8fed48c21af194085d70e64690ffced7a5883abfc1300de6",
+      "bytes": 147968,
+      "origin": "locally_linked"
+    },
+    {
+      "source": "lib64/libglib2_windows_msvc-x86_64.dll",
+      "destinations": [
+        "lib64/libglib2_windows_msvc-x86_64.dll",
+        "libglib2_windows_msvc-x86_64.dll"
+      ],
+      "sha256": "3213a0b4def49895cbe74b593950c604907de62080fda82e58cc357b1f25675c",
+      "bytes": 1181696,
+      "origin": "locally_linked"
+    },
+    {
+      "source": "libabseil_dll.dll",
+      "destinations": [
+        "libabseil_dll.dll"
+      ],
+      "sha256": "d021a173cf18fde45fd2e63b0e5749c76b73f69e18997dc455b8a0cf7b5a14f5",
+      "bytes": 821760,
+      "origin": "locally_linked"
+    },
+    {
+      "source": "liblibprotobuf.dll",
+      "destinations": [
+        "liblibprotobuf.dll"
+      ],
+      "sha256": "69070076f3820b361da807c02b250db1385c647ad2e1702449fff5d4fca814d6",
+      "bytes": 3732992,
+      "origin": "locally_linked"
+    },
+    {
+      "source": "liblibprotoc.dll",
+      "destinations": [
+        "liblibprotoc.dll"
+      ],
+      "sha256": "403c806204719b4d2e9c5b13537bd2d33042d5559c0bdd4d9bb620f8474ac299",
+      "bytes": 4591104,
+      "origin": "locally_linked_build_tool"
+    },
+    {
+      "source": "msdia140.dll",
+      "destinations": [
+        "msdia140.dll"
+      ],
+      "sha256": "c6cb047398680aa7093e3d4f1768977ef8ded90ad961225d633407a0ed1c881f",
+      "bytes": 2293288,
+      "origin": "microsoft_dia"
+    },
+    {
+      "source": "qemu/windows-x86_64/qemu-system-x86_64.exe",
+      "destinations": [
+        "qemu/windows-x86_64/qemu-system-x86_64.exe"
+      ],
+      "sha256": "ca65aa54a6d491512917837595ca4ae252fc667f7de5978775103990f10b36b5",
+      "bytes": 66846208,
+      "origin": "locally_linked"
+    }
+  ],
+  "cache_variant": {
+    "patch_path": "benchmarks/stk-1.5/gfxstream-cached-host-qa.patch",
+    "patch_sha256": "8307128bfe941c3328e89a88d7172e041602e1b4f03ad56e2c6bb303a75b251e",
+    "link_log_sha256": "bb271958a08d0b57279d1f0e36ae916b430c71701e80c6ad3baa31250190c9db",
+    "link_pdb_signature": "5B494BD74129A9334C4C44205044422E1",
+    "reference_overrides": {
+      "lib64/libemugl_common.dll": {
+        "sha256": "cbbbeb459093ae0af414edbb8493293efc9918eae46449a78508065edf0e4992",
+        "bytes": 147968
+      },
+      "qemu/windows-x86_64/qemu-system-x86_64.exe": {
+        "sha256": "0698696ebcc59745f57ffc3c975382a399a83ebbe80e3f30ee0d982a9ea481cc",
+        "bytes": 66846208
+      }
+    }
+  }
+}

@@ -3,6 +3,7 @@ android/*.sh text eol=lf
 
 # Unified diffs mark empty context lines with one space, including in the final hunk.
 benchmarks/stk-1.5/*.patch text eol=lf whitespace=-blank-at-eol,-blank-at-eof
+benchmarks/stk-1.5/whpx-windows-build-manifest.xml text eol=lf
 
 # Preserve the exact bytes and internal offsets of downloadable reports.
 output/pdf/*.pdf binary

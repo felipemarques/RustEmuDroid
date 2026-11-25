@@ -12,6 +12,8 @@ On an x86 CPU reset in this revision, QEMU clears the part of `CPUX86State` that
 
 ## Compile and verify
 
+The [Windows clock lab](../../experiments/whpx-clock/README.md) prepares the patched engine from the pinned source and runs it in the RustEmuDroid window. The [Portuguese guide](../../experiments/whpx-clock/README.pt-BR.md) covers selecting an Android profile, comparing the two modes and returning to the usual launcher.
+
 Apply the patch in an isolated checkout at the pinned commit.
 
 ```sh
