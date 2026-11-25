@@ -1,0 +1,223 @@
+{
+  "actual_windows_gpu": "NVIDIA GeForce RTX 5070 Ti",
+  "game_decision_source": "Original x86-64 STK Irrlicht logs from the earlier GPU timestamp pilot, same Windows PC and runtime profiles.",
+  "device_query_source": "adb shell cmd gpu vkjson, outside timed replays; habitual Google Play Android 17 and QA Kemu Android 16.",
+  "sdk_android17": {
+    "vkjson_sha256": "69dd71fdca3f10d4ea3c066b6dda25ada55ee7c7777772789eb4ba1c0c6b2011",
+    "guest_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+    "memory_types": [
+      {
+        "heapIndex": 1,
+        "propertyFlags": 0
+      },
+      {
+        "heapIndex": 0,
+        "propertyFlags": 1
+      },
+      {
+        "heapIndex": 1,
+        "propertyFlags": 6
+      },
+      {
+        "heapIndex": 1,
+        "propertyFlags": 14
+      },
+      {
+        "heapIndex": 0,
+        "propertyFlags": 1
+      },
+      {
+        "heapIndex": 0,
+        "propertyFlags": 7
+      }
+    ],
+    "memory_heaps": [
+      {
+        "flags": 1,
+        "size": 16771973120
+      },
+      {
+        "flags": 0,
+        "size": 32658132992
+      }
+    ],
+    "limits": {
+      "bufferImageGranularity": 1024,
+      "framebufferColorSampleCounts": 15,
+      "framebufferDepthSampleCounts": 15,
+      "framebufferNoAttachmentsSampleCounts": 31,
+      "framebufferStencilSampleCounts": 31,
+      "maxDescriptorSetStorageBuffers": 1048576,
+      "maxDescriptorSetStorageBuffersDynamic": 16,
+      "maxDescriptorSetUniformBuffers": 1048576,
+      "maxDescriptorSetUniformBuffersDynamic": 15,
+      "maxDrawIndirectCount": 4294967295,
+      "maxFramebufferHeight": 32768,
+      "maxFramebufferLayers": 2048,
+      "maxFramebufferWidth": 32768,
+      "maxPerStageDescriptorStorageBuffers": 1048576,
+      "maxPerStageDescriptorUniformBuffers": 1048576,
+      "maxStorageBufferRange": 4294967295,
+      "maxTexelBufferElements": 268435456,
+      "maxUniformBufferRange": 65536,
+      "minMemoryMapAlignment": 64,
+      "minStorageBufferOffsetAlignment": 16,
+      "minTexelBufferOffsetAlignment": 16,
+      "minUniformBufferOffsetAlignment": 64,
+      "nonCoherentAtomSize": 64,
+      "optimalBufferCopyOffsetAlignment": 1,
+      "optimalBufferCopyRowPitchAlignment": 1
+    },
+    "feature_decisions_per_replay": {
+      "control": {
+        "log_sha256": "fd0da9bd3fd48a2239f437490fcf838ad3a0e6421114ececf758f04c53f38133",
+        "decisions": {
+          "Vulkan can bind textures at once in shader": true,
+          "Vulkan can bind mesh textures at once in shader": true,
+          "Vulkan supports linear blitting for rgba8": true,
+          "Vulkan supports linear blitting for r8": true,
+          "Vulkan supports VK_EXT_descriptor_indexing": true,
+          "Vulkan supports multi-draw indirect": true,
+          "Vulkan supports base vertex rendering": true,
+          "Vulkan supports compute in main queue": true,
+          "Vulkan supports shader draw parameters": true,
+          "Vulkan supports s3 texture compression (bc3, dxt5)": true,
+          "Vulkan supports BPTC texture compression (bc7)": false,
+          "Vulkan supports adaptive scalable texture compression (4x4 block)": true,
+          "Vulkan supports shader storage image extended formats": true,
+          "Vulkan descriptor indexes can be dynamically non-uniform": true,
+          "Vulkan descriptor can be partially bound": true
+        }
+      },
+      "gpu": {
+        "log_sha256": "5ec27d6d8a540f01cb922545590da439f4e8f55b3f3e4814539384395545bc4b",
+        "decisions": {
+          "Vulkan can bind textures at once in shader": true,
+          "Vulkan can bind mesh textures at once in shader": true,
+          "Vulkan supports linear blitting for rgba8": true,
+          "Vulkan supports linear blitting for r8": true,
+          "Vulkan supports VK_EXT_descriptor_indexing": true,
+          "Vulkan supports multi-draw indirect": true,
+          "Vulkan supports base vertex rendering": true,
+          "Vulkan supports compute in main queue": true,
+          "Vulkan supports shader draw parameters": true,
+          "Vulkan supports s3 texture compression (bc3, dxt5)": true,
+          "Vulkan supports BPTC texture compression (bc7)": false,
+          "Vulkan supports adaptive scalable texture compression (4x4 block)": true,
+          "Vulkan supports shader storage image extended formats": true,
+          "Vulkan descriptor indexes can be dynamically non-uniform": true,
+          "Vulkan descriptor can be partially bound": true
+        }
+      }
+    }
+  },
+  "kemu_android16": {
+    "vkjson_sha256": "d2db2527ea12b7a521c71c6ec7618d07b1c7b6f5a9933e4f0baf9a98d9aee036",
+    "guest_renderer": "Adreno (TM) 830",
+    "memory_types": [
+      {
+        "heapIndex": 1,
+        "propertyFlags": 0
+      },
+      {
+        "heapIndex": 0,
+        "propertyFlags": 1
+      },
+      {
+        "heapIndex": 1,
+        "propertyFlags": 6
+      },
+      {
+        "heapIndex": 1,
+        "propertyFlags": 14
+      },
+      {
+        "heapIndex": 0,
+        "propertyFlags": 7
+      },
+      {
+        "heapIndex": 0,
+        "propertyFlags": 1
+      }
+    ],
+    "memory_heaps": [
+      {
+        "flags": 1,
+        "size": 16771973120
+      },
+      {
+        "flags": 0,
+        "size": 32658132992
+      }
+    ],
+    "limits": {
+      "bufferImageGranularity": 1024,
+      "framebufferColorSampleCounts": 15,
+      "framebufferDepthSampleCounts": 15,
+      "framebufferNoAttachmentsSampleCounts": 31,
+      "framebufferStencilSampleCounts": 31,
+      "maxDescriptorSetStorageBuffers": 1048576,
+      "maxDescriptorSetStorageBuffersDynamic": 16,
+      "maxDescriptorSetUniformBuffers": 1048576,
+      "maxDescriptorSetUniformBuffersDynamic": 15,
+      "maxDrawIndirectCount": 4294967295,
+      "maxFramebufferHeight": 32768,
+      "maxFramebufferLayers": 2048,
+      "maxFramebufferWidth": 32768,
+      "maxPerStageDescriptorStorageBuffers": 1048576,
+      "maxPerStageDescriptorUniformBuffers": 1048576,
+      "maxStorageBufferRange": 4294967295,
+      "maxTexelBufferElements": 268435456,
+      "maxUniformBufferRange": 65536,
+      "minMemoryMapAlignment": 64,
+      "minStorageBufferOffsetAlignment": 16,
+      "minTexelBufferOffsetAlignment": 16,
+      "minUniformBufferOffsetAlignment": 64,
+      "nonCoherentAtomSize": 64,
+      "optimalBufferCopyOffsetAlignment": 1,
+      "optimalBufferCopyRowPitchAlignment": 1
+    },
+    "feature_decisions_per_replay": {
+      "control": {
+        "log_sha256": "1fc6f4158cc4d2f888d39c709395dc521c749296167919569ccd8fbdcfc9f1c0",
+        "decisions": {
+          "Vulkan can bind textures at once in shader": true,
+          "Vulkan can bind mesh textures at once in shader": true,
+          "Vulkan supports linear blitting for rgba8": true,
+          "Vulkan supports linear blitting for r8": true,
+          "Vulkan supports VK_EXT_descriptor_indexing": true,
+          "Vulkan supports multi-draw indirect": true,
+          "Vulkan supports base vertex rendering": true,
+          "Vulkan supports compute in main queue": true,
+          "Vulkan supports shader draw parameters": true,
+          "Vulkan supports s3 texture compression (bc3, dxt5)": true,
+          "Vulkan supports BPTC texture compression (bc7)": false,
+          "Vulkan supports adaptive scalable texture compression (4x4 block)": true,
+          "Vulkan supports shader storage image extended formats": true,
+          "Vulkan descriptor indexes can be dynamically non-uniform": true,
+          "Vulkan descriptor can be partially bound": true
+        }
+      },
+      "gpu": {
+        "log_sha256": "31014d4b3ea5868aa284fb2bc84fa29403ba604ea6de0f6a2e683f39503d844f",
+        "decisions": {
+          "Vulkan can bind textures at once in shader": true,
+          "Vulkan can bind mesh textures at once in shader": true,
+          "Vulkan supports linear blitting for rgba8": true,
+          "Vulkan supports linear blitting for r8": true,
+          "Vulkan supports VK_EXT_descriptor_indexing": true,
+          "Vulkan supports multi-draw indirect": true,
+          "Vulkan supports base vertex rendering": true,
+          "Vulkan supports compute in main queue": true,
+          "Vulkan supports shader draw parameters": true,
+          "Vulkan supports s3 texture compression (bc3, dxt5)": true,
+          "Vulkan supports BPTC texture compression (bc7)": false,
+          "Vulkan supports adaptive scalable texture compression (4x4 block)": true,
+          "Vulkan supports shader storage image extended formats": true,
+          "Vulkan descriptor indexes can be dynamically non-uniform": true,
+          "Vulkan descriptor can be partially bound": true
+        }
+      }
+    }
+  }
+}
