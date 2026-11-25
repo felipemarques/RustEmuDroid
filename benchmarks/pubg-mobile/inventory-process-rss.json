@@ -1,0 +1,630 @@
+{
+  "exact_62k_observer": {
+    "source": "trial-20261125-015110-9900",
+    "run": "Android 17 v0.18.0 RTX",
+    "samples": 315,
+    "median_step_ms": 201.55595,
+    "process_stat_rss_pages": {
+      "stationary": {
+        "requested_ns": [
+          498739777700,
+          504474053200
+        ],
+        "samples": 28,
+        "covered_ns": [
+          498872581800,
+          504318906700
+        ],
+        "before_pages": 688605,
+        "after_pages": 688637,
+        "delta_pages": 32,
+        "min_pages": 688605,
+        "max_pages": 688637,
+        "delta_minor_faults": 106,
+        "delta_major_faults": 0
+      },
+      "close_1_ready_gap": {
+        "requested_ns": [
+          515788564500,
+          517372380800
+        ],
+        "samples": 8,
+        "covered_ns": [
+          515814218000,
+          517225317200
+        ],
+        "before_pages": 692714,
+        "after_pages": 692965,
+        "delta_pages": 251,
+        "min_pages": 692714,
+        "max_pages": 693971,
+        "delta_minor_faults": 62524,
+        "delta_major_faults": 0
+      },
+      "close_2_ready_gap": {
+        "requested_ns": [
+          527804811300,
+          528288616500
+        ],
+        "samples": 2,
+        "covered_ns": [
+          527917417000,
+          528121503500
+        ],
+        "before_pages": 694937,
+        "after_pages": 694969,
+        "delta_pages": 32,
+        "min_pages": 694937,
+        "max_pages": 694969,
+        "delta_minor_faults": 4,
+        "delta_major_faults": 0
+      },
+      "close_3_ready_gap": {
+        "requested_ns": [
+          539787967400,
+          540255421000
+        ],
+        "samples": 3,
+        "covered_ns": [
+          539810577900,
+          540214317500
+        ],
+        "before_pages": 694907,
+        "after_pages": 694910,
+        "delta_pages": 3,
+        "min_pages": 694907,
+        "max_pages": 694971,
+        "delta_minor_faults": 284,
+        "delta_major_faults": 0
+      },
+      "close_4_ready_gap": {
+        "requested_ns": [
+          551788595000,
+          552221355900
+        ],
+        "samples": 2,
+        "covered_ns": [
+          551910174600,
+          552112825200
+        ],
+        "before_pages": 695242,
+        "after_pages": 695242,
+        "delta_pages": 0,
+        "min_pages": 695242,
+        "max_pages": 695242,
+        "delta_minor_faults": 3,
+        "delta_major_faults": 0
+      }
+    },
+    "first_close_post_gap_tail": [
+      {
+        "ms_after_gap_end": 53.7998,
+        "relative_pages": 791
+      },
+      {
+        "ms_after_gap_end": 256.1287,
+        "relative_pages": 953
+      },
+      {
+        "ms_after_gap_end": 457.6746,
+        "relative_pages": 1437
+      },
+      {
+        "ms_after_gap_end": 658.8934,
+        "relative_pages": 1469
+      },
+      {
+        "ms_after_gap_end": 860.256,
+        "relative_pages": 1721
+      },
+      {
+        "ms_after_gap_end": 1061.6683,
+        "relative_pages": 1861
+      },
+      {
+        "ms_after_gap_end": 1263.5668,
+        "relative_pages": 2971
+      },
+      {
+        "ms_after_gap_end": 1466.3858,
+        "relative_pages": 2068
+      },
+      {
+        "ms_after_gap_end": 1668.1137,
+        "relative_pages": 2100
+      },
+      {
+        "ms_after_gap_end": 1868.728,
+        "relative_pages": 2135
+      },
+      {
+        "ms_after_gap_end": 2070.3156,
+        "relative_pages": 2135
+      },
+      {
+        "ms_after_gap_end": 2271.8346,
+        "relative_pages": 3268
+      },
+      {
+        "ms_after_gap_end": 2472.69,
+        "relative_pages": 1565
+      },
+      {
+        "ms_after_gap_end": 2674.1855,
+        "relative_pages": 1565
+      },
+      {
+        "ms_after_gap_end": 2875.5465,
+        "relative_pages": 1565
+      }
+    ],
+    "first_close_process_samples": [
+      {
+        "start_ns": 515814218000,
+        "end_ns": 515814919600,
+        "pid": 7421,
+        "start_tick": 33836,
+        "rss_pages": 692714,
+        "minor_faults": 2964242,
+        "major_faults": 50
+      },
+      {
+        "start_ns": 516015490500,
+        "end_ns": 516015840600,
+        "pid": 7421,
+        "start_tick": 33836,
+        "rss_pages": 693100,
+        "minor_faults": 2966438,
+        "major_faults": 50
+      },
+      {
+        "start_ns": 516217265900,
+        "end_ns": 516217793200,
+        "pid": 7421,
+        "start_tick": 33836,
+        "rss_pages": 693075,
+        "minor_faults": 2967070,
+        "major_faults": 50
+      },
+      {
+        "start_ns": 516418570500,
+        "end_ns": 516419130500,
+        "pid": 7421,
+        "start_tick": 33836,
+        "rss_pages": 693789,
+        "minor_faults": 2972466,
+        "major_faults": 50
+      },
+      {
+        "start_ns": 516619242100,
+        "end_ns": 516619553800,
+        "pid": 7421,
+        "start_tick": 33836,
+        "rss_pages": 693626,
+        "minor_faults": 2994848,
+        "major_faults": 50
+      },
+      {
+        "start_ns": 516819971100,
+        "end_ns": 516820525400,
+        "pid": 7421,
+        "start_tick": 33836,
+        "rss_pages": 693971,
+        "minor_faults": 3018622,
+        "major_faults": 50
+      },
+      {
+        "start_ns": 517020797100,
+        "end_ns": 517021102400,
+        "pid": 7421,
+        "start_tick": 33836,
+        "rss_pages": 692901,
+        "minor_faults": 3026694,
+        "major_faults": 50
+      },
+      {
+        "start_ns": 517224857400,
+        "end_ns": 517225317200,
+        "pid": 7421,
+        "start_tick": 33836,
+        "rss_pages": 692965,
+        "minor_faults": 3026766,
+        "major_faults": 50
+      }
+    ],
+    "decomposition": "RSS total only. No per-mm anonymous/file/shmem/swap samples in this capture."
+  },
+  "earlier_perfetto": {
+    "source": "native-inventory.pftrace",
+    "run": "Android 17 v0.4.0 RTX, separate run",
+    "samples": 111,
+    "median_step_ms": 499.93405,
+    "trace_track_units": "bytes from process_stats, verified RSS total equals sum of anon, file and shmem",
+    "nonzero_process_swap_samples": 0,
+    "clock": "Perfetto trace time; producer windows use the same trace. External logcat monotonic markers locate candidate close periods.",
+    "windows": {
+      "stationary_first_close_length": {
+        "producer_window_ns": [
+          225730000000,
+          227404240000
+        ],
+        "sample_before": {
+          "ts": 225500848683,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2783764480,
+          "mem.rss.anon": 1601724416,
+          "mem.rss.file": 473747456,
+          "mem.rss.shmem": 708292608,
+          "mem.swap": 0
+        },
+        "sample_after": {
+          "ts": 227501121883,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2783899648,
+          "mem.rss.anon": 1601851392,
+          "mem.rss.file": 473747456,
+          "mem.rss.shmem": 708300800,
+          "mem.swap": 0
+        },
+        "ms_before_boundary": 229.151317,
+        "ms_after_boundary": 96.881883,
+        "number_inside": 3,
+        "inside": [
+          {
+            "ts": 226001714983,
+            "pid": 3223,
+            "upid": 332,
+            "mem.rss": 2783797248,
+            "mem.rss.anon": 1601757184,
+            "mem.rss.file": 473747456,
+            "mem.rss.shmem": 708292608,
+            "mem.swap": 0
+          },
+          {
+            "ts": 226500351583,
+            "pid": 3223,
+            "upid": 332,
+            "mem.rss": 2783825920,
+            "mem.rss.anon": 1601785856,
+            "mem.rss.file": 473747456,
+            "mem.rss.shmem": 708292608,
+            "mem.swap": 0
+          },
+          {
+            "ts": 227002250683,
+            "pid": 3223,
+            "upid": 332,
+            "mem.rss": 2783854592,
+            "mem.rss.anon": 1601814528,
+            "mem.rss.file": 473747456,
+            "mem.rss.shmem": 708292608,
+            "mem.swap": 0
+          }
+        ],
+        "bracket_delta_bytes": {
+          "mem.rss": 135168,
+          "mem.rss.anon": 126976,
+          "mem.rss.file": 0,
+          "mem.rss.shmem": 8192,
+          "mem.swap": 0
+        },
+        "internal_delta_bytes": {
+          "mem.rss": 57344,
+          "mem.rss.anon": 57344,
+          "mem.rss.file": 0,
+          "mem.rss.shmem": 0,
+          "mem.swap": 0
+        },
+        "plus_2_seconds_sample": {
+          "ts": 229502295183,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2785497088,
+          "mem.rss.anon": 1603334144,
+          "mem.rss.file": 473747456,
+          "mem.rss.shmem": 708415488,
+          "mem.swap": 0
+        },
+        "plus_2_seconds_delta_bytes": {
+          "mem.rss": 1732608,
+          "mem.rss.anon": 1609728,
+          "mem.rss.file": 0,
+          "mem.rss.shmem": 122880,
+          "mem.swap": 0
+        }
+      },
+      "first_close": {
+        "producer_window_ns": [
+          237803145583,
+          239477385583
+        ],
+        "sample_before": {
+          "ts": 237502373183,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2800648192,
+          "mem.rss.anon": 1612689408,
+          "mem.rss.file": 474632192,
+          "mem.rss.shmem": 713326592,
+          "mem.swap": 0
+        },
+        "sample_after": {
+          "ts": 239501000283,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2806898688,
+          "mem.rss.anon": 1617584128,
+          "mem.rss.file": 475025408,
+          "mem.rss.shmem": 714289152,
+          "mem.swap": 0
+        },
+        "ms_before_boundary": 300.7724,
+        "ms_after_boundary": 23.6147,
+        "number_inside": 3,
+        "inside": [
+          {
+            "ts": 238001089683,
+            "pid": 3223,
+            "upid": 332,
+            "mem.rss": 2798497792,
+            "mem.rss.anon": 1613209600,
+            "mem.rss.file": 475025408,
+            "mem.rss.shmem": 710262784,
+            "mem.swap": 0
+          },
+          {
+            "ts": 238501658583,
+            "pid": 3223,
+            "upid": 332,
+            "mem.rss": 2800345088,
+            "mem.rss.anon": 1614221312,
+            "mem.rss.file": 475025408,
+            "mem.rss.shmem": 711098368,
+            "mem.swap": 0
+          },
+          {
+            "ts": 239001579683,
+            "pid": 3223,
+            "upid": 332,
+            "mem.rss": 2801905664,
+            "mem.rss.anon": 1614270464,
+            "mem.rss.file": 475025408,
+            "mem.rss.shmem": 712609792,
+            "mem.swap": 0
+          }
+        ],
+        "bracket_delta_bytes": {
+          "mem.rss": 6250496,
+          "mem.rss.anon": 4894720,
+          "mem.rss.file": 393216,
+          "mem.rss.shmem": 962560,
+          "mem.swap": 0
+        },
+        "internal_delta_bytes": {
+          "mem.rss": 3407872,
+          "mem.rss.anon": 1060864,
+          "mem.rss.file": 0,
+          "mem.rss.shmem": 2347008,
+          "mem.swap": 0
+        },
+        "plus_2_seconds_sample": {
+          "ts": 241503029783,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2819170304,
+          "mem.rss.anon": 1631096832,
+          "mem.rss.file": 475811840,
+          "mem.rss.shmem": 712261632,
+          "mem.swap": 0
+        },
+        "plus_2_seconds_delta_bytes": {
+          "mem.rss": 18522112,
+          "mem.rss.anon": 18407424,
+          "mem.rss.file": 1179648,
+          "mem.rss.shmem": -1064960,
+          "mem.swap": 0
+        }
+      },
+      "warm_1_close": {
+        "producer_window_ns": [
+          249761305783,
+          250338698283
+        ],
+        "sample_before": {
+          "ts": 249501225083,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2830249984,
+          "mem.rss.anon": 1637339136,
+          "mem.rss.file": 476352512,
+          "mem.rss.shmem": 716558336,
+          "mem.swap": 0
+        },
+        "sample_after": {
+          "ts": 250501304283,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2828500992,
+          "mem.rss.anon": 1635028992,
+          "mem.rss.file": 476352512,
+          "mem.rss.shmem": 717119488,
+          "mem.swap": 0
+        },
+        "ms_before_boundary": 260.0807,
+        "ms_after_boundary": 162.606,
+        "number_inside": 1,
+        "inside": [
+          {
+            "ts": 250001506683,
+            "pid": 3223,
+            "upid": 332,
+            "mem.rss": 2830417920,
+            "mem.rss.anon": 1637482496,
+            "mem.rss.file": 476352512,
+            "mem.rss.shmem": 716582912,
+            "mem.swap": 0
+          }
+        ],
+        "bracket_delta_bytes": {
+          "mem.rss": -1748992,
+          "mem.rss.anon": -2310144,
+          "mem.rss.file": 0,
+          "mem.rss.shmem": 561152,
+          "mem.swap": 0
+        },
+        "internal_delta_bytes": null,
+        "plus_2_seconds_sample": {
+          "ts": 252502063183,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2828369920,
+          "mem.rss.anon": 1634873344,
+          "mem.rss.file": 476352512,
+          "mem.rss.shmem": 717144064,
+          "mem.swap": 0
+        },
+        "plus_2_seconds_delta_bytes": {
+          "mem.rss": -1880064,
+          "mem.rss.anon": -2465792,
+          "mem.rss.file": 0,
+          "mem.rss.shmem": 585728,
+          "mem.swap": 0
+        }
+      },
+      "warm_2_close": {
+        "producer_window_ns": [
+          261764475583,
+          262220233783
+        ],
+        "sample_before": {
+          "ts": 261505742783,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2830508032,
+          "mem.rss.anon": 1636102144,
+          "mem.rss.file": 476893184,
+          "mem.rss.shmem": 717512704,
+          "mem.swap": 0
+        },
+        "sample_after": {
+          "ts": 262502634483,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2826055680,
+          "mem.rss.anon": 1635680256,
+          "mem.rss.file": 476942336,
+          "mem.rss.shmem": 713433088,
+          "mem.swap": 0
+        },
+        "ms_before_boundary": 258.7328,
+        "ms_after_boundary": 282.4007,
+        "number_inside": 1,
+        "inside": [
+          {
+            "ts": 262001592983,
+            "pid": 3223,
+            "upid": 332,
+            "mem.rss": 2830721024,
+            "mem.rss.anon": 1636265984,
+            "mem.rss.file": 476893184,
+            "mem.rss.shmem": 717561856,
+            "mem.swap": 0
+          }
+        ],
+        "bracket_delta_bytes": {
+          "mem.rss": -4452352,
+          "mem.rss.anon": -421888,
+          "mem.rss.file": 49152,
+          "mem.rss.shmem": -4079616,
+          "mem.swap": 0
+        },
+        "internal_delta_bytes": null,
+        "plus_2_seconds_sample": {
+          "ts": 264500954883,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2828996608,
+          "mem.rss.anon": 1637662720,
+          "mem.rss.file": 477138944,
+          "mem.rss.shmem": 714194944,
+          "mem.swap": 0
+        },
+        "plus_2_seconds_delta_bytes": {
+          "mem.rss": -1511424,
+          "mem.rss.anon": 1560576,
+          "mem.rss.file": 245760,
+          "mem.rss.shmem": -3317760,
+          "mem.swap": 0
+        }
+      },
+      "warm_3_close": {
+        "producer_window_ns": [
+          273754980183,
+          274191073083
+        ],
+        "sample_before": {
+          "ts": 273501120283,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2830344192,
+          "mem.rss.anon": 1637347328,
+          "mem.rss.file": 478613504,
+          "mem.rss.shmem": 714383360,
+          "mem.swap": 0
+        },
+        "sample_after": {
+          "ts": 274504055583,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2830086144,
+          "mem.rss.anon": 1637031936,
+          "mem.rss.file": 478613504,
+          "mem.rss.shmem": 714440704,
+          "mem.swap": 0
+        },
+        "ms_before_boundary": 253.8599,
+        "ms_after_boundary": 312.9825,
+        "number_inside": 1,
+        "inside": [
+          {
+            "ts": 274001790283,
+            "pid": 3223,
+            "upid": 332,
+            "mem.rss": 2830483456,
+            "mem.rss.anon": 1637486592,
+            "mem.rss.file": 478613504,
+            "mem.rss.shmem": 714383360,
+            "mem.swap": 0
+          }
+        ],
+        "bracket_delta_bytes": {
+          "mem.rss": -258048,
+          "mem.rss.anon": -315392,
+          "mem.rss.file": 0,
+          "mem.rss.shmem": 57344,
+          "mem.swap": 0
+        },
+        "internal_delta_bytes": null,
+        "plus_2_seconds_sample": {
+          "ts": 276500621683,
+          "pid": 3223,
+          "upid": 332,
+          "mem.rss": 2830151680,
+          "mem.rss.anon": 1637081088,
+          "mem.rss.file": 478613504,
+          "mem.rss.shmem": 714457088,
+          "mem.swap": 0
+        },
+        "plus_2_seconds_delta_bytes": {
+          "mem.rss": -192512,
+          "mem.rss.anon": -266240,
+          "mem.rss.file": 0,
+          "mem.rss.shmem": 73728,
+          "mem.swap": 0
+        }
+      }
+    }
+  }
+}
