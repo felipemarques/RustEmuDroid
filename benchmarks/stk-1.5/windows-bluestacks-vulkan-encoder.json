@@ -78,5 +78,16 @@
       "vkQueueCommitDescriptorSetUpdatesGOOGLE": 6137616
     }
   },
+  "runtime_advertisement": {
+    "app": "Cipó Livre 0.1 (version code 1)",
+    "app_abi": "x86_64",
+    "guest": "BlueStacks 5.22.166.1003 Pie64, Android 9",
+    "stage": "application startup",
+    "logger": "HostConnection",
+    "message_field": "HostComposition ext",
+    "advertised_token": "ANDROID_EMU_vulkan_batched_descriptor_set_update",
+    "matching_list_messages_from_app_process": 8,
+    "scope": "The list was seen in the Cipó Livre process. Batch command use and any performance effect in Cipó Livre or SuperTuxKart remain unverified."
+  },
   "limitations": "Matching dynamic declarations establish available interfaces. They do not establish invocation rates, actual memory cache policy, host backend implementation or a particular performance gain."
 }
