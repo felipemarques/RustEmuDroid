@@ -65,6 +65,8 @@ These are elapsed durations on the calling CPU thread. A queue API call can spen
 
 A signed, optimized x86-64 QA APK was built from the pinned source. Offline checks verified its separate package, matching JNI classes, SDL2 dependency, stock Black Forest inputs and eight compiled marker labels. The patch also compiled as an Android ARMv7 driver object. A three-frame fixture used STK's own marker stack and CSV writer and verified the profiler summary with a controlled clock.
 
+A separate opt-in patch records graphics-queue timestamps around the render pass. The QA package keeps the CPU scopes available in the same build. [GPU timing procedure and coverage checks](vulkan-gpu-timestamps.md)
+
 ## Windows results at 90 Hz
 
 RustEmuDroid 0.18.1 on Android 17 Google Play, Kemu 0.7.1 on Android 16, and BlueStacks 5.22.166.1003 Pie64 on Android 9 ran the same signed x86-64 QA APK on an RTX 5070 Ti. Each player completed two measured Black Forest replays in a separate batch with High/Vulkan, 1600 × 900, 100% render scale, the 90 FPS game preference and game VSync. All six runs matched the 21 reported graphics fields, verified active 90 Hz in Android and logged Vulkan 1.3 and FIFO (VkPresentModeKHR=2). The desktop frontend, Android build, display density and graphics implementation differ.

@@ -1,0 +1,376 @@
+diff --git a/lib/graphics_engine/include/ge_vulkan_driver.hpp b/lib/graphics_engine/include/ge_vulkan_driver.hpp
+--- a/lib/graphics_engine/include/ge_vulkan_driver.hpp
++++ b/lib/graphics_engine/include/ge_vulkan_driver.hpp
+@@ -33,6 +33,7 @@
+     class GEVulkanMeshCache;
+     class GEVulkanSkyBoxRenderer;
+     class GEVulkanTextureDescriptor;
++    class GEVulkanTimestampProbe;
+     enum GEVulkanSampler : unsigned
+     {
+         GVS_MIN = 0,
+@@ -486,6 +487,7 @@
+             }
+         };
+         std::unique_ptr<VK> m_vk;
++        std::unique_ptr<GEVulkanTimestampProbe> m_timestamp_probe;
+         VkFormat m_swap_chain_image_format;
+         VkExtent2D m_swap_chain_extent;
+         VkPhysicalDevice m_physical_device;
+diff --git a/lib/graphics_engine/src/ge_vulkan_driver.cpp b/lib/graphics_engine/src/ge_vulkan_driver.cpp
+--- a/lib/graphics_engine/src/ge_vulkan_driver.cpp
++++ b/lib/graphics_engine/src/ge_vulkan_driver.cpp
+@@ -40,6 +40,211 @@
+ #include <sstream>
+ #include <stdexcept>
+ #include "../source/Irrlicht/os.h"
++
++#ifdef STK_QA_VULKAN_TIMESTAMPS
++#include "modes/world.hpp"
++#include "race/race_manager.hpp"
++
++#include <cmath>
++#include <cinttypes>
++#include <cstdio>
++#include <new>
++
++namespace GE
++{
++class GEVulkanTimestampProbe
++{
++    struct Slot
++    {
++        bool recorded = false;
++        bool pending = false;
++    };
++    static constexpr unsigned SLOT_COUNT = GEVulkanDriver::getMaxFrameInFlight();
++    static constexpr unsigned BATCH_SIZE = 64;
++
++    VkDevice m_device;
++    VkQueryPool m_pool = VK_NULL_HANDLE;
++    uint32_t m_bits = 0;
++    std::array<Slot, SLOT_COUNT> m_slots{};
++    std::array<uint64_t, BATCH_SIZE> m_ticks{};
++    unsigned m_buffered = 0;
++    uint64_t m_submitted = 0;
++    uint64_t m_samples = 0;
++    uint64_t m_unavailable = 0;
++    uint64_t m_discarded = 0;
++
++    static void log(const char* message)
++    {
++        os::Printer::log("STK_VK_GPU_V1", message);
++    }
++
++    void flush()
++    {
++        if (m_buffered == 0)
++            return;
++
++        // Each uint64_t fits in at most 20 digits. Keep logcat records whole.
++        char message[16 + 21 * BATCH_SIZE];
++        size_t offset = static_cast<size_t>(std::snprintf(message, sizeof(message), "ticks"));
++        for (unsigned i = 0; i < m_buffered; ++i)
++        {
++            offset += static_cast<size_t>(std::snprintf(
++                message + offset, sizeof(message) - offset, " %" PRIu64, m_ticks[i]));
++        }
++        log(message);
++        m_buffered = 0;
++    }
++
++public:
++    explicit GEVulkanTimestampProbe(VkDevice device) : m_device(device) {}
++
++    bool initialize(VkPhysicalDevice physical_device, uint32_t family,
++                    const VkPhysicalDeviceLimits& limits)
++    {
++        uint32_t count = 0;
++        vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, nullptr);
++        std::vector<VkQueueFamilyProperties> properties(count);
++        if (count != 0)
++            vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, properties.data());
++
++        if (family < count)
++            m_bits = properties[family].timestampValidBits;
++
++        char message[160];
++        std::snprintf(message, sizeof(message),
++            "queue family=%u valid_bits=%u period_ns=%.9g compute_and_graphics=%u",
++            family, m_bits, static_cast<double>(limits.timestampPeriod),
++            limits.timestampComputeAndGraphics);
++        log(message);
++
++        if (m_bits == 0 || m_bits > 64 ||
++            !std::isfinite(limits.timestampPeriod) || limits.timestampPeriod <= 0.0f ||
++            !vkCreateQueryPool || !vkDestroyQueryPool || !vkCmdResetQueryPool ||
++            !vkCmdWriteTimestamp || !vkGetQueryPoolResults || !vkGetFenceStatus)
++        {
++            log("disabled unsupported");
++            return false;
++        }
++
++        VkQueryPoolCreateInfo info{};
++        info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
++        info.queryType = VK_QUERY_TYPE_TIMESTAMP;
++        info.queryCount = 2 * SLOT_COUNT;
++        const VkResult result = vkCreateQueryPool(m_device, &info, nullptr, &m_pool);
++        if (result != VK_SUCCESS)
++        {
++            m_pool = VK_NULL_HANDLE;
++            std::snprintf(message, sizeof(message), "disabled create_pool=%d", result);
++            log(message);
++            return false;
++        }
++        log("active");
++        return true;
++    }
++
++    bool begin(unsigned slot, VkCommandBuffer command)
++    {
++        // Only record active replay frames. Results can arrive in a later scene.
++        const auto* race = RaceManager::get();
++        const auto* world = World::getWorld();
++        if (!race || !race->isBenchmarking() || !world || !world->isRacePhase() ||
++            m_slots[slot].pending)
++            return false;
++
++        const uint32_t first = 2 * slot;
++        vkCmdResetQueryPool(command, m_pool, first, 2);
++        // Match the submit's swapchain-image wait stage. Buffer uploads and any
++        // earlier graphics stages that run before it are outside this interval.
++        vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
++            m_pool, first);
++        return true;
++    }
++
++    void end(unsigned slot, VkCommandBuffer command)
++    {
++        vkCmdWriteTimestamp(command, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
++            m_pool, 2 * slot + 1);
++    }
++
++    void recorded(unsigned slot)
++    {
++        m_slots[slot].recorded = true;
++    }
++
++    void submitted(unsigned slot)
++    {
++        Slot& state = m_slots[slot];
++        if (!state.recorded)
++            return;
++
++        state.recorded = false;
++        state.pending = true;
++        ++m_submitted;
++    }
++
++    void collect(unsigned slot)
++    {
++        Slot& state = m_slots[slot];
++        if (!state.pending)
++            return;
++
++        state.pending = false;
++        uint64_t words[2][2]{};
++        const VkResult result = vkGetQueryPoolResults(m_device, m_pool, 2 * slot, 2,
++            sizeof(words), words, sizeof(words[0]),
++            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
++        if (result != VK_SUCCESS || words[0][1] == 0 || words[1][1] == 0)
++        {
++            ++m_unavailable;
++            return;
++        }
++
++        uint64_t delta = words[1][0] - words[0][0];
++        if (m_bits < 64)
++            delta &= (uint64_t{1} << m_bits) - 1;
++        m_ticks[m_buffered++] = delta;
++        ++m_samples;
++        if (m_buffered == BATCH_SIZE)
++            flush();
++    }
++
++    // Called before replacing fences so old slots cannot read through new ones.
++    // An existing swapchain idle wait normally makes every fence signaled.
++    void retire(const std::vector<VkFence>& fences)
++    {
++        for (unsigned i = 0; i < SLOT_COUNT; ++i)
++        {
++            if (m_slots[i].pending)
++            {
++                if (i < fences.size() && vkGetFenceStatus(m_device, fences[i]) == VK_SUCCESS)
++                    collect(i);
++                else
++                    ++m_discarded;
++            }
++            m_slots[i] = {};
++        }
++        flush();
++    }
++
++    void finish()
++    {
++        char message[176];
++        std::snprintf(message, sizeof(message),
++            "end submitted=%" PRIu64 " samples=%" PRIu64 " unavailable=%" PRIu64
++            " discarded=%" PRIu64, m_submitted, m_samples, m_unavailable, m_discarded);
++        log(message);
++        vkDestroyQueryPool(m_device, m_pool, nullptr);
++    }
++
++    bool pending() const
++    {
++        return std::any_of(m_slots.begin(), m_slots.end(), [](const Slot& s) { return s.pending; });
++    }
++};
++} // namespace GE
++#else
++namespace GE { class GEVulkanTimestampProbe {}; }
++#endif
+ 
+ #ifdef STK_QA_VULKAN_END_SCENE
+ #include "utils/profiler.hpp"
+@@ -670,6 +875,18 @@
+         GECompressorBPTCBC7::init();
+         GEMaterialManager::init();
+         GEVulkanFeatures::printStats();
++#ifdef STK_QA_VULKAN_TIMESTAMPS
++        try
++        {
++            std::unique_ptr<GEVulkanTimestampProbe> probe(new GEVulkanTimestampProbe(m_vk->device));
++            if (probe->initialize(m_physical_device, m_graphics_family, m_properties.limits))
++                m_timestamp_probe = std::move(probe);
++        }
++        catch (const std::bad_alloc&)
++        {
++            os::Printer::log("STK_VK_GPU_V1", "disabled allocation");
++        }
++#endif
+     }
+     catch (std::exception& e)
+     {
+@@ -731,6 +948,18 @@
+     GEVulkanShaderManager::destroy();
+ 
+     GEVulkanCommandLoader::destroy();
++#ifdef STK_QA_VULKAN_TIMESTAMPS
++    if (m_timestamp_probe)
++    {
++        // Only final teardown can require an extra idle wait. The measured
++        // frame loop and swapchain recreation keep their original waits.
++        if (m_timestamp_probe->pending())
++            waitIdle(false);
++        m_timestamp_probe->retire(m_vk->in_flight_fences);
++        m_timestamp_probe->finish();
++        m_timestamp_probe.reset();
++    }
++#endif
+     for (std::mutex* m : m_graphics_queue_mutexes)
+         delete m;
+     m_graphics_queue_mutexes.clear();
+@@ -1837,6 +2066,11 @@
+         return true;
+     }
+ 
++#ifdef STK_QA_VULKAN_TIMESTAMPS
++    if (m_timestamp_probe && fence_result == VK_SUCCESS)
++        m_timestamp_probe->collect(m_current_frame);
++#endif
++
+     {
+         STK_VULKAN_PHASE("VK endScene reset");
+         VkFence fence = m_vk->in_flight_fences[m_current_frame];
+@@ -1891,6 +2125,11 @@
+ 
+     if (result != VK_SUCCESS)
+         throw std::runtime_error("vkQueueSubmit failed");
++
++#ifdef STK_QA_VULKAN_TIMESTAMPS
++    if (m_timestamp_probe)
++        m_timestamp_probe->submitted(m_current_frame);
++#endif
+ 
+     VkSemaphore semaphores[] =
+     {
+@@ -2412,6 +2651,10 @@
+ void GEVulkanDriver::destroySwapChainRelated(bool handle_surface)
+ {
+     waitIdle();
++#ifdef STK_QA_VULKAN_TIMESTAMPS
++    if (m_timestamp_probe)
++        m_timestamp_probe->retire(m_vk->in_flight_fences);
++#endif
+     if (m_depth_texture)
+     {
+         m_depth_texture->drop();
+@@ -2558,6 +2801,11 @@
+         p.second->uploadDynamicData(this, p.first);
+     }
+ 
++#ifdef STK_QA_VULKAN_TIMESTAMPS
++    const bool measure = m_timestamp_probe &&
++        m_timestamp_probe->begin(m_current_frame, getCurrentCommandBuffer());
++#endif
++
+     vkCmdBeginRenderPass(getCurrentCommandBuffer(), &render_pass_info,
+         VK_SUBPASS_CONTENTS_INLINE);
+ 
+@@ -2585,7 +2833,14 @@
+     GEVulkan2dRenderer::render();
+ 
+     vkCmdEndRenderPass(getCurrentCommandBuffer());
++#ifdef STK_QA_VULKAN_TIMESTAMPS
++    if (measure)
++        m_timestamp_probe->end(m_current_frame, getCurrentCommandBuffer());
++    if (vkEndCommandBuffer(getCurrentCommandBuffer()) == VK_SUCCESS && measure)
++        m_timestamp_probe->recorded(m_current_frame);
++#else
+     vkEndCommandBuffer(getCurrentCommandBuffer());
++#endif
+ 
+     handleDeletedTextures();
+ }   // buildCommandBuffers
+diff --git a/android/Android.mk b/android/Android.mk
+--- a/android/Android.mk
++++ b/android/Android.mk
+@@ -222,6 +222,9 @@
+ LOCAL_STATIC_LIBRARIES := shaderc libsquish libastcenc
+ ifeq ($(STK_QA_VULKAN_END_SCENE),1)
+ LOCAL_CFLAGS += -DSTK_QA_VULKAN_END_SCENE -I../src
++endif
++ifeq ($(STK_QA_VULKAN_TIMESTAMPS),1)
++LOCAL_CFLAGS += -DSTK_QA_VULKAN_TIMESTAMPS -I../src
+ endif
+ include $(BUILD_STATIC_LIBRARY)
+ include $(CLEAR_VARS)
+diff --git a/android/build.gradle b/android/build.gradle
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -63,6 +63,10 @@
+                 if (providers.environmentVariable('STK_QA_VULKAN_END_SCENE').orNull == '1')
+                 {
+                     arguments 'STK_QA_VULKAN_END_SCENE=1'
++                }
++                if (providers.environmentVariable('STK_QA_VULKAN_TIMESTAMPS').orNull == '1')
++                {
++                    arguments 'STK_QA_VULKAN_TIMESTAMPS=1'
+                 }
+                 if (project.getProperty('compile_arch') == 'all')
+                 {
+diff --git a/lib/graphics_engine/CMakeLists.txt b/lib/graphics_engine/CMakeLists.txt
+--- a/lib/graphics_engine/CMakeLists.txt
++++ b/lib/graphics_engine/CMakeLists.txt
+@@ -151,6 +151,11 @@
+     target_compile_definitions(graphics_engine PRIVATE STK_QA_VULKAN_END_SCENE)
+     target_include_directories(graphics_engine PRIVATE "${PROJECT_SOURCE_DIR}/src")
+ endif()
++option(STK_QA_VULKAN_TIMESTAMPS "Measure Vulkan replay GPU timestamps" OFF)
++if(STK_QA_VULKAN_TIMESTAMPS)
++    target_compile_definitions(graphics_engine PRIVATE STK_QA_VULKAN_TIMESTAMPS)
++    target_include_directories(graphics_engine PRIVATE "${PROJECT_SOURCE_DIR}/src")
++endif()
+ if(BC7_ISPC)
+     if(ISPC_ARCH MATCHES "aarch64")
+         set_property(TARGET graphics_engine PROPERTY ISPC_INSTRUCTION_SETS neon)
