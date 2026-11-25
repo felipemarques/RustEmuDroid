@@ -54,6 +54,8 @@ Choose dimensions with the current Android display's aspect ratio. A 120-frame 6
 
 ## Windows measurements
 
+We also connected the **published GPUI v0.1.1 viewer** to the released v0.21.1 desktop client while the installed SuperTuxKart was running on Android 17. The Android VM used the RTX 5070 Ti and the viewer reported hardware rendering on the Radeon 780M. The read-only bridge sent 600 RGBA frames at 640 × 360 including warm-up. At a target of 60 frames/s the GPUI window processed **479 frames in 8 seconds (59.875/s)**. This counts successful paints in GPUI. The game was observed shortly after launch, with one VM throughout. A preceding stationary Home test produced no new paint in its measurement window. [Live result from the published viewer](results/windows-gpui-live-android17-v0211.json)
+
 Two 12-second samples per viewer and workload on the Radeon 780M, with a 1040 × 585 physical client area and input scheduled at 90 frames/s. Each run had two seconds of warm-up. The kart input was a loop of 120 distinct frames captured from the Android 16 SuperTuxKart Black Forest replay at 640 × 360. The synthetic input was generated at 1600 × 900. CPU is process CPU time divided by elapsed time with one logical core equal to 100%. Memory is the largest sampled working set across the two runs.
 
 | Input | Viewer | Run 1 / run 2, frames/s | Pooled frames/s | Average CPU, one core | Peak working set |

@@ -1,0 +1,53 @@
+{
+  "windows_client": "RustEmuDroid v0.21.1",
+  "windows_client_sha256": "513fc67688ba6c5e48a57f0db097ffc6c7fcf5358b5133c5f1d2ce2ae51de949",
+  "viewer_build": "GPUI lab v0.1.1, published Windows archive",
+  "viewer_sha256": "8416a02f2c991b921aa34b8a6b8c5d6a70176d544a550efb811e3b9fd175778b",
+  "guest": "Android 17 Google Play, 1600x900, 60 Hz",
+  "guest_host_graphics": "NVIDIA GeForce RTX 5070 Ti",
+  "foreground_package": "org.supertuxkart.stk",
+  "test": "Live installed game shortly after launch",
+  "complete_rgba_frames_sent_including_warmup": 600,
+  "viewer_measurement": {
+    "backend": "gpui",
+    "source": "raw",
+    "width": 640,
+    "height": 360,
+    "target_fps": 60,
+    "window_width": 1040,
+    "window_height": 585,
+    "client_width_px": 1040,
+    "client_height_px": 585,
+    "scale_factor": 1.0,
+    "layers": 1,
+    "warmup_seconds": 2,
+    "bytes_per_frame": 921600,
+    "pixel_transport": "rgba_vec_in_place_bgra_then_gpui_atlas_upload",
+    "requested_seconds": 8,
+    "elapsed_seconds": 8.0,
+    "produced": 479,
+    "replaced": 0,
+    "late_slots": 0,
+    "duplicates": 1,
+    "processed": 479,
+    "processed_fps": 59.875,
+    "first_processed_sequence": 120,
+    "last_processed_sequence": 599,
+    "measurement_point": "first successful GPUI paint_image for the source sequence",
+    "latency_ms": {
+      "mean": 5.558328183716078,
+      "p50": 4.5739,
+      "p95": 10.820599999999999,
+      "max": 15.5683
+    },
+    "adapter": {
+      "is_software_emulated": false,
+      "device_name": "AMD Radeon 780M Graphics",
+      "driver_name": "AMD Corporation",
+      "driver_info": "Unknown Driver"
+    }
+  },
+  "single_vm_before_and_after": true,
+  "returned_to_original_android_home": true,
+  "excluded_trial": "Stationary Android Home. The viewer received no new paint in the timed window."
+}

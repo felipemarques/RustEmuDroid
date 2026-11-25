@@ -4,6 +4,8 @@ The RustEmuDroid runs used Android Emulator 37.3.10 with the Android 17 Google P
 
 ## FPS comparisons on the Windows test PC
 
+We also measured memory at the Android Home screen with all three players configured for 8 GiB. The median Windows working sets of the guest-hosting processes were 1.67 GiB for BlueStacks Pie64, 3.04 GiB for Kemu and 5.73 GiB for RustEmuDroid's Android 17 QEMU. RustEmuDroid's separate desktop UI used 118 MiB. The samples were taken at different times after boot. [Process counters, boot ages and measurement script](../benchmarks/windows-home-memory/README.md)
+
 | Scene and setting | GPU | RustEmuDroid | BlueStacks Pie64 | Measurement |
 |---|---|---:|---:|---|
 | SuperTuxKart Black Forest, High, 90 Hz, identical x86-64 test APK | RTX 5070 Ti | 82.85 FPS | 89.99 FPS | Game profiler. Kemu v0.7.1 reached 90.02 FPS. Android presented 81.73/s on RustEmuDroid, 89.95/s on BlueStacks and 90.07/s on Kemu. Two replays per player. [Matched APK and Vulkan timings](../benchmarks/stk-1.5/vulkan-end-scene.md#windows-results-at-90-hz) |

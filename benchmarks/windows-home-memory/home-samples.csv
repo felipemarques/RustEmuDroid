@@ -1,0 +1,16 @@
+player,android,home_package,configured_guest_ram_mib,android_uptime_begin_s,android_uptime_end_s,sample,elapsed_s,process,working_set_bytes,private_commit_bytes
+BlueStacks 5.22.166.1003 Pie64,9,com.uncube.launcher3,8192,10.65,12.89,1,0.0001,HD-Player.exe,1692880896,10736467968
+BlueStacks 5.22.166.1003 Pie64,9,com.uncube.launcher3,8192,10.65,12.89,2,1.0003,HD-Player.exe,1793003520,10768961536
+BlueStacks 5.22.166.1003 Pie64,9,com.uncube.launcher3,8192,10.65,12.89,3,2.0003,HD-Player.exe,1799745536,10745348096
+Kemu 0.7.1,16,com.android.launcher3,8192,15.79,17.91,1,0.0000,qemu-system-x86_64.exe,3260731392,9970511872
+Kemu 0.7.1,16,com.android.launcher3,8192,15.79,17.91,2,1.0004,qemu-system-x86_64.exe,3264335872,9970511872
+Kemu 0.7.1,16,com.android.launcher3,8192,15.79,17.91,3,2.0003,qemu-system-x86_64.exe,3277914112,9968644096
+RustEmuDroid 0.21.1,17,org.rustemudroid.home,8192,59.41,61.69,1,0.0000,rustemudroid.exe,124059648,133046272
+RustEmuDroid 0.21.1,17,org.rustemudroid.home,8192,59.41,61.69,1,0.0001,emulator.exe,12423168,11300864
+RustEmuDroid 0.21.1,17,org.rustemudroid.home,8192,59.41,61.69,1,0.0001,qemu-system-x86_64.exe,6149468160,10240974848
+RustEmuDroid 0.21.1,17,org.rustemudroid.home,8192,59.41,61.69,2,1.0004,rustemudroid.exe,124088320,133103616
+RustEmuDroid 0.21.1,17,org.rustemudroid.home,8192,59.41,61.69,2,1.0004,emulator.exe,12423168,11300864
+RustEmuDroid 0.21.1,17,org.rustemudroid.home,8192,59.41,61.69,2,1.0004,qemu-system-x86_64.exe,6149484544,10240974848
+RustEmuDroid 0.21.1,17,org.rustemudroid.home,8192,59.41,61.69,3,2.0006,rustemudroid.exe,124059648,133046272
+RustEmuDroid 0.21.1,17,org.rustemudroid.home,8192,59.41,61.69,3,2.0006,emulator.exe,12423168,11300864
+RustEmuDroid 0.21.1,17,org.rustemudroid.home,8192,59.41,61.69,3,2.0007,qemu-system-x86_64.exe,6149484544,10240974848
