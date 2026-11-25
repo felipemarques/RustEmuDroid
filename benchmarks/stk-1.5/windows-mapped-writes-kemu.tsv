@@ -1,0 +1,53 @@
+meta	Adreno (TM) 830	20803	0	65536	64	6	31	65536	16
+type	2	1	6
+type	3	1	14
+type	4	0	7
+sample	0	-1	scalar32	231930	229525
+sample	0	-1	memcpy	57647	57006
+sample	0	2	memcpy	83755	83144
+sample	0	2	scalar32	182588	181866
+sample	0	3	scalar32	350529	264499
+sample	0	3	memcpy	57537	56966
+sample	0	4	memcpy	85508	84847
+sample	0	4	scalar32	383771	245765
+sample	1	4	memcpy	83735	82974
+sample	1	4	scalar32	181216	180695
+sample	1	3	scalar32	187036	186405
+sample	1	3	memcpy	57045	56555
+sample	1	2	memcpy	83654	83164
+sample	1	2	scalar32	181165	180654
+sample	1	-1	scalar32	187287	186586
+sample	1	-1	memcpy	57236	56736
+sample	2	-1	scalar32	191274	190763
+sample	2	-1	memcpy	57286	56775
+sample	2	2	memcpy	83845	83354
+sample	2	2	scalar32	321325	319742
+sample	2	3	scalar32	188990	188469
+sample	2	3	memcpy	57878	57397
+sample	2	4	memcpy	83695	83114
+sample	2	4	scalar32	14410487	13785783
+sample	3	4	memcpy	8920196	8770829
+sample	3	4	scalar32	8309966	8306710
+sample	3	3	scalar32	197305	194119
+sample	3	3	memcpy	57887	57276
+sample	3	2	memcpy	86681	86169
+sample	3	2	scalar32	185003	184161
+sample	3	-1	scalar32	188960	188138
+sample	3	-1	memcpy	184291	110375
+sample	4	-1	scalar32	197996	191194
+sample	4	-1	memcpy	57847	57206
+sample	4	2	memcpy	84687	84196
+sample	4	2	scalar32	228693	227160
+sample	4	3	scalar32	197917	196534
+sample	4	3	memcpy	59049	58548
+sample	4	4	memcpy	9399603	9339913
+sample	4	4	scalar32	8831761	8745222
+sample	5	4	memcpy	10328884	10022848
+sample	5	4	scalar32	8339120	8335363
+sample	5	3	scalar32	202565	197506
+sample	5	3	memcpy	58799	58278
+sample	5	2	memcpy	85969	85478
+sample	5	2	scalar32	300666	273085
+sample	5	-1	scalar32	247738	245745
+sample	5	-1	memcpy	88043	87041
+complete

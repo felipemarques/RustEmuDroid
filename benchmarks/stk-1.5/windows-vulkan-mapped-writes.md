@@ -32,6 +32,18 @@ Two cold boots used the same experimental QEMU, stock gfxstream DLL, RTX 5070 Ti
 
 The option brought type 2 writes into the range of ordinary memory. Type 5 remained slow. Both boots advertised the same guest memory types. The original thread-CPU qualification rule could not classify the enabled arm because it required positive readings throughout. The elapsed measurements and the game's actual use of type 2 motivated a separate four-replay game test. The table measures memory access only. [Probe source](mapped-write.c) · [Validation and medians](summarize-mapped-writes.py)
 
+## How Kemu handles the game's buffer
+
+Kemu 0.7.1 exposed an Adreno 830 to its Android 16 guest while the Windows gfxstream log selected the RTX 5070 Ti. The RustEmuDroid 0.21.1 window ran Kemu’s engine and system image. In one 90 Hz boot we ran the same x86-64 probe, then played the instrumented Black Forest replay. All 18 mapped object-storage allocations used type 2, heap 1, flags `0x6`, just as on the Android 17 SDK engine. All 12 uniform/indirect allocations used Kemu type 4, heap 0, flags `0x7`. [Full allocation trace](windows-draw-buffer-allocations-kemu16.json)
+
+| Median elapsed time per 4 MiB written to the game's storage memory | Bulk copy | 32-bit writes |
+|---|---:|---:|
+| Android 17, SDK-based engine, cache off | 14.540 ms | 99.596 ms |
+| Android 17, same engine, cache on | 0.069 ms | 0.196 ms |
+| Android 16, Kemu engine | 0.084 ms | 0.207 ms |
+
+Kemu already reached roughly the same write speeds that the cache option enabled on the Android 17 engine. The advertised flags alone therefore cannot explain the difference in write time. These observations identify the memory used by the game and measure the CPU cost on both engines. The mechanism that backs Kemu's mapping remains unverified. Kemu’s separate device-local type 4 showed both fast and slow batches. All 48 raw samples are available. [Kemu probe](windows-mapped-writes-kemu.tsv) · [Four scored Android 17 game replays](windows-cached-memory-kart.md)
+
 ## Reproduction
 
 An independent cold boot of the source-built SDK core reproduced the ordering. After both host builds had finished, the same probe on Android 17 measured type 2 at **10.105 / 87.753 ms** (memcpy / scalar), type 3 at **0.057 / 0.189 ms**, and type 5 at **16.917 / 133.391 ms**. The ordinary allocation took **0.069 / 0.191 ms**. The TSC option was disabled, and this executable contained no cached-allocation switch. The buffer size, access masks, GPU and six-batch workload matched the stock test. [Raw output from the second run](windows-mapped-writes-rebuilt-off.tsv) · [Source-built core and Android identity](whpx-tsc-sync.md#android-17-cold-boots-on-the-same-executable)
