@@ -535,7 +535,11 @@ fn obscured_preview_releases_input_without_discarding_the_connected_display_size
     };
     let ctx = egui::Context::default();
     let _ = ctx.run(RawInput::default(), |ctx| {
-        panel.show(ctx, Locale::EnUs, true, true, false)
+        assert!(
+            panel
+                .show(ctx, Locale::EnUs, true, true, false, None)
+                .is_none()
+        );
     });
 
     assert_eq!(panel.size, Some(GUEST));
@@ -561,7 +565,11 @@ fn view_only_does_not_lose_the_player_while_waiting_for_a_preview() {
     };
     let ctx = egui::Context::default();
     let out = ctx.run(RawInput::default(), |ctx| {
-        panel.show(ctx, Locale::EnUs, false, true, false)
+        assert!(
+            panel
+                .show(ctx, Locale::EnUs, false, true, false, None)
+                .is_none()
+        );
     });
 
     assert_eq!(panel.player, Some((731, 1492)));
@@ -570,6 +578,97 @@ fn view_only_does_not_lose_the_player_while_waiting_for_a_preview() {
     assert!(out.shapes.iter().any(|shape| {
         matches!(&shape.shape, Shape::Text(text) if text.galley.text() == "View only")
     }));
+}
+
+#[test]
+fn screenshot_shortcut_is_available_without_a_game_mapping_and_keeps_game_keys_out() {
+    let (session, input) = MirrorSession::input_recorder();
+    let mut panel = MirrorPanel {
+        session: Some(session),
+        size: Some(GUEST),
+        ..Default::default()
+    };
+    let ctx = egui::Context::default();
+    let modifiers = crate::toolbar::PLAYER_MODIFIERS;
+    let mut frame = |pressed, repeat, blocked| {
+        let mut activated = false;
+        let _ = ctx.run(
+            RawInput {
+                focused: true,
+                modifiers,
+                events: vec![Event::Key {
+                    key: Key::S,
+                    physical_key: Some(Key::S),
+                    pressed,
+                    repeat,
+                    modifiers,
+                }],
+                ..Default::default()
+            },
+            |ctx| {
+                activated = matches!(
+                    panel.show(ctx, Locale::EnUs, blocked, false, false, None),
+                    Some(Tool::Screenshot)
+                );
+                if activated {
+                    assert!(!ctx.input(|i| {
+                        i.events
+                            .iter()
+                            .any(|event| matches!(event, Event::Key { key: Key::S, .. }))
+                    }));
+                }
+                if !blocked {
+                    panel.handle_input(ctx, SLOT, 1., GUEST, false);
+                }
+            },
+        );
+        activated
+    };
+    assert!(frame(true, false, false));
+    assert!(!frame(true, true, false));
+    assert!(!frame(false, false, false));
+    assert!(!frame(true, false, true));
+    assert!(input.try_recv().is_err());
+    panel.apply_event(MirrorEvent::ViewOnly("ADB access is disabled.".into()));
+    assert!(panel.screenshot_source().is_none());
+    assert!(!panel.screenshot_available());
+}
+
+#[test]
+fn screenshot_button_is_clickable_with_adb_and_disabled_in_view_only() {
+    let (session, _) = MirrorSession::input_recorder();
+    let mut panel = MirrorPanel {
+        session: Some(session),
+        size: Some(GUEST),
+        ..Default::default()
+    };
+    let ctx = egui::Context::default();
+    let button = |panel: &MirrorPanel, events| {
+        let mut response = None;
+        let _ = ctx.run(
+            RawInput {
+                focused: true,
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    response = Some(panel.screenshot_button(ui, Locale::EnUs, false));
+                });
+            },
+        );
+        response.unwrap()
+    };
+    let center = button(&panel, vec![]).rect.center();
+    let _ = button(
+        &panel,
+        vec![Event::PointerMoved(center), primary(center, true)],
+    );
+    assert!(button(&panel, vec![primary(center, false)]).clicked());
+    panel.rotation_pending = true;
+    assert!(!button(&panel, vec![]).enabled());
+    panel.apply_event(MirrorEvent::ViewOnly("ADB access is disabled.".into()));
+    assert!(!button(&panel, vec![]).enabled());
 }
 
 #[test]
@@ -599,7 +698,7 @@ fn closed_player_returns_to_launcher_even_with_an_open_editor_or_view_only() {
             layout: Some((SLOT, SLOT, Instant::now())),
             ..Default::default()
         };
-        panel.apply_event(MirrorEvent::Player(child.id(), 1, lifetime));
+        panel.apply_event(MirrorEvent::Player(child.id(), 1, Arc::new(lifetime)));
         panel.mapped.map.editing = true;
         if view_only {
             panel.apply_event(MirrorEvent::ViewOnly("ADB access is disabled.".into()));

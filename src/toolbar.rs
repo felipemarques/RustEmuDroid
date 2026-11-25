@@ -33,12 +33,13 @@ pub enum Tool {
 }
 
 pub(crate) const PROFILE_KEY: egui::Key = egui::Key::P;
+pub(crate) const SCREENSHOT_KEY: egui::Key = egui::Key::S;
 pub(crate) const PLAYER_MODIFIERS: egui::Modifiers =
     egui::Modifiers::CTRL.plus(egui::Modifiers::SHIFT);
 pub(crate) const FULLSCREEN_KEY: egui::Key = egui::Key::F11;
 pub(crate) const PLAYER_SHORTCUTS: [(egui::Key, Tool); 5] = [
     (egui::Key::A, Tool::Keymap),
-    (egui::Key::S, Tool::Screenshot),
+    (SCREENSHOT_KEY, Tool::Screenshot),
     (egui::Key::R, Tool::RecordVideo),
     (egui::Key::J, Tool::AnimatedClip),
     (egui::Key::H, Tool::SaveReplay),

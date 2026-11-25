@@ -154,14 +154,30 @@ impl Capture {
     }
     pub fn png(&mut self, shot: &Shot, dir: &Path) -> io::Result<()> {
         shot.validate()?;
+        let shot = shot.clone();
+        self.export_png(dir, move |dir| save_png(&shot, dir))
+    }
+    #[cfg(windows)]
+    pub fn png_from_guest(
+        &mut self,
+        dir: &Path,
+        read: impl FnOnce() -> io::Result<Vec<u8>> + Send + 'static,
+    ) -> io::Result<()> {
+        self.export_png(dir, move |dir| save_guest_png(&read()?, dir))
+    }
+    fn export_png(
+        &mut self,
+        dir: &Path,
+        save: impl FnOnce(&Path) -> io::Result<PathBuf> + Send + 'static,
+    ) -> io::Result<()> {
         if self.jobs >= 3 {
             return Err(io::ErrorKind::WouldBlock.into());
         }
-        let (shot, dir, tx) = (shot.clone(), dir.to_owned(), self.tx.clone());
+        let (dir, tx) = (dir.to_owned(), self.tx.clone());
         thread::Builder::new()
             .name("capture-png".into())
             .spawn(move || {
-                let _ = tx.send((Job::Png, save_png(&shot, &dir)));
+                let _ = tx.send((Job::Png, save(&dir)));
             })?;
         self.jobs += 1;
         Ok(())
@@ -230,6 +246,35 @@ fn save_png(shot: &Shot, dir: &Path) -> io::Result<PathBuf> {
     let mut writer = encoder.write_header()?;
     writer.write_image_data(&shot.pixels)?;
     writer.finish()?;
+    temp.persist_noclobber(&path)?;
+    Ok(path)
+}
+
+#[cfg(windows)]
+fn save_guest_png(bytes: &[u8], dir: &Path) -> io::Result<PathBuf> {
+    const MAX_PIXELS_BYTES: usize = 48 * 1024 * 1024;
+    let decoder = png::Decoder::new_with_limits(
+        std::io::Cursor::new(bytes),
+        png::Limits {
+            bytes: MAX_PIXELS_BYTES,
+        },
+    );
+    let mut reader = decoder.read_info()?;
+    if reader.info().animation_control.is_some()
+        || reader
+            .output_buffer_size()
+            .is_none_or(|n| n > MAX_PIXELS_BYTES)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid Android screenshot size or format",
+        ));
+    }
+    // Validate the complete frame before committing Android's original PNG bytes.
+    while reader.next_row()?.is_some() {}
+    reader.finish()?;
+    let (mut temp, path) = output(dir, "png")?;
+    temp.write_all(bytes)?;
     temp.persist_noclobber(&path)?;
     Ok(path)
 }

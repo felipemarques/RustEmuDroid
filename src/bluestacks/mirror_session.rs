@@ -20,11 +20,15 @@ use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use super::{
     Installation, configured_instances, launch,
-    mirror_control::{MirrorControl, query_display_size, read_bounded, service, transport_socket},
+    mirror_control::{
+        MirrorControl, capture_display_png, query_display_size, read_bounded, service,
+        transport_socket,
+    },
     mirror_foreground::ForegroundWatch,
     mirror_target::{ConfiguredTarget, MirrorTarget, TargetError, configured_target},
     player_process::{
-        PlayerError, PlayerLifetime, PlayerSource, find_preview_player, verify_adb_player,
+        PlayerError, PlayerLifetime, PlayerSource, find_preview_player, listener_pid,
+        verify_adb_player,
     },
     valid_package,
 };
@@ -45,7 +49,7 @@ const SURFACE_FPS_OUTPUT_LIMIT: usize = 256 * 1024;
 
 #[derive(Debug)]
 pub(crate) enum MirrorEvent {
-    Player(u32, u64, PlayerLifetime),
+    Player(u32, u64, Arc<PlayerLifetime>),
     Ready([u32; 2]),
     Foreground(u64, Option<String>),
     RotationChecked([u32; 2]),
@@ -93,8 +97,47 @@ pub(crate) struct MirrorSession {
 struct SurfaceTarget {
     configured: ConfiguredTarget,
     transport: MirrorTarget,
+    player: Arc<PlayerLifetime>,
+    player_pid: u32,
     epoch: Arc<AtomicU64>,
     active: AtomicBool,
+}
+
+/// One on-demand read of the Android display from this session's verified transport.
+pub(crate) struct ScreenshotSource {
+    target: Arc<SurfaceTarget>,
+    cancelled: Arc<AtomicBool>,
+    size: [u32; 2],
+}
+
+impl ScreenshotSource {
+    fn active(&self) -> bool {
+        !self.cancelled.load(Ordering::Acquire) && self.target.active.load(Ordering::Acquire)
+    }
+
+    fn verify(&self) -> io::Result<()> {
+        let target = &self.target;
+        if !self.active() || !target.player.is_live() {
+            return Err(cancelled());
+        }
+        if listener_pid(target.transport.endpoint).map_err(io::Error::other)? != target.player_pid
+            || adb_target(target.configured)?.map_err(io::Error::other)? != target.transport
+        {
+            return Err(io::Error::other(
+                "The selected BlueStacks ADB transport changed.",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn read(self) -> io::Result<Vec<u8>> {
+        self.verify()?;
+        let png = capture_display_png(self.target.transport.transport_id.get(), self.size, || {
+            !self.active()
+        })?;
+        self.verify()?;
+        Ok(png)
+    }
 }
 
 /// A read-only SurfaceFlinger query bound to one enabled UI generation.
@@ -255,6 +298,15 @@ impl MirrorSession {
         };
         query.current().then_some(query)
     }
+
+    pub(crate) fn screenshot_source(&self, size: [u32; 2]) -> Option<ScreenshotSource> {
+        let source = ScreenshotSource {
+            target: self.surface_target.lock().ok()?.as_ref()?.clone(),
+            cancelled: self.cancelled.clone(),
+            size,
+        };
+        source.active().then_some(source)
+    }
 }
 
 impl Drop for MirrorSession {
@@ -289,14 +341,21 @@ impl Worker {
                     return;
                 }
             };
+        let lifetime = Arc::new(lifetime);
         if !self.emit(MirrorEvent::Player(
             player.pid,
             player.creation_time,
-            lifetime,
+            lifetime.clone(),
         )) {
             return;
         }
-        if let Err(error) = self.control(&installation, &instance, player, adb_hint.as_deref()) {
+        if let Err(error) = self.control(
+            &installation,
+            &instance,
+            player,
+            lifetime,
+            adb_hint.as_deref(),
+        ) {
             self.emit(MirrorEvent::ViewOnly(error.to_string()));
         }
     }
@@ -367,6 +426,7 @@ impl Worker {
         installation: &Installation,
         instance: &str,
         source: PlayerSource,
+        lifetime: Arc<PlayerLifetime>,
         adb_hint: Option<&Path>,
     ) -> io::Result<()> {
         self.check_cancelled()?;
@@ -408,6 +468,8 @@ impl Worker {
         *self.surface_target.lock().unwrap() = Some(Arc::new(SurfaceTarget {
             configured: target,
             transport: mirrored,
+            player: lifetime,
+            player_pid: source.pid,
             epoch: foreground.shared_epoch(),
             active: AtomicBool::new(true),
         }));
@@ -1017,6 +1079,8 @@ mod tests {
                 endpoint: configured.endpoint(),
                 transport_id: std::num::NonZeroU64::new(41).unwrap(),
             },
+            player: Arc::new(PlayerLifetime::open_for_test(std::process::id()).unwrap()),
+            player_pid: std::process::id(),
             epoch: Arc::new(AtomicU64::new(1)),
             active: AtomicBool::new(true),
         });
@@ -1032,8 +1096,16 @@ mod tests {
         assert!(!first_epoch.current());
         assert!(session.surface_fps_query(1).is_none());
         let current = session.surface_fps_query(2).unwrap();
+        let screenshot = session.screenshot_source([1600, 900]).unwrap();
+        source.epoch.store(0, Ordering::Release);
+        assert!(screenshot.active()); // Display capture also works from Android Home.
         session.cancel();
         assert!(!current.current());
+        assert!(session.screenshot_source([1600, 900]).is_none());
+        assert_eq!(
+            screenshot.read().unwrap_err().kind(),
+            io::ErrorKind::Interrupted
+        );
     }
 
     #[test]

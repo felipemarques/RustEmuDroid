@@ -1,7 +1,7 @@
 use super::{Locale, Tool, theme};
 use crate::bluestacks::{
     mirror_control::{KeyAction, TouchAction},
-    mirror_session::{MirrorEvent, MirrorInput, MirrorSession, SurfaceFpsQuery},
+    mirror_session::{MirrorEvent, MirrorInput, MirrorSession, ScreenshotSource, SurfaceFpsQuery},
     player_process::PlayerLifetime,
     preview::{PreviewRect, ThumbnailPreview},
 };
@@ -10,8 +10,11 @@ use eframe::egui::{self, Event, Key, PointerButton};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::{
     path::Path,
+    sync::Arc,
     time::{Duration, Instant},
 };
+
+use super::capture_panel::CaptureNoticeStatus;
 
 mod controls;
 use controls::MappedControls;
@@ -35,7 +38,7 @@ pub(super) struct MirrorPanel {
     layout: Option<(PreviewRect, PreviewRect, Instant)>,
     destination: isize,
     player: Option<(u32, u64)>,
-    player_lifetime: Option<PlayerLifetime>,
+    player_lifetime: Option<Arc<PlayerLifetime>>,
     player_check_at: Option<Instant>,
     size: Option<[u32; 2]>,
     last_touch: Option<[u32; 2]>,
@@ -254,6 +257,21 @@ impl MirrorPanel {
             .is_some_and(|session| session.input.send(input).is_ok())
     }
 
+    fn screenshot_available(&self) -> bool {
+        self.session.is_some()
+            && self.size.is_some()
+            && self.input_error.is_none()
+            && !self.rotation_pending
+    }
+
+    pub(super) fn screenshot_source(&self) -> Option<ScreenshotSource> {
+        if self.screenshot_available() {
+            self.session.as_ref()?.screenshot_source(self.size?)
+        } else {
+            None
+        }
+    }
+
     fn release(&mut self) {
         if self.input_focused || self.last_touch.is_some() || self.mapped.has_contacts() {
             self.send(MirrorInput::Release);
@@ -296,7 +314,7 @@ impl MirrorPanel {
         .inner
     }
 
-    fn hide(&mut self) {
+    pub(super) fn hide(&mut self) {
         self.release();
         self.layout = None;
         if let Some(preview) = &mut self.preview {
@@ -304,8 +322,40 @@ impl MirrorPanel {
         }
     }
 
-    fn toolbar(&mut self, ctx: &egui::Context, l: Locale, host_gesture: bool) -> bool {
+    fn screenshot_button(
+        &self,
+        ui: &mut egui::Ui,
+        l: Locale,
+        host_gesture: bool,
+    ) -> egui::Response {
+        ui.add_enabled_ui(
+            self.screenshot_available() && !host_gesture && !self.controls_open(),
+            |ui| {
+                let tool = Tool::Screenshot;
+                let response = tool.icon_button(ui, &tool.label_with_shortcut(l));
+                if self.input_error.is_some() {
+                    response.on_disabled_hover_text(l.pick(
+                        "A captura PNG precisa de uma conexão ADB ativa com o BlueStacks.",
+                        "PNG capture requires an active ADB connection to BlueStacks.",
+                        "La captura PNG requiere una conexión ADB activa con BlueStacks.",
+                    ))
+                } else {
+                    response
+                }
+            },
+        )
+        .inner
+    }
+
+    fn toolbar(
+        &mut self,
+        ctx: &egui::Context,
+        l: Locale,
+        host_gesture: bool,
+        capture_notice: Option<CaptureNoticeStatus<'_>>,
+    ) -> (bool, Option<Tool>) {
         let mut disconnect = false;
+        let mut action = None;
         egui::TopBottomPanel::top("blue-session").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.strong(format!("BlueStacks · {}", self.instance));
@@ -328,7 +378,12 @@ impl MirrorPanel {
                     self.rotate_button(ui, l);
                 });
                 self.controls_button(ui, l, host_gesture);
-                self.controls_notice(ui);
+                if self.screenshot_button(ui, l, host_gesture).clicked() {
+                    action = Some(Tool::Screenshot);
+                }
+                if Tool::CapturesFolder.button(ui, l) {
+                    action = Some(Tool::CapturesFolder);
+                }
                 if let Some(reason) = &self.input_error {
                     let tip = if reason.contains("ADB access is disabled") {
                         l.pick(
@@ -340,9 +395,15 @@ impl MirrorPanel {
                     ui.label(l.pick("Somente visualização", "View only", "Solo visualización")).on_hover_text(tip);
                 }
                 disconnect = ui.add_enabled(!self.controls_open(), theme::button(l.pick("Desconectar", "Disconnect", "Desconectar"))).clicked();
+                if let Some((message, details, color)) = &capture_notice {
+                    let response = ui.add(egui::Label::new(egui::RichText::new(message).color(*color)).truncate());
+                    response.on_hover_text(details.unwrap_or(message));
+                } else {
+                    self.controls_notice(ui);
+                }
             });
         });
-        disconnect
+        (disconnect, action)
     }
 
     pub(super) fn show(
@@ -352,21 +413,27 @@ impl MirrorPanel {
         obscured: bool,
         chrome: bool,
         host_gesture: bool,
-    ) {
+        capture_notice: Option<CaptureNoticeStatus<'_>>,
+    ) -> Option<Tool> {
         ctx.request_repaint_after(PREVIEW_CHECK_INTERVAL);
         if obscured {
             self.hide();
-            return;
+            return None;
         }
         self.mapped.set_chrome(chrome);
-        self.controls_shortcuts(ctx, l, host_gesture);
-        if chrome && self.toolbar(ctx, l, host_gesture) {
-            self.disconnect();
-            if ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+        let capture = self.controls_shortcuts(ctx, l, host_gesture);
+        let mut action = capture.then_some(Tool::Screenshot);
+        if chrome {
+            let (disconnect, toolbar_action) = self.toolbar(ctx, l, host_gesture, capture_notice);
+            if disconnect {
+                self.disconnect();
+                if ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)) {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+                }
+                ctx.request_repaint();
+                return None;
             }
-            ctx.request_repaint();
-            return;
+            action = toolbar_action.or(action);
         }
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
@@ -468,6 +535,7 @@ impl MirrorPanel {
                     }
                 });
             });
+        action
     }
 
     fn refresh_size(&mut self, shown: [u32; 2], now: Instant) {

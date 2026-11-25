@@ -249,7 +249,7 @@ fn find_player(
     ))
 }
 
-fn listener_pid(endpoint: SocketAddrV4) -> Result<u32, PlayerError> {
+pub(super) fn listener_pid(endpoint: SocketAddrV4) -> Result<u32, PlayerError> {
     if *endpoint.ip() != Ipv4Addr::LOCALHOST || endpoint.port() == 0 {
         return Err(PlayerError::InvalidEndpoint);
     }

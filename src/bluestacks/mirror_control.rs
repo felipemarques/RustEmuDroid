@@ -23,8 +23,8 @@ const SHORT_COMMAND: Duration = Duration::from_secs(3);
 const STARTUP: Duration = Duration::from_secs(12);
 const ROTATE_DEVICE: [u8; 1] = [11];
 const MAX_TOUCHES: usize = 10;
-const EDITOR_FRAME_LIMIT: usize = 16 * 1024 * 1024;
-const EDITOR_FRAME_POLL: Duration = Duration::from_millis(100);
+const DISPLAY_PNG_LIMIT: usize = 16 * 1024 * 1024;
+const DISPLAY_PNG_POLL: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TouchAction {
@@ -373,7 +373,7 @@ fn check_read(deadline: Instant, cancelled: &impl Fn() -> bool) -> io::Result<()
     Ok(())
 }
 
-fn editor_frame_size(bytes: &[u8]) -> Option<[u32; 2]> {
+fn display_png_size(bytes: &[u8]) -> Option<[u32; 2]> {
     if !bytes.starts_with(b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR") {
         return None;
     }
@@ -381,6 +381,28 @@ fn editor_frame_size(bytes: &[u8]) -> Option<[u32; 2]> {
         u32::from_be_bytes(bytes.get(16..20)?.try_into().ok()?),
         u32::from_be_bytes(bytes.get(20..24)?.try_into().ok()?),
     ])
+}
+
+pub(super) fn capture_display_png(
+    transport_id: u64,
+    display: [u32; 2],
+    cancelled: impl Fn() -> bool,
+) -> io::Result<Vec<u8>> {
+    let deadline = Instant::now() + SHORT_COMMAND;
+    check_read(deadline, &cancelled)?;
+    let mut stream = transport_socket(transport_id)?;
+    check_read(deadline, &cancelled)?;
+    service(&mut stream, "exec:screencap -p")?;
+    stream.set_read_timeout(Some(DISPLAY_PNG_POLL))?;
+    let png = read_bounded(stream, DISPLAY_PNG_LIMIT, deadline, &cancelled)?;
+    check_read(deadline, &cancelled)?;
+    if display_png_size(&png) != Some(display) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Screenshot does not match the Android display",
+        ));
+    }
+    Ok(png)
 }
 
 struct Server {
@@ -596,21 +618,7 @@ impl MirrorControl {
         display: [u32; 2],
         cancelled: impl Fn() -> bool,
     ) -> io::Result<Vec<u8>> {
-        let deadline = Instant::now() + SHORT_COMMAND;
-        check_read(deadline, &cancelled)?;
-        let mut stream = self.server.adb.socket()?;
-        check_read(deadline, &cancelled)?;
-        service(&mut stream, "exec:screencap -p")?;
-        stream.set_read_timeout(Some(EDITOR_FRAME_POLL))?;
-        let png = read_bounded(stream, EDITOR_FRAME_LIMIT, deadline, &cancelled)?;
-        check_read(deadline, &cancelled)?;
-        if editor_frame_size(&png) != Some(display) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Editor frame does not match the Android display",
-            ));
-        }
-        Ok(png)
+        capture_display_png(self.server.adb.transport_id, display, cancelled)
     }
 
     pub(crate) fn key(
@@ -1005,9 +1013,9 @@ mod tests {
         let header = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\x06\x40\0\0\x03\x84";
         let deadline = Instant::now() + SHORT_IO;
         let captured = read_bounded(&header[..], header.len(), deadline, || false).unwrap();
-        assert_eq!(editor_frame_size(&captured), Some([1600, 900]));
-        assert_eq!(editor_frame_size(&captured[..16]), None);
-        assert_eq!(editor_frame_size(b"failed to capture"), None);
+        assert_eq!(display_png_size(&captured), Some([1600, 900]));
+        assert_eq!(display_png_size(&captured[..16]), None);
+        assert_eq!(display_png_size(b"failed to capture"), None);
         for (limit, deadline, cancelled, error) in [
             (
                 header.len() - 1,

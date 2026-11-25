@@ -105,6 +105,8 @@ On Windows, choose **Open BlueStacks → Use this window** to display an install
 
 For touch, drag, scroll, keyboard input and the Android navigation buttons, enable **Android Debug Bridge (ADB)** in BlueStacks advanced settings and reconnect. Click **Rotate screen** on the preview toolbar to switch between portrait and landscape in apps that allow rotation. RustEmuDroid uses a modern local ADB client from the managed runtime or Android Platform Tools. With ADB disabled the picture is view-only. To see frame delivery in the preview, choose **Settings → FPS counter → Android game surface**. The native Android session also offers recording and the Rust panel counter.
 
+Use the camera button or **Ctrl+Shift+S** in the BlueStacks preview to save the Android screen at its native resolution. PNG capture requires an active ADB connection. The folder button opens `captures/` beside `launcher.json`.
+
 In the BlueStacks preview, open a game and click the keyboard icon and choose **Controls editor**, or press **Ctrl+Shift+A**. Place the controls on the captured game image. Android keeps running while the editor is open. Save to return to the live view. **Ctrl+Shift+P** switches between the schemes saved for that game and BlueStacks instance. Hold a D-pad direction and an action button together to send two touches. The editor displays the binding markers. Live game hints and sensor tilt are available in the native Android session.
 
 ![Control bindings over SuperTuxKart in the BlueStacks preview](docs/screenshots/en-us/bluestacks-editor.png)

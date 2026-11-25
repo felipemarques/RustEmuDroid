@@ -443,7 +443,7 @@ impl eframe::App for Launcher {
         if close_requested && !self.closing {
             self.closing = true;
             #[cfg(windows)]
-            self.blue_mirror.disconnect();
+            self.blue_mirror.hide();
             self.play = false;
             self.restart = false;
             self.request_stop();
@@ -471,7 +471,12 @@ impl eframe::App for Launcher {
             ctx.request_repaint_after(Duration::from_millis(50));
         }
         #[cfg(windows)]
-        let disconnecting = self.blue_mirror.poll_cleanup(ctx);
+        let disconnecting = {
+            if self.closing && !self.capture.busy() && self.blue_mirror.active() {
+                self.blue_mirror.disconnect();
+            }
+            self.blue_mirror.poll_cleanup(ctx)
+        };
         #[cfg(not(windows))]
         let disconnecting = false;
         if self.closing {
@@ -609,13 +614,17 @@ impl Launcher {
         #[cfg(windows)]
         if self.blue_mirror.active() {
             let obscured = self.settings.is_some() || self.help_open || self.external_dialog_open();
-            self.blue_mirror.show(
+            let notice = capture_panel::result_notice(self.capture_notice.as_ref(), locale, ctx);
+            if let Some(tool) = self.blue_mirror.show(
                 ctx,
                 locale,
                 obscured,
                 show_chrome,
                 resizing || toggling_fullscreen,
-            );
+                notice,
+            ) {
+                self.capture_action(tool);
+            }
             return;
         }
         if self.playing {

@@ -105,6 +105,8 @@ No Windows, escolha **Abrir BlueStacks → Usar nesta janela** para ver a instâ
 
 Para usar toque, arraste, rolagem, teclado e os botões de navegação Android, ative **Android Debug Bridge (ADB)** nas configurações avançadas do BlueStacks e reconecte. Clique em **Girar tela** na barra da prévia para alternar entre retrato e paisagem nos aplicativos que aceitam rotação. O RustEmuDroid usa um cliente ADB moderno do runtime gerenciado ou das Android Platform Tools. Com o ADB desativado, o modo permite apenas visualizar. Para acompanhar os quadros na prévia, escolha **Configurações → Contador de FPS → Superfície do jogo no Android**. A sessão Android nativa também oferece gravação e o contador do painel Rust.
 
+Use o ícone de câmera ou **Ctrl+Shift+S** na prévia do BlueStacks para salvar a tela do Android em resolução nativa. A captura PNG requer uma conexão ADB ativa. O botão de pasta abre `captures/`, ao lado de `launcher.json`.
+
 Na prévia do BlueStacks, abra um jogo e clique no ícone de teclado e escolha **Editor de controles**, ou pressione **Ctrl+Shift+A**. Posicione os controles sobre a captura do jogo. O Android continua rodando enquanto você edita. Salve para voltar à imagem ao vivo. **Ctrl+Shift+P** alterna entre os perfis salvos para aquele jogo e aquela instância do BlueStacks. Segure o direcional e um botão de ação ao mesmo tempo para enviar dois toques. O editor mostra as marcações das teclas. Na sessão Android nativa, também é possível ver as marcações durante o jogo e mapear o sensor de inclinação.
 
 ![Mapeamento do SuperTuxKart na prévia do BlueStacks](docs/screenshots/pt-br/bluestacks-editor.png)

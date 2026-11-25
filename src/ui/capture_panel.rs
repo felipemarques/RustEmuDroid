@@ -10,6 +10,41 @@ pub(super) fn replay_popup_id() -> egui::Id {
     egui::Id::new("capture-replay-menu")
 }
 
+pub(super) type CaptureNoticeStatus<'a> = (String, Option<&'a str>, egui::Color32);
+
+pub(super) fn result_notice<'a>(
+    notice: Option<&'a (CaptureEvent, Instant)>,
+    locale: Locale,
+    ctx: &egui::Context,
+) -> Option<CaptureNoticeStatus<'a>> {
+    let (event, time) = notice?;
+    let remaining = Duration::from_secs(10).saturating_sub(time.elapsed());
+    if remaining.is_zero() {
+        return None;
+    }
+    ctx.request_repaint_after(remaining);
+    Some(match event {
+        CaptureEvent::Saved(path) => (
+            format!(
+                "{} {}",
+                locale.pick("Salvo", "Saved", "Guardado"),
+                path.file_name()
+                    .unwrap_or(path.as_os_str())
+                    .to_string_lossy()
+            ),
+            None,
+            MINT,
+        ),
+        CaptureEvent::Failed(error) => (
+            locale
+                .pick("Falha na captura", "Capture failed", "Error en la captura")
+                .to_owned(),
+            Some(error.as_str()),
+            ERROR,
+        ),
+    })
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ReplayState {
     Off,
@@ -99,6 +134,21 @@ impl Launcher {
 
     pub(super) fn capture_action(&mut self, tool: Tool) {
         let path = self.capture_dir();
+        #[cfg(windows)]
+        if tool == Tool::Screenshot && self.blue_mirror.active() {
+            let Some(source) = self.blue_mirror.screenshot_source() else {
+                self.capture_failed(self.config.locale.pick(
+                    "A tela do BlueStacks não está disponível para captura por ADB.",
+                    "The BlueStacks display is unavailable for capture over ADB.",
+                    "La pantalla de BlueStacks no está disponible para la captura por ADB.",
+                ));
+                return;
+            };
+            if let Err(error) = self.capture.png_from_guest(&path, move || source.read()) {
+                self.capture_failed(error.to_string());
+            }
+            return;
+        }
         let result = match tool {
             Tool::CapturesFolder => open_capture_dir(&path),
             Tool::SaveReplay => {
@@ -284,6 +334,11 @@ impl Launcher {
     }
 
     pub(super) fn show_capture_notice(&self, ctx: &egui::Context) {
+        #[cfg(windows)]
+        if self.blue_mirror.active() {
+            // The DWM thumbnail covers the normal capture pop-up. The mirror uses its toolbar.
+            return;
+        }
         let locale = self.config.locale;
         let replay = self.replay_state();
         let notice = match self.capture.mode() {
@@ -320,33 +375,7 @@ impl Launcher {
                 None,
                 theme::ACCENT,
             )),
-            None => self.capture_notice.as_ref().and_then(|(event, time)| {
-                let remaining = Duration::from_secs(10).saturating_sub(time.elapsed());
-                if remaining.is_zero() {
-                    return None;
-                }
-                ctx.request_repaint_after(remaining);
-                Some(match event {
-                    CaptureEvent::Saved(path) => (
-                        format!(
-                            "{} {}",
-                            locale.pick("Salvo", "Saved", "Guardado"),
-                            path.file_name()
-                                .unwrap_or(path.as_os_str())
-                                .to_string_lossy()
-                        ),
-                        None,
-                        MINT,
-                    ),
-                    CaptureEvent::Failed(error) => (
-                        locale
-                            .pick("Falha na captura", "Capture failed", "Error en la captura")
-                            .to_owned(),
-                        Some(error.as_str()),
-                        ERROR,
-                    ),
-                })
-            }),
+            None => result_notice(self.capture_notice.as_ref(), locale, ctx),
         };
         let replay_notice = matches!(replay, ReplayState::Buffering | ReplayState::Saving);
         if notice.is_none() && !replay_notice {

@@ -195,11 +195,9 @@ impl MirrorPanel {
         ctx: &egui::Context,
         l: Locale,
         host_gesture: bool,
-    ) {
+    ) -> bool {
         let focused = ctx.input(|i| i.focused);
-        let open = self.controls_open();
-        let allowed = self.controls_available()
-            && !open
+        let interactive = !self.controls_open()
             && focused
             && !host_gesture
             && !egui::Popup::is_any_open(ctx)
@@ -208,6 +206,7 @@ impl MirrorPanel {
                     && m.focused()
                         .is_none_or(|id| egui::TextEdit::load_state(ctx, id).is_none())
             });
+        let allowed = self.controls_available() && interactive;
         let open_editor = consume_player_shortcut(ctx, Key::A, allowed);
         if open_editor {
             self.toggle_controls(true, 0.);
@@ -221,12 +220,18 @@ impl MirrorPanel {
             }
             self.mapped.notice = Some((message, Instant::now()));
         }
+        let screenshot = consume_player_shortcut(
+            ctx,
+            crate::toolbar::SCREENSHOT_KEY,
+            interactive && !self.controls_open() && self.screenshot_available(),
+        );
         let modifiers = ctx.input(|i| i.modifiers);
         self.mapped.shortcut_modifiers[0] &= modifiers.ctrl;
         self.mapped.shortcut_modifiers[1] &= modifiers.shift;
-        if open_editor || switch_profile {
+        if open_editor || switch_profile || screenshot {
             self.mapped.shortcut_modifiers = [modifiers.ctrl, modifiers.shift];
         }
+        screenshot
     }
 
     pub(super) fn controls_notice(&mut self, ui: &mut egui::Ui) {

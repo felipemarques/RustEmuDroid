@@ -130,6 +130,11 @@ fn mirror_shortcuts(ui: &mut egui::Ui, l: Locale) {
         "Switch to the next control scheme saved for the current game in this instance.",
         "Cambia al siguiente perfil de controles guardado para el juego abierto en esta instancia.",
     ));
+    entry(ui, &chord(crate::toolbar::SCREENSHOT_KEY, l), l.pick(
+        "Com o ADB conectado, use este atalho ou o ícone de câmera para salvar a tela do Android em PNG. O botão de pasta abre as capturas.",
+        "With ADB connected, use this shortcut or the camera icon to save the Android display as a PNG. Use the folder button to find your captures.",
+        "Con ADB conectado, usa este atajo o el icono de cámara para guardar la pantalla de Android como PNG. El botón de carpeta abre las capturas.",
+    ));
     entry(
         ui,
         l.pick("Clique e arraste", "Click and drag", "Clic y arrastre"),

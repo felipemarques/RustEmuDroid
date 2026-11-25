@@ -54,6 +54,62 @@ fn png_recovers_native_dimensions_and_rgba_pixels() {
     assert_eq!(&rgba[..info.buffer_size()], input.pixels.as_ref());
 }
 
+#[cfg(windows)]
+#[test]
+fn guest_png_exports_are_deferred_preserve_pixels_and_use_unique_capture_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixture = tempfile::tempdir().unwrap();
+    let png = fs::read(
+        save_png(
+            &shot(2, 1, vec![17, 81, 209, 255, 211, 7, 44, 255]),
+            fixture.path(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut capture = Capture::default();
+    let (release, wait) = mpsc::channel();
+    let first = png.clone();
+    capture
+        .png_from_guest(dir.path(), move || {
+            wait.recv_timeout(Duration::from_secs(3)).unwrap();
+            Ok(first)
+        })
+        .unwrap();
+    assert!(capture.busy());
+    assert!(capture.poll().is_none());
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    capture
+        .png_from_guest(dir.path(), {
+            let png = png.clone();
+            move || Ok(png)
+        })
+        .unwrap();
+    release.send(()).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut saved = HashSet::new();
+    while capture.busy() {
+        if let Some(path) = await_capture(&mut capture) {
+            assert!(
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("RustEmuDroid-")
+            );
+            assert_eq!(path.parent(), Some(dir.path()));
+            assert_eq!(path.extension().unwrap(), "png");
+            assert_eq!(fs::read(&path).unwrap(), png);
+            assert!(saved.insert(path));
+        }
+        assert!(Instant::now() < deadline, "PNG exports did not finish");
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(saved.len(), 2);
+    assert!(save_guest_png(&png[..png.len() - 8], dir.path()).is_err());
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+}
+
 #[test]
 fn a_size_change_stops_video_without_replacing_the_last_frame() {
     let first = shot(2, 3, vec![0; 24]);
