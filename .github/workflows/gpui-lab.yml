@@ -1,0 +1,234 @@
+name: GPUI viewer lab
+
+on:
+  push:
+    branches: ['**']
+    tags: ['gpui-lab-v*']
+    paths:
+      - .github/workflows/gpui-lab.yml
+      - experiments/gpui-viewer/**
+      - experiments/glow-baseline/**
+      - experiments/android-stream/**
+      - experiments/compare.py
+      - experiments/PACKAGE.md
+      - src/display/native_texture.rs
+  pull_request:
+    paths:
+      - .github/workflows/gpui-lab.yml
+      - experiments/gpui-viewer/**
+      - experiments/glow-baseline/**
+      - experiments/android-stream/**
+      - experiments/compare.py
+      - experiments/PACKAGE.md
+      - src/display/native_texture.rs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  viewers:
+    name: Lab viewers (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x86_64
+            os: windows-2022
+            extension: zip
+          - platform: linux-x86_64
+            os: ubuntu-24.04
+            extension: tar.gz
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      CARGO_TARGET_DIR: target/gpui-lab
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt
+
+      - name: Validate the version of both viewers
+        id: version
+        shell: pwsh
+        run: |
+          $versions = @()
+          foreach ($project in 'gpui-viewer', 'glow-baseline') {
+            $manifest = "experiments/$project/Cargo.toml"
+            $metadata = cargo +stable metadata --manifest-path $manifest --locked --no-deps --format-version 1 | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $packages = @($metadata.packages)
+            if ($packages.Count -ne 1 -or $packages[0].version -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+              throw "Expected a stable SemVer Cargo version in $manifest"
+            }
+            $versions += $packages[0].version
+          }
+          if ($versions[0] -cne $versions[1]) { throw 'Both lab viewer versions must agree' }
+          $tag = "gpui-lab-v$($versions[0])"
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -cne $tag) {
+            throw "Both lab viewer crates require $tag, got $env:GITHUB_REF_NAME"
+          }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Install Linux viewer dependencies
+        if: runner.os == 'Linux'
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config libfontconfig-dev libfreetype6-dev \
+            libwayland-dev libx11-dev libx11-xcb-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libudev-dev libxi-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev libvulkan1 \
+            libssl-dev libzstd-dev
+
+      - name: Select the Windows SDK HLSL compiler
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # GPUI 0.2.2 uses fxc.exe for release-mode D3D11 shaders.
+          $kits = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots').KitsRoot10
+          $fxc = Get-ChildItem -LiteralPath (Join-Path $kits 'bin') -Directory |
+            Where-Object Name -Match '^\d+\.\d+\.\d+\.\d+$' |
+            Sort-Object { [version]$_.Name } -Descending |
+            ForEach-Object { Join-Path $_.FullName 'x64/fxc.exe' } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+          if (-not $fxc) { throw 'The Windows SDK has no x64 fxc.exe' }
+          "GPUI_FXC_PATH=$fxc" >> $env:GITHUB_ENV
+
+      - name: Check, test and build both standalone viewers
+        timeout-minutes: 45
+        shell: pwsh
+        run: |
+          foreach ($project in 'gpui-viewer', 'glow-baseline') {
+            $manifest = "experiments/$project/Cargo.toml"
+            cargo +stable fmt --manifest-path $manifest -- --check
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            cargo +stable test --manifest-path $manifest --locked --release --jobs 2
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            cargo +stable build --manifest-path $manifest --locked --release --jobs 2
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Package and smoke-test the extracted viewers
+        timeout-minutes: 8
+        shell: pwsh
+        env:
+          ARCHIVE: ${{ steps.version.outputs.tag }}-${{ matrix.platform }}.${{ matrix.extension }}
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP 'gpui-lab-package'
+          $verify = Join-Path $env:RUNNER_TEMP 'gpui-lab-extracted'
+          $out = Join-Path $PWD 'dist/gpui-lab'
+          $bridge = Join-Path $package 'android-stream'
+          New-Item -ItemType Directory -Path $package, $verify, $out, $bridge | Out-Null
+          $archive = Join-Path $out $env:ARCHIVE
+          $suffix = if ($IsWindows) { '.exe' } else { '' }
+          $binaries = @("gpui-viewer$suffix", "glow-baseline$suffix")
+          foreach ($binary in $binaries) {
+            Copy-Item -LiteralPath (Join-Path "$env:CARGO_TARGET_DIR/release" $binary) -Destination $package
+          }
+          Copy-Item -LiteralPath 'experiments/PACKAGE.md' -Destination (Join-Path $package 'README.md')
+          Copy-Item -LiteralPath 'experiments/compare.py' -Destination $package
+          Copy-Item -LiteralPath 'experiments/gpui-viewer/README.md' -Destination (Join-Path $package 'README-GPUI.md')
+          Copy-Item -LiteralPath 'experiments/glow-baseline/README.md' -Destination (Join-Path $package 'README-Glow.md')
+          $bridgeFiles = @('capture.py', 'viewer_frames.proto', 'requirements.txt')
+          foreach ($file in $bridgeFiles) {
+            Copy-Item -LiteralPath "experiments/android-stream/$file" -Destination $bridge
+          }
+          $rootFiles = $binaries + @('README.md', 'README-GPUI.md', 'README-Glow.md', 'compare.py')
+          $entries = $rootFiles + @('android-stream')
+          if ($IsWindows) {
+            Compress-Archive -Path (Join-Path $package '*') -DestinationPath $archive
+            Expand-Archive -LiteralPath $archive -DestinationPath $verify
+          } else {
+            tar -czf $archive -C $package @entries
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            tar -xzf $archive -C $verify
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          $files = $rootFiles + @($bridgeFiles | ForEach-Object { "android-stream/$_" })
+          $actual = Get-ChildItem -LiteralPath $verify -File -Force -Recurse | ForEach-Object {
+            [IO.Path]::GetRelativePath($verify, $_.FullName).Replace('\', '/')
+          }
+          if (Compare-Object $files $actual -CaseSensitive) {
+            throw 'Unexpected GPUI lab archive contents'
+          }
+          foreach ($binary in $binaries) {
+            $help = (& (Join-Path $verify $binary) --help) -join "`n"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if ($help -notmatch '--window-width' -or $help -notmatch '--raw' -or
+                ($binary -like 'gpui-viewer*' -and $help -notmatch '--demo')) {
+              throw "Unexpected help from $binary"
+            }
+          }
+          $venv = Join-Path $env:RUNNER_TEMP 'gpui-lab-python'
+          python -m venv $venv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $python = if ($IsWindows) { Join-Path $venv 'Scripts/python.exe' } else { Join-Path $venv 'bin/python' }
+          $requirements = Join-Path $verify 'android-stream/requirements.txt'
+          & $python -m pip --disable-pip-version-check install --only-binary=:all: 'psutil==7.2.2' -r $requirements
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python -B (Join-Path $verify 'compare.py') --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Push-Location -LiteralPath (Join-Path $verify 'android-stream')
+          try {
+            & $python -B capture.py --help
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $python -B -c "import grpc; grpc.protos_and_services('viewer_frames.proto')"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+          $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          "$sha256  $env:ARCHIVE`n" | Set-Content -LiteralPath "$archive.sha256" -Encoding ascii -NoNewline
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gpui-lab-${{ matrix.platform }}
+          path: dist/gpui-lab/*
+          if-no-files-found: error
+          compression-level: 0
+
+  prerelease:
+    name: Publish tagged GPUI lab prerelease
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/gpui-lab-v')
+    needs: viewers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: gpui-lab-prerelease-${{ github.ref_name }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: gpui-lab-*-x86_64
+          path: dist/gpui-lab
+          merge-multiple: true
+
+      - name: Verify tag and archives, then create the prerelease
+        shell: bash
+        working-directory: dist/gpui-lab
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          LAB_TAG="$GITHUB_REF_NAME"
+          [[ "$LAB_TAG" =~ ^gpui-lab-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          ref="refs/tags/$LAB_TAG"
+          commit=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$ref" "$ref^{}" |
+            awk -v ref="$ref" '$2 == ref { direct = $1 } $2 == ref "^{}" { peeled = $1 } END { print peeled ? peeled : direct }')
+          test "$commit" = "$GITHUB_SHA"
+          windows="$LAB_TAG-windows-x86_64.zip"
+          linux="$LAB_TAG-linux-x86_64.tar.gz"
+          test -s "$windows" && test -s "$linux"
+          cat "$windows.sha256" "$linux.sha256" > SHA256SUMS
+          sha256sum --strict --check SHA256SUMS
+          gh release create "$LAB_TAG" "$windows" "$linux" SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false \
+            --title "GPUI viewer lab ${LAB_TAG#gpui-lab-}" \
+            --notes 'Experimental GPUI and Glow viewers for comparing the same RGBA8 source. See the packaged README for the interactive demo, same-source comparison, and optional read-only Android bridge.'

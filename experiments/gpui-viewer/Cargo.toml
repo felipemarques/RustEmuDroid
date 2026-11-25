@@ -1,0 +1,26 @@
+[package]
+name = "rustemudroid-gpui-viewer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+default = ["viewer"]
+viewer = ["dep:async-channel", "dep:gpui", "dep:image", "dep:serde_json", "dep:smallvec"]
+
+[dependencies]
+async-channel = { version = "2.5", optional = true }
+image = { version = "0.25", default-features = false, optional = true }
+serde_json = { version = "1", optional = true }
+smallvec = { version = "1.15", optional = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+gpui = { version = "=0.2.2", default-features = false, features = ["windows-manifest"], optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gpui = { version = "=0.2.2", default-features = false, features = ["wayland", "x11"], optional = true }
+
+[[bin]]
+name = "gpui-viewer"
+path = "src/main.rs"
+required-features = ["viewer"]

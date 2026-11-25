@@ -303,6 +303,7 @@ Para comparar as placas no Windows, abra **FPS WW2 URP → Start Game → Level 
 | Componente | Responsabilidade |
 |---|---|
 | [Interface desktop](src/ui.rs) | Rust, eframe/egui e Glow. Gerencia a janela, os controles, as configurações e a tela de encerramento. |
+| [Protótipo com GPUI](experiments/README.md) | Janela separada que exibe o Android ao vivo pela GPU. No replay do SuperTuxKart na Radeon 780M, o GPUI desenhou 87,54 quadros/s e o Glow atual, 87,46. |
 | [Ciclo de vida da VM](src/android.rs) | Localiza o SDK e as imagens, cria o AVD, inicia o motor escolhido e aguarda o fim do processo. |
 | [Vídeo e entrada](src/display.rs) | Recebe quadros pelo gRPC local autenticado de `EmulatorController.streamScreenshot`, guarda o quadro RGBA pendente mais recente e encaminha eventos de toque e teclado. |
 | [Home do Android](android/home) | Activity nativa que consulta o PackageManager e exibe banners ou ícones dos apps. O cliente instala o APK de desenvolvimento embutido via ADB. |

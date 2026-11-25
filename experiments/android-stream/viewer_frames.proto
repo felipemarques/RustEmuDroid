@@ -1,0 +1,17 @@
+syntax = "proto3";
+package android.emulation.control;
+
+// Wire-compatible subset of the Android Emulator Controller screenshot API.
+service EmulatorController {
+  rpc streamScreenshot(ImageFormat) returns (stream Image);
+}
+message ImageFormat {
+  enum ImgFormat { PNG = 0; RGBA8888 = 1; }
+  ImgFormat format = 1;
+  uint32 width = 3;
+  uint32 height = 4;
+}
+message Image {
+  ImageFormat format = 1;
+  bytes image = 4;
+}
