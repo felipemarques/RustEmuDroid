@@ -74,16 +74,24 @@ The packaged v0.9.0 Linux client found Android Emulator, ADB and the Android 15 
 
 ## Repeat the boot
 
-Extract the Linux release, install the Linux Android SDK components shown in the [setup guide](../README.md#prepare-the-android-runtime), and verify that your Linux user can access `/dev/kvm`. From the directory containing the extracted executable, run the following commands. Set `sdk` to your Linux SDK path and choose an unused directory for `state` for a fresh boot.
+Extract the Linux release and check that your user can read and write `/dev/kvm`. For a first installation, run the following command from the extracted directory to review the Google Play runtime download and terms.
 
 ```sh
-sdk="$HOME/Android/Sdk"
+./rustemudroid runtime-setup --image google-play
+```
+
+If you accept the terms, repeat the command with `--accept-license`. You can also review and install the same runtime in the desktop setup dialog. RustEmuDroid installs the emulator, ADB and the Android image together. [First-time setup](../README.md#first-time-setup-in-rustemudroid)
+
+The following commands use the managed Linux runtime and an unused state directory for the fresh Google Play boot. For a portable runtime beside the executable, set `sdk="$PWD/runtime"`. For an existing Linux SDK, set `sdk` to its installed root. SwiftShader reproduces the software-rendered boot described above.
+
+```sh
+sdk="${XDG_DATA_HOME:-$HOME/.local/share}/RustEmuDroid/runtime"
 state="$HOME/rustemudroid-play17-test"
 ./rustemudroid --sdk "$sdk" --state-dir "$state" --lang en-US init --image 'system-images;android-37.0;google_apis_playstore;x86_64'
 ./rustemudroid --sdk "$sdk" --state-dir "$state" --lang en-US ui --gpu swiftshader
 ```
 
-Use the serial shown in the boot output with the `adb` from that SDK. `emu avd path` identifies the running profile before the remaining commands query it.
+Use the serial shown in the boot output with the `adb` from the selected runtime. `emu avd path` identifies the running profile before the remaining commands query it.
 
 ```sh
 serial=emulator-5554  # Replace with your session's serial.
