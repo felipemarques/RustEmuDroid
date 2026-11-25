@@ -1,0 +1,293 @@
+{
+  "schema_version": 1,
+  "host": "Windows x86-64",
+  "engine": "RustEmuDroid",
+  "engine_version": "0.18.1",
+  "android_version": "17",
+  "game": "SuperTuxKart 1.5",
+  "game_package": "org.rustemudroid.qa.stkvulkan",
+  "apk_sha256": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e",
+  "game_abi": "x86_64",
+  "scene": "Black Forest",
+  "preset": "High/Vulkan",
+  "game_fps_cap": 90,
+  "game_vsync": true,
+  "runs": [
+    {
+      "run": 1,
+      "game_frames": 3159,
+      "game_duration_ms": 38157,
+      "game_fps": 82.78952747857537,
+      "game_report_sha256": "a9a2fc2cb8a54c9cf07be25f17fc62776ce6567b76c9c53600419476cf4af9c0",
+      "frame_profile_sha256": "270c256dac4ca65c70cb17c0d3e6b27de5898495ec738e37b62bcf34571a3827",
+      "graphics": {
+        "Resolution width": "1600",
+        "Resolution height": "900",
+        "Render resolution": "1",
+        "Dynamic lighting": "1",
+        "Particle effects": "2",
+        "Animated characters": "1",
+        "Geometry Detail": "4",
+        "Bloom": "1",
+        "Glow": "1",
+        "Light Shaft": "1",
+        "Anti-Aliasing (MLAA)": "0",
+        "SSAO": "1",
+        "Anisotropic Filtering": "16",
+        "Shadow Resolution": "1024",
+        "Light scattering": "0",
+        "Degraded IBL": "0",
+        "Motion Blur": "0",
+        "Depth of Field": "0",
+        "Texture compression": "1",
+        "HD Textures": "0",
+        "HQ Mipmap": "0"
+      },
+      "surface_flinger_period_ns": 11111111,
+      "surface_view": {
+        "duration_s": 20.02374585,
+        "presentations": 1626,
+        "presentations_per_second": 81.20358758948191,
+        "p99_interval_ms": 23.8502,
+        "max_interval_ms": 39.7065,
+        "intervals_over_250_ms": 0
+      },
+      "vulkan_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "vulkan_api_version": "1.3.0",
+      "swapchains": [
+        {
+          "present_mode_id": 2,
+          "present_mode": "FIFO"
+        }
+      ],
+      "cpu_scopes": {
+        "Main loop": {
+          "frames_main_gt_0": 3159,
+          "frames_segment_gt_0": 3159,
+          "sum_ms": 38157.431,
+          "mean_ms": 12.078959,
+          "p50_ms": 11.392,
+          "p95_ms": 17.083
+        },
+        "IrrDriver update": {
+          "frames_main_gt_0": 3159,
+          "frames_segment_gt_0": 3159,
+          "sum_ms": 33580.253,
+          "mean_ms": 10.630026,
+          "p50_ms": 10.105,
+          "p95_ms": 15.382
+        },
+        "VK endScene": {
+          "frames_main_gt_0": 3159,
+          "frames_segment_gt_0": 3159,
+          "sum_ms": 9978.87,
+          "mean_ms": 3.15887,
+          "p50_ms": 2.428,
+          "p95_ms": 6.68
+        },
+        "VK endScene fence": {
+          "frames_main_gt_0": 3159,
+          "frames_segment_gt_0": 3159,
+          "sum_ms": 509.714,
+          "mean_ms": 0.161353,
+          "p50_ms": 0.125,
+          "p95_ms": 0.326
+        },
+        "VK endScene reset": {
+          "frames_main_gt_0": 3159,
+          "frames_segment_gt_0": 3159,
+          "sum_ms": 567.066,
+          "mean_ms": 0.179508,
+          "p50_ms": 0.141,
+          "p95_ms": 0.37
+        },
+        "VK endScene acquire": {
+          "frames_main_gt_0": 3159,
+          "frames_segment_gt_0": 3159,
+          "sum_ms": 5852.971,
+          "mean_ms": 1.852792,
+          "p50_ms": 1.003,
+          "p95_ms": 5.588
+        },
+        "VK endScene record": {
+          "frames_main_gt_0": 3159,
+          "frames_segment_gt_0": 3159,
+          "sum_ms": 1287.666,
+          "mean_ms": 0.407618,
+          "p50_ms": 0.355,
+          "p95_ms": 0.694
+        },
+        "VK endScene submit": {
+          "frames_main_gt_0": 3159,
+          "frames_segment_gt_0": 3159,
+          "sum_ms": 264.026,
+          "mean_ms": 0.083579,
+          "p50_ms": 0.062,
+          "p95_ms": 0.175
+        },
+        "VK endScene present": {
+          "frames_main_gt_0": 3159,
+          "frames_segment_gt_0": 3159,
+          "sum_ms": 1117.833,
+          "mean_ms": 0.353857,
+          "p50_ms": 0.302,
+          "p95_ms": 0.758
+        },
+        "VK endScene recovery": {
+          "frames_main_gt_0": 3159,
+          "frames_segment_gt_0": 0,
+          "sum_ms": 0.0,
+          "mean_ms": 0.0,
+          "p50_ms": 0.0,
+          "p95_ms": 0.0
+        },
+        "VK endScene other": {
+          "frames_main_gt_0": 3159,
+          "frames_segment_gt_0": 3159,
+          "sum_ms": 379.594,
+          "mean_ms": 0.120163,
+          "p50_ms": 0.091,
+          "p95_ms": 0.233
+        }
+      }
+    },
+    {
+      "run": 2,
+      "game_frames": 3157,
+      "game_duration_ms": 38073,
+      "game_fps": 82.91965434822578,
+      "game_report_sha256": "80c93ada47c6f8e3fd9a0d2c8c0f27517d14a0315b2d3fa42e577e7d96d9165a",
+      "frame_profile_sha256": "9974333d724c6f9881ea44078c67e408711956fbd3593d46b01229dc378fad76",
+      "graphics": {
+        "Resolution width": "1600",
+        "Resolution height": "900",
+        "Render resolution": "1",
+        "Dynamic lighting": "1",
+        "Particle effects": "2",
+        "Animated characters": "1",
+        "Geometry Detail": "4",
+        "Bloom": "1",
+        "Glow": "1",
+        "Light Shaft": "1",
+        "Anti-Aliasing (MLAA)": "0",
+        "SSAO": "1",
+        "Anisotropic Filtering": "16",
+        "Shadow Resolution": "1024",
+        "Light scattering": "0",
+        "Degraded IBL": "0",
+        "Motion Blur": "0",
+        "Depth of Field": "0",
+        "Texture compression": "1",
+        "HD Textures": "0",
+        "HQ Mipmap": "0"
+      },
+      "surface_flinger_period_ns": 11111111,
+      "surface_view": {
+        "duration_s": 20.02235535,
+        "presentations": 1647,
+        "presentations_per_second": 82.25805461993261,
+        "p99_interval_ms": 23.4833,
+        "max_interval_ms": 31.7249,
+        "intervals_over_250_ms": 0
+      },
+      "vulkan_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "vulkan_api_version": "1.3.0",
+      "swapchains": [
+        {
+          "present_mode_id": 2,
+          "present_mode": "FIFO"
+        }
+      ],
+      "cpu_scopes": {
+        "Main loop": {
+          "frames_main_gt_0": 3157,
+          "frames_segment_gt_0": 3157,
+          "sum_ms": 38073.099,
+          "mean_ms": 12.059898,
+          "p50_ms": 11.476,
+          "p95_ms": 17.061
+        },
+        "IrrDriver update": {
+          "frames_main_gt_0": 3157,
+          "frames_segment_gt_0": 3157,
+          "sum_ms": 33598.649,
+          "mean_ms": 10.642588,
+          "p50_ms": 10.167,
+          "p95_ms": 15.407
+        },
+        "VK endScene": {
+          "frames_main_gt_0": 3157,
+          "frames_segment_gt_0": 3157,
+          "sum_ms": 10046.624,
+          "mean_ms": 3.182333,
+          "p50_ms": 2.455,
+          "p95_ms": 6.744
+        },
+        "VK endScene fence": {
+          "frames_main_gt_0": 3157,
+          "frames_segment_gt_0": 3157,
+          "sum_ms": 467.789,
+          "mean_ms": 0.148175,
+          "p50_ms": 0.121,
+          "p95_ms": 0.297
+        },
+        "VK endScene reset": {
+          "frames_main_gt_0": 3157,
+          "frames_segment_gt_0": 3157,
+          "sum_ms": 517.966,
+          "mean_ms": 0.164069,
+          "p50_ms": 0.13,
+          "p95_ms": 0.35
+        },
+        "VK endScene acquire": {
+          "frames_main_gt_0": 3157,
+          "frames_segment_gt_0": 3157,
+          "sum_ms": 6029.164,
+          "mean_ms": 1.909776,
+          "p50_ms": 0.922,
+          "p95_ms": 5.665
+        },
+        "VK endScene record": {
+          "frames_main_gt_0": 3157,
+          "frames_segment_gt_0": 3157,
+          "sum_ms": 1255.894,
+          "mean_ms": 0.397812,
+          "p50_ms": 0.352,
+          "p95_ms": 0.677
+        },
+        "VK endScene submit": {
+          "frames_main_gt_0": 3157,
+          "frames_segment_gt_0": 3157,
+          "sum_ms": 255.666,
+          "mean_ms": 0.080984,
+          "p50_ms": 0.062,
+          "p95_ms": 0.169
+        },
+        "VK endScene present": {
+          "frames_main_gt_0": 3157,
+          "frames_segment_gt_0": 3157,
+          "sum_ms": 1160.582,
+          "mean_ms": 0.367622,
+          "p50_ms": 0.307,
+          "p95_ms": 0.848
+        },
+        "VK endScene recovery": {
+          "frames_main_gt_0": 3157,
+          "frames_segment_gt_0": 0,
+          "sum_ms": 0.0,
+          "mean_ms": 0.0,
+          "p50_ms": 0.0,
+          "p95_ms": 0.0
+        },
+        "VK endScene other": {
+          "frames_main_gt_0": 3157,
+          "frames_segment_gt_0": 3157,
+          "sum_ms": 359.563,
+          "mean_ms": 0.113894,
+          "p50_ms": 0.091,
+          "p95_ms": 0.246
+        }
+      }
+    }
+  ]
+}
