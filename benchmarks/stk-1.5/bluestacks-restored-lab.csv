@@ -1,0 +1,2 @@
+sample,bluestacks_version,android_version,rustemudroid_version,preview,game_version,game_abi,track,preset,game_graphics_api,host_gpu,vcpu,memory_mib,width,height,density_dpi,render_scale_percent,player_fps_cap,frames,duration_ms,game_fps,mostly_stable_fps,main_loop_p95_ms
+restored-pie64-data,5.22.166.1003,9,0.15.0,on,1.5,armeabi-v7a,black_forest,high,OpenGL ES 3.2,NVIDIA GeForce RTX 5070 Ti,4,8192,1600,900,240,100,60,2287,38188,59.887923,57,18.097

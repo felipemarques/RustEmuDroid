@@ -345,6 +345,20 @@ Scheduler wakeups identify which thread made another runnable. The trace does no
 
 To reproduce, use Perfetto Trace Processor 59.1 with either original trace and run `trace_processor query <trace.pftrace> -f benchmarks/pubg-mobile/inventory-wake-timing.sql`. For a new recording, use the PUBG lobby trace setup below. The query selects the most active thread for each engine thread name, clips each sleep to the longest producer gap and uses scheduler wakeups at the end of the sleep. It lists render sleeps of at least 50 ms, sums guest CPU by thread over those windows and lists the recorded API spans individually. [Perfetto SQL](../benchmarks/pubg-mobile/inventory-wake-timing.sql)
 
+### Does lowering the Android display resolution help PUBG Inventory?
+
+On Windows with RustEmuDroid 0.15.0, we ran the same 48-second Inventory route at 900p, then 720p, then 900p again. PUBG MOBILE 4.7.0 (build 21718, ARM64) ran on Android 17 Google Play with ANGLE over Vulkan on the RTX 5070 Ti. Each pass started a new game process and retained its caches. Density stayed at 320 dpi and the Lobby stayed on Balanced/High. The game surface followed the requested resolution. PUBG's internal rendering resolution was unavailable.
+
+| Android display, in run order | New presentations in 48 s | Presentations/s | P99 interval | Intervals over 250 ms | First close, gap between ready buffers | First close, presentation gap |
+|---|---:|---:|---:|---:|---:|---:|
+| 1600 × 900 | 1,211 | 25.23 | 150.75 ms | 11 | 1,549.52 ms | 1,550.47 ms |
+| 1280 × 720 | 1,202 | 25.04 | 165.96 ms | 13 | 1,565.54 ms | 1,566.27 ms |
+| 1600 × 900 | 1,199 | 24.98 | 250.61 ms | 14 | 1,583.36 ms | 1,583.04 ms |
+
+Reducing the display pixel count by 36% left the first-close pause between the two 900p results. In all three runs the gap was present by the time the next game buffer was ready. We kept the original 1600 × 900 resolution. The comparison covers this menu transition on this PC. [Relative frame timestamps for all three runs](../benchmarks/pubg-mobile/rtx-resolution-inventory.csv)
+
+The route opened Inventory at seconds 0, 12, 24 and 36 and closed it seven seconds after each open. Counts use the 48-second window, excluding its right endpoint. For the first close we took the largest interval whose two presentations fell between seconds 7 (inclusive) and 12 (exclusive), then compared readiness for those same buffers. The CSV includes one extra sample on each side of every run. The collector checked the foreground app and surface, and screenshots confirmed Lobby and Inventory. A native game crash before reaching the lobby and startup promotions before the first Inventory tap produced no timed samples. All rows above are complete routes.
+
 ### Does the desktop frame copy affect the lobby?
 
 A local instrumented desktop build alternated the existing allocation-and-copy path with direct RGBA image construction in the same stationary lobby and guest session. Each kept block was about 18 seconds after trimming a second from both ends. The host timing measures elapsed time on the desktop UI thread while it prepares and submits an image to the texture queue. Its block statistic is the median of the reported one-second P95s.
