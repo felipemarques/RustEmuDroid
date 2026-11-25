@@ -1,0 +1,206 @@
+diff --git a/android/Android.mk b/android/Android.mk
+index 7ebb673..a1e5770 100644
+--- a/android/Android.mk
++++ b/android/Android.mk
+@@ -220,6 +220,9 @@ LOCAL_CFLAGS       := -DENABLE_LIBASTCENC                 \
+ #LOCAL_ARM_NEON     := false
+ #endif
+ LOCAL_STATIC_LIBRARIES := shaderc libsquish libastcenc
++ifeq ($(STK_QA_VULKAN_END_SCENE),1)
++LOCAL_CFLAGS += -DSTK_QA_VULKAN_END_SCENE -I../src
++endif
+ include $(BUILD_STATIC_LIBRARY)
+ include $(CLEAR_VARS)
+ 
+diff --git a/android/build.gradle b/android/build.gradle
+index 148b660..b278fc6 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -60,6 +60,10 @@ android
+             {
+                 def app_platform = "APP_PLATFORM=android-${min_sdk_version}"
+                 arguments app_platform, 'APP_STL=c++_static', cpu_core
++                if (providers.environmentVariable('STK_QA_VULKAN_END_SCENE').orNull == '1')
++                {
++                    arguments 'STK_QA_VULKAN_END_SCENE=1'
++                }
+                 if (project.getProperty('compile_arch') == 'all')
+                 {
+                     abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+diff --git a/lib/graphics_engine/CMakeLists.txt b/lib/graphics_engine/CMakeLists.txt
+index 081629b..afc0c48 100644
+--- a/lib/graphics_engine/CMakeLists.txt
++++ b/lib/graphics_engine/CMakeLists.txt
+@@ -146,6 +146,11 @@ if(BC7_ISPC AND NOT ISPC_ARCH MATCHES "unknown")
+ endif()
+ 
+ add_library(graphics_engine STATIC ${GE_SOURCES})
++option(STK_QA_VULKAN_END_SCENE "Profile Vulkan endScene phases" OFF)
++if(STK_QA_VULKAN_END_SCENE)
++    target_compile_definitions(graphics_engine PRIVATE STK_QA_VULKAN_END_SCENE)
++    target_include_directories(graphics_engine PRIVATE "${PROJECT_SOURCE_DIR}/src")
++endif()
+ if(BC7_ISPC)
+     if(ISPC_ARCH MATCHES "aarch64")
+         set_property(TARGET graphics_engine PROPERTY ISPC_INSTRUCTION_SETS neon)
+diff --git a/lib/graphics_engine/src/ge_vulkan_driver.cpp b/lib/graphics_engine/src/ge_vulkan_driver.cpp
+index 4086f59..7d4e00b 100644
+--- a/lib/graphics_engine/src/ge_vulkan_driver.cpp
++++ b/lib/graphics_engine/src/ge_vulkan_driver.cpp
+@@ -41,6 +41,31 @@
+ #include <stdexcept>
+ #include "../source/Irrlicht/os.h"
+ 
++#ifdef STK_QA_VULKAN_END_SCENE
++#include "utils/profiler.hpp"
++
++namespace
++{
++// Keep the marker stack balanced on early returns and exceptions.
++class VulkanEndSceneMarker
++{
++public:
++    explicit VulkanEndSceneMarker(const char* name)
++    {
++        PROFILER_PUSH_CPU_MARKER(name, 0x70, 0xb0, 0xff);
++    }
++
++    ~VulkanEndSceneMarker()
++    {
++        PROFILER_POP_CPU_MARKER();
++    }
++};
++}
++#define STK_VULKAN_PHASE(name) const VulkanEndSceneMarker phase_marker(name)
++#else
++#define STK_VULKAN_PHASE(name) (void)0
++#endif
++
+ extern "C" VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
+     VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
+     VkDebugUtilsMessageTypeFlagsEXT message_type,
+@@ -1324,6 +1349,11 @@ found_mode:
+     if (result != VK_SUCCESS)
+         throw std::runtime_error("vkCreateSwapchainKHR failed");
+ 
++#ifdef STK_QA_VULKAN_END_SCENE
++    os::Printer::log("STK QA Vulkan VkPresentModeKHR",
++        std::to_string(static_cast<int>(create_info.presentMode)).c_str());
++#endif
++
+     vkGetSwapchainImagesKHR(m_vk->device, m_vk->swap_chain, &swap_chain_images_count, NULL);
+     m_vk->swap_chain_images.resize(swap_chain_images_count);
+     vkGetSwapchainImagesKHR(m_vk->device, m_vk->swap_chain, &swap_chain_images_count,
+@@ -1772,16 +1802,23 @@ bool GEVulkanDriver::beginScene(bool backBuffer, bool zBuffer, SColor color,
+ // ----------------------------------------------------------------------------
+ bool GEVulkanDriver::endScene()
+ {
++    STK_VULKAN_PHASE("VK endScene");
+     if (g_paused_rendering.load())
+     {
+         GEVulkan2dRenderer::clear();
+         return false;
+     }
+ 
+-    if (m_vk->in_flight_fences.empty() || vkWaitForFences(m_vk->device, 1,
+-        &m_vk->in_flight_fences[m_current_frame], VK_TRUE, 2000000000) ==
+-        VK_TIMEOUT)
++    VkResult fence_result = VK_TIMEOUT;
++    if (!m_vk->in_flight_fences.empty())
+     {
++        STK_VULKAN_PHASE("VK endScene fence");
++        fence_result = vkWaitForFences(m_vk->device, 1,
++            &m_vk->in_flight_fences[m_current_frame], VK_TRUE, 2000000000);
++    }
++    if (fence_result == VK_TIMEOUT)
++    {
++        STK_VULKAN_PHASE("VK endScene recovery");
+         // Attempt to restore after out focus in gnome fullscreen
+         video::CNullDriver::endScene();
+         GEVulkan2dRenderer::clear();
+@@ -1800,14 +1837,21 @@ bool GEVulkanDriver::endScene()
+         return true;
+     }
+ 
+-    VkFence fence = m_vk->in_flight_fences[m_current_frame];
+-    vkResetFences(m_vk->device, 1, &fence);
+-    vkResetCommandPool(m_vk->device, m_vk->command_pools[m_current_frame], 0);
++    {
++        STK_VULKAN_PHASE("VK endScene reset");
++        VkFence fence = m_vk->in_flight_fences[m_current_frame];
++        vkResetFences(m_vk->device, 1, &fence);
++        vkResetCommandPool(m_vk->device, m_vk->command_pools[m_current_frame], 0);
++    }
+ 
+-    VkSemaphore semaphore = m_vk->image_available_semaphores[m_current_semaphore];
+-    VkResult result = vkAcquireNextImageKHR(m_vk->device, m_vk->swap_chain,
+-        std::numeric_limits<uint64_t>::max(), semaphore, VK_NULL_HANDLE,
+-        &m_image_index);
++    VkResult result;
++    {
++        STK_VULKAN_PHASE("VK endScene acquire");
++        VkSemaphore semaphore = m_vk->image_available_semaphores[m_current_semaphore];
++        result = vkAcquireNextImageKHR(m_vk->device, m_vk->swap_chain,
++            std::numeric_limits<uint64_t>::max(), semaphore, VK_NULL_HANDLE,
++            &m_image_index);
++    }
+ 
+     if (result != VK_SUCCESS)
+     {
+@@ -1817,7 +1861,10 @@ bool GEVulkanDriver::endScene()
+         return false;
+     }
+ 
+-    buildCommandBuffers();
++    {
++        STK_VULKAN_PHASE("VK endScene record");
++        buildCommandBuffers();
++    }
+ 
+     VkSemaphore wait_semaphores[] = {m_vk->image_available_semaphores[m_current_semaphore]};
+     VkPipelineStageFlags wait_stages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+@@ -1833,11 +1880,14 @@ bool GEVulkanDriver::endScene()
+     submit_info.signalSemaphoreCount = 1;
+     submit_info.pSignalSemaphores = signal_semaphores;
+ 
+-    VkQueue queue = VK_NULL_HANDLE;
+-    std::unique_lock<std::mutex> ul = getGraphicsQueue(&queue);
+-    result = vkQueueSubmit(queue, 1, &submit_info,
+-        m_vk->in_flight_fences[m_current_frame]);
+-    ul.unlock();
++    {
++        STK_VULKAN_PHASE("VK endScene submit");
++        VkQueue queue = VK_NULL_HANDLE;
++        std::unique_lock<std::mutex> ul = getGraphicsQueue(&queue);
++        result = vkQueueSubmit(queue, 1, &submit_info,
++            m_vk->in_flight_fences[m_current_frame]);
++        ul.unlock();
++    }
+ 
+     if (result != VK_SUCCESS)
+         throw std::runtime_error("vkQueueSubmit failed");
+@@ -1865,14 +1915,17 @@ bool GEVulkanDriver::endScene()
+     m_current_semaphore = (m_current_semaphore + 1) %
+         m_vk->swap_chain_images.size();
+ 
+-    if (m_present_queue)
+-        result = vkQueuePresentKHR(m_present_queue, &present_info);
+-    else
+     {
+-        VkQueue present_queue = VK_NULL_HANDLE;
+-        std::unique_lock<std::mutex> ul = getGraphicsQueue(&present_queue);
+-        result = vkQueuePresentKHR(present_queue, &present_info);
+-        ul.unlock();
++        STK_VULKAN_PHASE("VK endScene present");
++        if (m_present_queue)
++            result = vkQueuePresentKHR(m_present_queue, &present_info);
++        else
++        {
++            VkQueue present_queue = VK_NULL_HANDLE;
++            std::unique_lock<std::mutex> ul = getGraphicsQueue(&present_queue);
++            result = vkQueuePresentKHR(present_queue, &present_info);
++            ul.unlock();
++        }
+     }
+     if (!video::CNullDriver::endScene())
+         return false;

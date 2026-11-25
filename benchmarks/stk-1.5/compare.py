@@ -90,7 +90,8 @@ def replay(args, name, serial, preset, dest, *, fps_limit=None):
                     raise ValueError(f"Wrong resolution or scale on {name}: {settings[:3]}")
                 log = run(args, serial, "exec-out", "cat", DIRECTORY + "/stdout.log").decode(errors="replace")
                 driver = [line for line in log.splitlines() if any(x in line.lower() for x in
-                          ("renderer:", "vendor:", "opengl version", "vulkan version", "vulkan driver"))]
+                          ("renderer:", "vendor:", "opengl version", "vulkan version", "vulkan driver",
+                           "stk qa vulkan vkpresentmodekhr"))]
                 if preset in ("vulkan", "high-vulkan") and not any("Vulkan" in line for line in driver):
                     raise ValueError(f"The game did not confirm its Vulkan renderer on {name}")
                 (dest / "renderer.txt").write_text("\n".join(driver) + "\n", encoding="utf-8")
