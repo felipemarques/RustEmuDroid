@@ -84,6 +84,8 @@ STK reported Goldfish GFXStream driver 26.0.65.35 on RustEmuDroid, the virtual A
 
 Pooling frames and durations gives **82.85 game FPS and 81.73 Android presentations/s** for RustEmuDroid, **90.02 and 90.07/s** for Kemu, and **89.99 and 89.95/s** for BlueStacks. STK FPS covers the full replay. The Android rate covers a separate window of about 20 seconds on the foreground game's SurfaceView. Differences of a few hundredths around 90/s in these finite windows do not establish a rate above 90 Hz. Android presentations, Windows panel throughput and physical scanout measure different stages.
 
+A follow-up on the same Kemu engine and Android 16 image measured **90.02 game FPS and 89.98 Android presentations/s** with the integrated RustEmuDroid v0.20.0 frontend. The original Kemu window remained near 90 FPS under the same workload. [Matched Kemu engine with both frontends](#how-the-kemu-and-rust-windows-receive-game-frames)
+
 The table pools both passes per player. Each mean divides total scope duration by all positive `Main loop` samples, including frames where a child scope recorded zero duration.
 
 | CPU-thread elapsed time per frame | RustEmuDroid | Kemu | BlueStacks |
@@ -188,4 +190,19 @@ In Kemu v0.7.1 on Windows, Qt gives the Android display its own native window ha
 
 RustEmuDroid's native window runs in a separate process. It subscribes to the emulator's screenshot stream, receives RGBA pixels and uploads them to the desktop texture. Requesting a smaller image reduced CPU and raised the panel's processing rate. Pausing the subscription entirely raised the Android presentation rate from 82.20 to 83.27/s on the same Android 17 VM. That experiment leaves most of the distance to Kemu's 90.07/s unexplained. The release of Android, the bundled emulator and the graphics driver exposed to the guest also differ in the three-player comparison. [Rust texture upload](../../src/display/native_texture.rs) · [Same-VM transport experiment](#pausing-the-windows-video-stream)
 
-An earlier control used the same Kemu Android 16 image and Windows engine with the two different frontends. At the Original Vulkan preset and a 60 Hz ceiling, both averaged 60.01 game FPS. Testing the High preset at 90 Hz leaves more room to observe a difference. [Earlier matched-engine measurements](README.md#painel-integrado-com-aceleração-vulkan)
+An earlier control used the same Kemu Android 16 image and Windows engine with the two frontends. At the Original Vulkan preset and a 60 Hz ceiling, both averaged 60.01 game FPS. [Earlier matched-engine measurements](README.md#painel-integrado-com-aceleração-vulkan)
+
+The 90 Hz follow-up paired the Kemu 0.7.1 Qt runs above with two replays in the optimized RustEmuDroid v0.20.0 Windows client. Rust launched the same Kemu 0.7.1 QEMU/gfxstream binaries and Android 16 image on the RTX 5070 Ti, with the Qt window hidden and the Rust video panel active. The replay used a fresh Rust AVD with 4 vCPUs and 8 GiB. The signed x86-64 APK and its 21 reported graphics fields, Vulkan FIFO and 1600 × 900 at effective 90 Hz matched the original Kemu runs. Adaptive video was off. Each replay started a fresh game process after a warm-up.
+
+Both launchers used user-mode WHPX APIC and passed `noxsaves` to the guest kernel. Kemu Qt set `hw.lcd.vsync=90` in its test profile, while Rust requested `-vsync-rate 90` and applied the temporary Android game and minimum-refresh policies. Both games reported Vulkan 1.3 and the virtual Adreno 830 driver 512.849.1. gfxstream selected the host RTX 5070 Ti with driver 610.88, and NVIDIA's WDDM process listing confirmed the adapter during warm-up on both frontends.
+
+| Frontend and replay | Game frames / duration | Game FPS | Android presentations / duration | Android presentations/s | Android P99 interval | Rust panel frames/s |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| RustEmuDroid 0.20.0, Kemu Android 16 — 1 | 3,433 / 38.139 s | 90.013 | 1,802 / 20.019 s | 90.013 | 13.278 ms | 84.026 |
+| RustEmuDroid 0.20.0, Kemu Android 16 — 2 | 3,433 / 38.136 s | 90.020 | 1,801 / 20.021 s | 89.957 | 13.406 ms | 84.109 |
+| RustEmuDroid 0.20.0, Kemu Android 16 — pooled | 6,866 / 76.275 s | 90.016 | 3,603 / 40.040 s | 89.985 | Per replay above | 84.067 |
+| Kemu 0.7.1 Qt, Android 16 — pooled | 6,865 / 76.263 s | 90.017 | 3,606 / 40.037 s | 90.067 | 12.810 / 12.749 ms | — |
+
+The game ran at about 90 FPS in both frontends, and Android's SurfaceView presented about 90 frames/s. The Rust panel processed 84.07 frames/s in its complete reporting intervals within the SurfaceView windows. Game FPS covers the whole replay, and the SurfaceView samples cover approximately 20 seconds per run. The Rust counter measures frames processed for display. Windows scanout and equivalent Kemu Qt panel throughput were outside this test. The comparison uses separate batches and AVDs and describes this Vulkan replay.
+
+[RustEmuDroid with Kemu engine data](windows-vulkan-90hz-scoped-rust-kemu.json) · [Original Kemu data](windows-vulkan-90hz-scoped-kemu.json)
