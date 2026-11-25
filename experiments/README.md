@@ -16,6 +16,8 @@ $glow = (Resolve-Path experiments/glow-baseline/target/release/glow-baseline.exe
 
 Open the interactive prototype with `& $gpui --demo`. Use the floating controls to pause the local picture or enter fullscreen. The default interface is Brazilian Portuguese. Set `--lang en-US` or `--lang es-ES` to switch. Pass the same `--raw` file and dimensions to try the controls over your own gameplay.
 
+![GPUI interactive prototype with Pause and Fullscreen controls](screenshots/gpui-en-US.png)
+
 The last command opens a window with a moving pattern and prints a JSON result when the test ends. To play a saved Android recording, add `--raw .\race.rgba --width 640 --height 360` using the actual width and height of that recording. On Linux use the same Cargo commands and omit the `.exe` suffix. Open a graphical desktop session to run either viewer. [GPUI build instructions](gpui-viewer/README.md) · [Glow build instructions](glow-baseline/README.md)
 
 ## Compare both renderers
@@ -56,3 +58,9 @@ Two 12-second samples per viewer and workload on the Radeon 780M, with a 1040 ×
 | Synthetic 900p | GPUI | 86.50 / 85.92 | 86.21 | 28.4% | 92.4 MiB |
 
 On the kart input the mean difference was 0.08 frames/s, smaller than the spread between runs of either viewer. GPUI used less CPU and memory for that workload. Neither workload demonstrates a consistent throughput advantage. These are single-layer panel tests on one Windows system. Game FPS is measured separately with the game's benchmark. [Kart run data](results/windows-radeon780m-stk.json) · [Synthetic run data](results/windows-radeon780m-synthetic.json) · [In-game results for RustEmuDroid, Kemu and BlueStacks](../benchmarks/stk-1.5/vulkan-end-scene.md#how-the-kemu-and-rust-windows-receive-game-frames)
+
+We repeated both comparisons with the release-mode binaries that include the interactive demo and physical-pixel sizing. The timing mode kept the overlay closed. On the kart clip GPUI processed **86.75 frames/s** and Glow **85.17**. On the 900p input the order reversed, with **85.96** for GPUI and **87.71** for Glow. Peak process working sets for the kart clip were 57.5 and 112.4 MiB, respectively. Each JSON includes the executable hashes and individual passes. [Kart repeat](results/windows-radeon780m-stk-release.json) · [900p repeat](results/windows-radeon780m-synthetic-release.json)
+
+A separate four-pass PresentMon run on the 100 Hz display recorded a larger difference later in the pipeline. With the kart clip, Windows attributed **70.55 presentation events/s to GPUI** and **83.45 to Glow**. Their paint callbacks had both accepted about 85.4 different source frames/s over the longer observation window. ETW identifies submissions and display timings; it cannot associate each event with a particular source image. The GPU, client area, monitor and process attribution were verified for every pass. [Windows presentation measurements](results/windows-viewers-stk-presentmon.md)
+
+The remaining transport question is how much the native rendering surface costs to show directly in the desktop window. Kemu already creates a child Vulkan surface in its Qt window. Both lab viewers still receive CPU-visible RGBA and upload it to their GPU. The measurements favour testing that handoff before migrating desktop frameworks. [Kemu and Rust rendering paths](../benchmarks/stk-1.5/vulkan-end-scene.md#how-the-kemu-and-rust-windows-receive-game-frames)

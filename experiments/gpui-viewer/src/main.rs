@@ -230,6 +230,10 @@ fn physical_size(size: Size<Pixels>, scale: f32) -> [u32; 2] {
     [size.width, size.height].map(|dimension| (f32::from(dimension) * scale).round() as u32)
 }
 
+fn logical_size([width, height]: [u32; 2], scale: f32) -> Size<Pixels> {
+    size(px(width as f32 / scale), px(height as f32 / scale))
+}
+
 fn fitted(viewport: Bounds<Pixels>, input: &Spec) -> Bounds<Pixels> {
     let width = f32::from(viewport.size.width);
     let height = f32::from(viewport.size.height);
@@ -283,7 +287,7 @@ impl Viewer {
             }
             if self.resize_request != Some(([actual_w, actual_h], scale)) {
                 self.resize_request = Some(([actual_w, actual_h], scale));
-                window.resize(size(px(width as f32 / scale), px(height as f32 / scale)));
+                window.resize(logical_size([width, height], scale));
             }
             window.request_animation_frame();
             return Ok(());
@@ -551,5 +555,20 @@ fn main() -> ExitCode {
             eprintln!("gpui-viewer: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logical_resize_round_trips_to_requested_physical_size_at_scaled_dpi() {
+        for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+            for target in [[1040, 585], [901, 507]] {
+                assert_eq!(physical_size(logical_size(target, scale), scale), target);
+            }
+        }
+        assert_eq!(physical_size(size(px(1040.), px(585.)), 1.25), [1300, 731]);
     }
 }

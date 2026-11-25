@@ -1,0 +1,168 @@
+{
+  "os": "nt",
+  "binary_sha256": {
+    "glow": "4a2d0a5bbfbe48899ec71e16dda3aa93b13b1157e6817dca65c568667572c24f",
+    "gpui": "c92198a93d9acb920fc9305bd381095a1b972a28cc87b0190ae389a04d00414a"
+  },
+  "raw_input_sha256": "a333c7b1a2f9502ee67654031dcce6b3588ef0c843ab27d46fe2eb0349cb17a5",
+  "runs": [
+    {
+      "adapter": "AMD Radeon 780M Graphics",
+      "backend": "glow",
+      "bytes_per_frame": 921600,
+      "duplicates": 0,
+      "elapsed_seconds": 12.0,
+      "first_processed_sequence": 180,
+      "height": 360,
+      "last_processed_sequence": 1259,
+      "late_slots": 0,
+      "latency_ms": {
+        "max": 12.125399999999999,
+        "mean": 5.037200586510268,
+        "p50": 4.8005,
+        "p95": 9.7922
+      },
+      "layers": 1,
+      "pixel_transport": "CPU-visible RGBA8 to the production Glow texture upload",
+      "processed": 1023,
+      "processed_fps": 85.25,
+      "produced": 1080,
+      "replaced": 57,
+      "source": "raw",
+      "target_fps": 90,
+      "vsync_requested": true,
+      "warmup_seconds": 2,
+      "width": 640,
+      "window_height": 585,
+      "window_width": 1040,
+      "process_sample": {
+        "wall_seconds": 11.247724200002267,
+        "cpu_seconds": 2.109375,
+        "rss_peak_mib": 112.38671875
+      }
+    },
+    {
+      "backend": "gpui",
+      "source": "raw",
+      "width": 640,
+      "height": 360,
+      "target_fps": 90,
+      "window_width": 1040,
+      "window_height": 585,
+      "client_width_px": 1040,
+      "client_height_px": 585,
+      "scale_factor": 1.0,
+      "layers": 1,
+      "warmup_seconds": 2,
+      "bytes_per_frame": 921600,
+      "pixel_transport": "rgba_vec_in_place_bgra_then_gpui_atlas_upload",
+      "requested_seconds": 12,
+      "elapsed_seconds": 12.0,
+      "produced": 1080,
+      "replaced": 40,
+      "late_slots": 0,
+      "duplicates": 0,
+      "processed": 1040,
+      "processed_fps": 86.66666666666667,
+      "first_processed_sequence": 180,
+      "last_processed_sequence": 1259,
+      "measurement_point": "first successful GPUI paint_image for the source sequence",
+      "latency_ms": {
+        "mean": 5.866888942307693,
+        "p50": 6.0605,
+        "p95": 10.177999999999999,
+        "max": 11.8359
+      },
+      "adapter": {
+        "is_software_emulated": false,
+        "device_name": "AMD Radeon 780M Graphics",
+        "driver_name": "AMD Corporation",
+        "driver_info": "Unknown Driver"
+      },
+      "process_sample": {
+        "wall_seconds": 11.151381400006358,
+        "cpu_seconds": 1.75,
+        "rss_peak_mib": 57.44921875
+      }
+    },
+    {
+      "backend": "gpui",
+      "source": "raw",
+      "width": 640,
+      "height": 360,
+      "target_fps": 90,
+      "window_width": 1040,
+      "window_height": 585,
+      "client_width_px": 1040,
+      "client_height_px": 585,
+      "scale_factor": 1.0,
+      "layers": 1,
+      "warmup_seconds": 2,
+      "bytes_per_frame": 921600,
+      "pixel_transport": "rgba_vec_in_place_bgra_then_gpui_atlas_upload",
+      "requested_seconds": 12,
+      "elapsed_seconds": 12.0,
+      "produced": 1080,
+      "replaced": 38,
+      "late_slots": 0,
+      "duplicates": 0,
+      "processed": 1042,
+      "processed_fps": 86.83333333333333,
+      "first_processed_sequence": 181,
+      "last_processed_sequence": 1259,
+      "measurement_point": "first successful GPUI paint_image for the source sequence",
+      "latency_ms": {
+        "mean": 5.7289200575815755,
+        "p50": 5.8642,
+        "p95": 10.258,
+        "max": 11.8473
+      },
+      "adapter": {
+        "is_software_emulated": false,
+        "device_name": "AMD Radeon 780M Graphics",
+        "driver_name": "AMD Corporation",
+        "driver_info": "Unknown Driver"
+      },
+      "process_sample": {
+        "wall_seconds": 11.250047399997129,
+        "cpu_seconds": 1.921875,
+        "rss_peak_mib": 57.4609375
+      }
+    },
+    {
+      "adapter": "AMD Radeon 780M Graphics",
+      "backend": "glow",
+      "bytes_per_frame": 921600,
+      "duplicates": 0,
+      "elapsed_seconds": 12.0,
+      "first_processed_sequence": 180,
+      "height": 360,
+      "last_processed_sequence": 1259,
+      "late_slots": 0,
+      "latency_ms": {
+        "max": 11.7472,
+        "mean": 5.157440450538686,
+        "p50": 4.8197,
+        "p95": 10.2457
+      },
+      "layers": 1,
+      "pixel_transport": "CPU-visible RGBA8 to the production Glow texture upload",
+      "processed": 1021,
+      "processed_fps": 85.08333333333333,
+      "produced": 1080,
+      "replaced": 59,
+      "source": "raw",
+      "target_fps": 90,
+      "vsync_requested": true,
+      "warmup_seconds": 2,
+      "width": 640,
+      "window_height": 585,
+      "window_width": 1040,
+      "process_sample": {
+        "wall_seconds": 11.250455000001239,
+        "cpu_seconds": 1.71875,
+        "rss_peak_mib": 112.30078125
+      }
+    }
+  ]
+}
