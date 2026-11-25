@@ -1,0 +1,23 @@
+--- a/scripts/jungle.gd
++++ b/scripts/jungle.gd
+@@ -58,7 +58,7 @@
+ 		add_child(b)
+ 		_birds.append(b)
+ 	# the web build has no threads: there the sounds are made on the main thread, once
+-	if OS.has_feature("web"):
++	if OS.has_feature("web") or OS.has_feature("android"):
+ 		_bake.call_deferred()
+ 	else:
+ 		_thread = Thread.new()
+@@ -173,9 +173,9 @@
+ 	w.mix_rate = RATE
+ 	w.stereo = false
+ 	w.data = bytes
+-	if loop:
++	if loop and data.size() > 1:
+ 		w.loop_mode = AudioStreamWAV.LOOP_FORWARD
+-		w.loop_end = data.size()
++		w.loop_end = data.size() - 1
+ 	return w
+ 
+ 

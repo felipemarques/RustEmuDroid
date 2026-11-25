@@ -1,0 +1,71 @@
+{
+  "method": "Visual reading of the original game HUD after each timed sample. File digests refer to the private captures.",
+  "players": [
+    {
+      "player": "RustEmuDroid 0.22.0",
+      "samples": [
+        {
+          "run": "forest-1",
+          "character_state": "stationary",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "a5ba39cce994ca56a59c1b7e3e20de7c92e7bf86c1e51edea984946e76466ffd"
+        },
+        {
+          "run": "forest-2",
+          "character_state": "stationary",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "119d58ad8a234cc8d59d84c6e294d3be19498bad3cdbb607455eb0931a8ee1cb"
+        },
+        {
+          "run": "walk-1",
+          "character_state": "swimming",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "2810f2ad5099ab48b788651def3d1309905a01a77597a0498a8b077dcff45083"
+        },
+        {
+          "run": "walk-2",
+          "character_state": "swimming",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "1bcc83aeb9d6e166d7684a6841d52ea571b8144805786ad8102e36a5cbfb11c4"
+        }
+      ]
+    },
+    {
+      "player": "Kemu 0.7.1",
+      "samples": [
+        {
+          "run": "forest-1",
+          "character_state": "stationary",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "dcf7320f1c3d6162cdd7fa682b9374179ebfacc8c6a6e4931f56432209296abd"
+        },
+        {
+          "run": "forest-2",
+          "character_state": "stationary",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "5d424d20380bad7fc768cbdb425e805532069b7411eb428377a0090775069de3"
+        },
+        {
+          "run": "walk-1",
+          "character_state": "swimming",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "781a2e81b2fe9501360a0ecfb75157232e841d418f0a216428d018fa7229e6ab"
+        },
+        {
+          "run": "walk-2",
+          "character_state": "swimming",
+          "game_hud_fps": 60,
+          "render_scale_percent": 80,
+          "image_sha256": "4d6e8b18f2236b99b241e54b55ff4a0c8dbb393ac9436d0d77cb825a05ba21db"
+        }
+      ]
+    }
+  ]
+}
