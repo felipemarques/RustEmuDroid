@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "candidate_version": "0.18.1",
+  "candidate_sha256": "8426817cafa923bbe39365bf4b0cc2195360d008e447bc7ad337c59a5c383159",
+  "base_revision": "8bf01515a4f1081030682d23b73f5002cdf9144f",
+  "private_patch_sha256": "c5a00ba9d7bf10d5ae91a40b9c1fca3366eb152d121388ccdcfa1cd768607aee",
+  "apk_sha256": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e",
+  "test": "STK 1.5 Black Forest High/Vulkan FIFO, same Android 17 x86-64 VM, 1600x900, RTX 5070 Ti",
+  "surface_flinger_period_ns": 11111111,
+  "game_fps_preference": 90,
+  "warmup_excluded": true,
+  "stream_on_transport": "gRPC inline screenshots",
+  "stream_off_transport": "no screenshot RPC subscription",
+  "host_cpu_scope": "GetProcessTimes, aligned to the Android presentation sample window",
+  "panel_scope": "UI-processed frames in complete counter intervals, not monitor scan-out",
+  "aggregate": {
+    "on": {
+      "game_fps": 83.85758001602291,
+      "presentations_per_second": 82.19778725704035,
+      "p99_interval_ms_by_replay": [
+        23.7592,
+        23.3131
+      ],
+      "panel_frames": 2876,
+      "cpu_ms_per_second": {
+        "qemu": 2675.3817719550284,
+        "launcher": 514.2038363150518
+      }
+    },
+    "off": {
+      "game_fps": 84.74643058857525,
+      "presentations_per_second": 83.26517329246391,
+      "p99_interval_ms_by_replay": [
+        23.6093,
+        23.8169
+      ],
+      "panel_frames": 0,
+      "cpu_ms_per_second": {
+        "qemu": 1940.7973504212684,
+        "launcher": 24.194102167688786
+      }
+    }
+  },
+  "replays": [
+    {
+      "lap": "A1",
+      "stream": "on",
+      "game_frames": 3205,
+      "game_duration_ms": 38067,
+      "game_fps": 84.19365854939974,
+      "panel": {
+        "generation": 1,
+        "complete_panel_intervals": 19,
+        "panel_frames": 1433,
+        "panel_elapsed_ms": 19187,
+        "panel_processed_frames_per_second": 74.6859853025486,
+        "min_interval_fps": 60.0,
+        "max_interval_fps": 85.23290386521309
+      },
+      "android_surface": {
+        "presentations": 1652,
+        "duration_s": 20.02140065,
+        "presentations_per_second": 82.51170978889532,
+        "p99_interval_ms": 23.7592,
+        "max_interval_ms": 26.286,
+        "intervals_over_250_ms": 0
+      },
+      "host_cpu": {
+        "qemu": {
+          "cpu_ms": 52593.6109,
+          "cpu_ms_per_second": 2626.869709038064,
+          "cpu_ms_per_android_presentation": 31.836326210653752
+        },
+        "launcher": {
+          "cpu_ms": 9898.4193,
+          "cpu_ms_per_second": 494.39194954624713,
+          "cpu_ms_per_android_presentation": 5.991779237288135
+        }
+      },
+      "game_report_sha256": "9d8b5da1d25c8c5d45ccff8dbeaa4035d56a07ef6606905c2af80b4394fbe357",
+      "game_cpu_profile_sha256": "67c2a985f350afa58d386a07dc60f40f9b726aa1f89d9a40c6ed590b1405f5a6",
+      "android_presentation_trace_sha256": "7ec057089188209c2eb54eec316d68f82e57c9e14a8473086e8ebcf65514b570"
+    },
+    {
+      "lap": "B1",
+      "stream": "off",
+      "game_frames": 3201,
+      "game_duration_ms": 38070,
+      "game_fps": 84.08195429472025,
+      "panel": {
+        "generation": 2,
+        "complete_panel_intervals": 0,
+        "panel_frames": 0,
+        "panel_elapsed_ms": 0,
+        "panel_processed_frames_per_second": null,
+        "min_interval_fps": null,
+        "max_interval_fps": null
+      },
+      "android_surface": {
+        "presentations": 1659,
+        "duration_s": 20.02072345,
+        "presentations_per_second": 82.86413845849312,
+        "p99_interval_ms": 23.6093,
+        "max_interval_ms": 45.6467,
+        "intervals_over_250_ms": 0
+      },
+      "host_cpu": {
+        "qemu": {
+          "cpu_ms": 38039.0108,
+          "cpu_ms_per_second": 1899.9818310761393,
+          "cpu_ms_per_android_presentation": 22.928879324894513
+        },
+        "launcher": {
+          "cpu_ms": 515.625,
+          "cpu_ms_per_second": 25.754563829210678,
+          "cpu_ms_per_android_presentation": 0.3108047016274864
+        }
+      },
+      "game_report_sha256": "05bf8b117d9b41616167c3c977e0502f43839aab0e40bd16338689fba6909d5d",
+      "game_cpu_profile_sha256": "f20278d5bfba0edc7e10724fd1bf2404b636873a46b5b4413f292e1d2912e7ed",
+      "android_presentation_trace_sha256": "3fd4b44f901045d13462c6c9f5c3a83e205dd6a78e0a417320ebf1b26e581f0c"
+    },
+    {
+      "lap": "B2",
+      "stream": "off",
+      "game_frames": 3251,
+      "game_duration_ms": 38063,
+      "game_fps": 85.4110290833618,
+      "panel": {
+        "generation": 2,
+        "complete_panel_intervals": 0,
+        "panel_frames": 0,
+        "panel_elapsed_ms": 0,
+        "panel_processed_frames_per_second": null,
+        "min_interval_fps": null,
+        "max_interval_fps": null
+      },
+      "android_surface": {
+        "presentations": 1675,
+        "duration_s": 20.0200267,
+        "presentations_per_second": 83.66622208351001,
+        "p99_interval_ms": 23.8169,
+        "max_interval_ms": 35.669,
+        "intervals_over_250_ms": 0
+      },
+      "host_cpu": {
+        "qemu": {
+          "cpu_ms": 39671.971,
+          "cpu_ms_per_second": 1981.6142902546678,
+          "cpu_ms_per_android_presentation": 23.684758805970148
+        },
+        "launcher": {
+          "cpu_ms": 453.125,
+          "cpu_ms_per_second": 22.633586197964462,
+          "cpu_ms_per_android_presentation": 0.27052238805970147
+        }
+      },
+      "game_report_sha256": "03dbe4ed9183ec972579964beef4fd0e34290f3f476e028a8887e197b39408c1",
+      "game_cpu_profile_sha256": "57547c88289be08cfb67fd89f7836f343bf0e5450a633b548135b756efe2535c",
+      "android_presentation_trace_sha256": "c4de385831da63f70af3229486015f91dcba5cc24342bc6ea4fe31dfa8f406d3"
+    },
+    {
+      "lap": "A2",
+      "stream": "on",
+      "game_frames": 3180,
+      "game_duration_ms": 38074,
+      "game_fps": 83.52156327152387,
+      "panel": {
+        "generation": 3,
+        "complete_panel_intervals": 19,
+        "panel_frames": 1443,
+        "panel_elapsed_ms": 19140,
+        "panel_processed_frames_per_second": 75.39184952978056,
+        "min_interval_fps": 60.0,
+        "max_interval_fps": 84.83033932135729
+      },
+      "android_surface": {
+        "presentations": 1640,
+        "duration_s": 20.02833925,
+        "presentations_per_second": 81.88397348022752,
+        "p99_interval_ms": 23.3131,
+        "max_interval_ms": 26.0729,
+        "intervals_over_250_ms": 0
+      },
+      "host_cpu": {
+        "qemu": {
+          "cpu_ms": 54554.7332,
+          "cpu_ms_per_second": 2723.877028396151,
+          "cpu_ms_per_android_presentation": 33.2650812195122
+        },
+        "launcher": {
+          "cpu_ms": 10695.3106,
+          "cpu_ms_per_second": 534.0088594714612,
+          "cpu_ms_per_android_presentation": 6.521530853658537
+        }
+      },
+      "game_report_sha256": "f35302dc98bf7ed60d48b6b8c3477f99834b24e6cbb1f66dc5b681b00c11ada2",
+      "game_cpu_profile_sha256": "f7daa821f1114ba5367034a49299fe40561e61094cfb7246fe4b36e8e12c4192",
+      "android_presentation_trace_sha256": "b1fc7236cd2147bbdfd1540c4743eb79c5cd1882035d64cdcba6c6ac9edf88b8"
+    }
+  ]
+}

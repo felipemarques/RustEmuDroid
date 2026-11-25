@@ -131,3 +131,16 @@ Use `--game-vsync off` with the same `compare.py` replay command and a new outpu
 The integrated Windows panel processed **74.88 frames/s with FIFO** and **76.52 with Mailbox** across the complete panel reporting intervals inside the Android sampling windows. The per-replay rates were 74.26 and 75.50/s with FIFO and 73.40 and 79.65/s with Mailbox. A processed frame is one accepted by the Rust display code. These rates describe a different stage from Android presentation, and neither counter verifies physical monitor scanout. The BlueStacks runs did not include an equivalent panel measurement.
 
 Pooling divides the sum of frames or presentations by the sum of the respective observation durations. Mean `acquire` time dropped from 1.881 to 0.552 ms per frame and mean `endScene` time from 3.171 to 1.836 ms. The game loop produced more frames while Android delivered fewer presentations in these runs. These separate two-run batches do not establish whether the compositor rate difference would repeat. The game VSync preference was restored after the test. [Sanitized Android 17 mailbox data](windows-vulkan-90hz-scoped-native-mailbox.json)
+
+### Pausing the Windows video stream
+
+A private Windows client based on v0.18.1 could cancel and resume the `streamScreenshot` subscription while the same VM, game controls and Android compositor kept running. We used the same signed x86-64 APK, RTX 5070 Ti, 1600 × 900, High/Vulkan, 90 Hz and FIFO. After one warm-up, we measured four fresh replays in the order shown below. On each replay the game frame count covers the full lap, while SurfaceFlinger and host CPU counters cover a 20-second segment. The panel counter covers complete reporting intervals within that segment.
+
+| Replay | Video subscription | Game FPS | Android presentations/s | Android P99 interval | Rust panel frames/s |
+| --- | --- | ---: | ---: | ---: | ---: |
+| A1 | On | 84.19 | 82.51 | 23.76 ms | 74.69 |
+| B1 | Off | 84.08 | 82.86 | 23.61 ms | 0 |
+| B2 | Off | 85.41 | 83.67 | 23.82 ms | 0 |
+| A2 | On | 83.52 | 81.88 | 23.31 ms | 75.39 |
+
+Across both runs in each state, pausing the video stream raised game throughput from **83.86 to 84.75 FPS** and Android presentations from **82.20 to 83.27/s**. Windows CPU time fell from **514 to 24 ms per second** for the Rust launcher and from **2,675 to 1,941 ms per second** for QEMU. The counters sum all threads for each process. No new video frames reached the panel in either paused run. In this scene, removing video delivery saved about 1.22 CPU seconds per elapsed second across both processes, while the Android game surface remained below 90 presentations/s. Frame delivery to the panel resumed for the final replay. [Per-replay measurements, hashes and controls](windows-90hz-stream-subscription.json)
