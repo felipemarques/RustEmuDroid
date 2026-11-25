@@ -1,0 +1,132 @@
+{
+  "host_accelerator": "WHPX",
+  "guest_abi": "x86_64",
+  "diagnostic_boots_separate_from_clock_cost_and_cpuid_samples": true,
+  "sdk17": {
+    "android_image": "Android 17 Google Play API 37.0 x86-64 revision 7",
+    "kernel_release": "6.12.81-android16-6-g4f69fc7b210c-ab16167562",
+    "engine": "Android Emulator 37.3.10 (16970787)",
+    "qemu_sha256": "fae5ffdf64cf8cbd350af1aa726e407c5dce7f335821787cd2b15a5c1671dcf8",
+    "cpuid": {
+      "cpuid_probe_sha256": "da48a8bf1126e5177331a6b361f03c50206a7142fe1fff88090d8a3576236030",
+      "cpuid_80000007_edx_hex": "0x100",
+      "invariant_tsc": true,
+      "cpu_flags_vcpu_count": 4,
+      "cpu_flags_count": {
+        "constant_tsc": 4,
+        "nonstop_tsc": 4,
+        "tsc_known_freq": 0,
+        "hypervisor": 4,
+        "tsc": 4,
+        "rdtscp": 4
+      }
+    },
+    "cost": {
+      "clock_probe_sha256": "c1334fdf3c9c1eec19a903f993b9e8970b0ace819d8478af49df954f54b9e5e8",
+      "csv_sha256": "55d94d1196a4bcef2b5b752761de2025f32f76733c7cd3d6c47833aa77f54954",
+      "batches": 6,
+      "calls_per_batch": 20000,
+      "median": {
+        "libc_clock_monotonic": {
+          "elapsed_us_per_call": 8.5568425,
+          "thread_cpu_us_per_call": 8.484310924999999
+        },
+        "libc_gettimeofday": {
+          "elapsed_us_per_call": 8.7752175,
+          "thread_cpu_us_per_call": 8.719370824999999
+        },
+        "syscall_gettimeofday": {
+          "elapsed_us_per_call": 8.481322500000001,
+          "thread_cpu_us_per_call": 8.391220425
+        }
+      }
+    },
+    "serial": {
+      "clocksource_argument": "pit",
+      "initial_tsc_mhz": [
+        3992.646
+      ],
+      "refined_tsc_mhz": [],
+      "tsc_warp_cycles": [
+        6195110760
+      ],
+      "tsc_unstable_reasons": [
+        "check_tsc_sync_source failed"
+      ],
+      "pit_calibration": "failed_uses_hpet",
+      "serial_clocksource_switches": [
+        {
+          "boot_seconds": 0.920525,
+          "clocksource": "hpet"
+        }
+      ],
+      "last_observed_clocksource": "hpet",
+      "raw_serial_sha256": "9fd206cab27abba565e886429ee23fe6b75ca5722a0a459b1124b501e7a2b844"
+    }
+  },
+  "kemu16": {
+    "android_image": "Kemu Android 16 x86-64",
+    "kernel_release": "6.12.38-android16-5-kemu-gb7d10d41f",
+    "engine": "Kemu 0.7.1",
+    "qemu_sha256": "9b6dd661855a65266fb8982cdea913fb189f9e967821cb621f51b85fd96ad3ea",
+    "cpuid": {
+      "cpuid_probe_sha256": "da48a8bf1126e5177331a6b361f03c50206a7142fe1fff88090d8a3576236030",
+      "cpuid_80000007_edx_hex": "0x100",
+      "invariant_tsc": true,
+      "cpu_flags_vcpu_count": 4,
+      "cpu_flags_count": {
+        "constant_tsc": 4,
+        "nonstop_tsc": 4,
+        "tsc_known_freq": 0,
+        "hypervisor": 4,
+        "tsc": 4,
+        "rdtscp": 4
+      }
+    },
+    "cost": {
+      "clock_probe_sha256": "c1334fdf3c9c1eec19a903f993b9e8970b0ace819d8478af49df954f54b9e5e8",
+      "csv_sha256": "4c49fbd8280a94bc632a03efe7680899d0e2aba519d473230d032645aef2298c",
+      "batches": 6,
+      "calls_per_batch": 20000,
+      "median": {
+        "libc_clock_monotonic": {
+          "elapsed_us_per_call": 0.01762265,
+          "thread_cpu_us_per_call": 0.017565775
+        },
+        "libc_gettimeofday": {
+          "elapsed_us_per_call": 0.0180309,
+          "thread_cpu_us_per_call": 0.017947974999999998
+        },
+        "syscall_gettimeofday": {
+          "elapsed_us_per_call": 0.2472604,
+          "thread_cpu_us_per_call": 0.22084047499999998
+        }
+      }
+    },
+    "serial": {
+      "clocksource_argument": "pit",
+      "initial_tsc_mhz": [
+        3992.739
+      ],
+      "refined_tsc_mhz": [
+        3992.588
+      ],
+      "tsc_warp_cycles": [],
+      "tsc_unstable_reasons": [],
+      "pit_calibration": "matches_hpet",
+      "serial_clocksource_switches": [
+        {
+          "boot_seconds": 0.585476,
+          "clocksource": "tsc-early"
+        },
+        {
+          "boot_seconds": 1.651779,
+          "clocksource": "tsc"
+        }
+      ],
+      "last_observed_clocksource": "tsc",
+      "raw_serial_sha256": "9a8de9c650a2007276f01aaf563630919bd9fcb0de61720c3431e049e24f7a82"
+    }
+  },
+  "pit_override_test": "skipped_stock_sdk_selected_hpet"
+}

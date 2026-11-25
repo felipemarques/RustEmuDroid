@@ -65,7 +65,7 @@ These are elapsed durations on the calling CPU thread. A queue API call can spen
 
 A signed, optimized x86-64 QA APK was built from the pinned source. Offline checks verified its separate package, matching JNI classes, SDL2 dependency, stock Black Forest inputs and eight compiled marker labels. The patch also compiled as an Android ARMv7 driver object. A three-frame fixture used STK's own marker stack and CSV writer and verified the profiler summary with a controlled clock.
 
-A separate opt-in patch records graphics-queue timestamps around the render pass. The QA package keeps the CPU scopes available in the same build. [GPU timing procedure and coverage checks](vulkan-gpu-timestamps.md)
+A separate opt-in patch records graphics-queue timestamps around the render pass. The QA package keeps the CPU scopes available in the same build. [GPU timing procedure and coverage checks](vulkan-gpu-timestamps.md) · [Measured Android 17 and Kemu results](windows-vulkan-gpu-timestamps.md)
 
 ## Windows results at 90 Hz
 

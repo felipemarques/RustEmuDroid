@@ -1,0 +1,24 @@
+# Windows Vulkan GPU timestamp pilot
+
+The Android 17 SDK and Android 16 Kemu measured nearly the same graphics queue interval in SuperTuxKart. Kemu showed 4.46 more Android presentations per second with timestamps active. Both timestamp runs recorded every submitted query pair. The measured interval covers the active race from the first render pass's color attachment output to the end of rendering commands. [Four replay receipts and query deltas](windows-vulkan-gpu-timestamps.json)
+
+| Runtime, condition | Game FPS | Android presents/s | Android p99 gap (ms) | GPU query pairs | GPU mean (ms) | GPU p50 (ms) | GPU p95 (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| SDK Android 17, GPU off | 85.860 | 84.119 | 23.730 | — | — | — | — |
+| SDK Android 17, GPU on | 85.757 | 85.508 | 22.969 | 3,266/3,266 | 0.3654 | 0.2990 | 0.7065 |
+| Kemu Android 16, GPU on | 89.987 | 89.972 | 13.175 | 3,434/3,434 | 0.3742 | 0.3128 | 0.6997 |
+| Kemu Android 16, GPU off | 89.991 | 89.965 | 13.357 | — | — | — | — |
+
+## Workload and controls
+
+Both runtimes used RustEmuDroid v0.21.1 on the same RTX 5070 Ti with Windows driver 610.88. The test compared the default SDK Emulator 37.3.10.0 Android 17 Google Play profile with Kemu 0.7.1's 37.2.10 engine and Android 16 image. The Rust viewport was a physical 800 × 450 with adaptive video. Android rendered at 1600 × 900 and 90 Hz. The four replays used the same Black Forest scene, x86-64 game ABI, High/Vulkan, 21 settings, and Vulkan FIFO. The configured `max_fps` was 90 with VSync enabled. The CLI benchmark skips STK's software FPS limiter. [STK 1.5 main loop](https://github.com/supertuxkart/stk-code/blob/1.5/src/main_loop.cpp#L711-L734) · [Replay runner](compare.py)
+
+The two APKs used the same CPU profiler scopes, version, ABI, signing certificate and game assets. The timestamp build receipt matched all 5,600 unsigned ZIP entries outside the native game library against the control. GPU-off SHA-256 `dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e`. GPU-on SHA-256 `3048ef3065e00f2fea872753cc20ada0da09d7b24e9f8163f70ba6a360fbfde0`. The executable SHA-256 was `513fc67688ba6c5e48a57f0db097ffc6c7fcf5358b5133c5f1d2ce2ae51de949`. [RustEmuDroid release](https://github.com/felipemarques/RustEmuDroid/releases/tag/v0.21.1) · [Timestamp instrumentation](vulkan-gpu-timestamps.md)
+
+The SDK ran GPU-off first. Kemu ran GPU-on first. Each APK launched once to verify assets and settings before its one timed replay. Both GPU-on runs exited normally and emitted the terminal batch record from the Android game PID. Neither GPU-off process emitted timestamp records. Game FPS changed by −0.120% on the SDK and −0.005% on Kemu with timestamps enabled. Android presents/s varied by +1.65% and +0.007%. These are single-run contrasts within each runtime. Repeat runs would be needed to estimate instrumentation overhead at that scale. The pilot removed the isolated APKs, restored the QA refresh policy and returned to the single habitual Android 17 Home at 60 Hz with unchanged launcher preferences.
+
+## Interpretation
+
+Both guests reported a 1 ns timestamp period and 64 valid bits on the game's selected graphics queue (family 0). The GPU timestamps measure the duration between the two stages in the game's submitted rendering commands. CPU image acquisition, command recording, presentation calls, compositor work outside the bracket and physical monitor scanout each require separate observation. [Query placement](vulkan-gpu-timestamps.md#interpret-the-interval) · [Vulkan timestamp specification](https://docs.vulkan.org/spec/latest/chapters/queries.html#queries-timestamps)
+
+Within the GPU-on replays, the game profiler reported mean `drawAll()` of 6.383 ms on the SDK and 3.370 ms on Kemu. Mean `endScene` image acquisition ran in the opposite direction at 2.509 ms and 6.434 ms. The scope durations are elapsed CPU-side intervals, so they include any waits within each scope. The Android data comes from a separate, roughly 20-second SurfaceFlinger window during the active race. This pilot puts the observed frame rate difference outside a large difference in the measured GPU queue interval. The timing of CPU work, image acquisition and guest scheduling merits separate measurement before attributing the remaining difference to any driver. [Frame profiler and Android data](windows-vulkan-gpu-timestamps.json)
