@@ -89,6 +89,7 @@ impl App for Fixture {
                     | Event::WindowFocused(_)
                     | Event::PointerMoved(_)
                     | Event::PointerButton { .. }
+                    | Event::MouseWheel { .. }
                     | Event::PointerGone
             )
         });
@@ -127,6 +128,18 @@ impl App for Fixture {
             }
             "focus-preview" => {
                 click(raw, self.preview_position(ctx, 0.51, 0.18));
+            }
+            "wheel-focus" => {
+                click(raw, self.preview_position(ctx, 0.36, 0.44));
+            }
+            "wheel-hover" => {
+                raw.events
+                    .push(Event::PointerMoved(self.preview_position(ctx, 0.36, 0.44)));
+                raw.events.push(Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Line,
+                    delta: egui::vec2(0.0, 1.0),
+                    modifiers: Modifiers::NONE,
+                });
             }
             "start-drag" | "drag" | "stop-drag" => {
                 let start = command == "start-drag";
@@ -189,7 +202,8 @@ impl App for Fixture {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
                 }
                 "editor" | "profile" | "escape" | "quick" | "focus-preview" | "hold"
-                | "release" | "blur" | "focus" | "start-drag" | "drag" | "stop-drag" | "save" => {
+                | "release" | "blur" | "focus" | "start-drag" | "drag" | "stop-drag" | "save"
+                | "wheel-focus" | "wheel-hover" => {
                     self.command = Some(command.to_owned());
                 }
                 _ => panic!("unknown fixture request"),

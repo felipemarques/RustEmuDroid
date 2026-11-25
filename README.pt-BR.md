@@ -113,6 +113,8 @@ Para instalar um jogo do PC, clique em **Instalar APK** na barra acima da prévi
 
 Use o ícone de câmera ou **Ctrl+Shift+S** na prévia do BlueStacks para salvar a tela do Android em resolução nativa. A captura PNG requer uma conexão ADB ativa. O botão de pasta abre `captures/`, ao lado de `launcher.json`.
 
+Para rolar o Android, posicione o mouse sobre a imagem e use a roda. Clique dentro da imagem para ativar o perfil do jogo. A partir daí, cada direção da roda que você mapeou aciona o controle correspondente.
+
 Na prévia do BlueStacks, abra um jogo e clique no ícone de teclado e escolha **Editor de controles**, ou pressione **Ctrl+Shift+A**. Posicione os controles sobre a captura do jogo. O Android continua rodando enquanto você edita. Salve para voltar à imagem ao vivo. **Ctrl+Shift+P** alterna entre os perfis salvos para aquele jogo e aquela instância do BlueStacks. Segure o direcional e um botão de ação ao mesmo tempo para enviar dois toques. O editor mostra as marcações das teclas. Na sessão Android nativa, também é possível ver as marcações durante o jogo e mapear o sensor de inclinação.
 
 ![Mapeamento do SuperTuxKart na prévia do BlueStacks](docs/screenshots/pt-br/bluestacks-editor.png)

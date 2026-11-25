@@ -113,6 +113,8 @@ To install a game from your PC, click **Install APK** in the toolbar above the B
 
 Use the camera button or **Ctrl+Shift+S** in the BlueStacks preview to save the Android screen at its native resolution. PNG capture requires an active ADB connection. The folder button opens `captures/` beside `launcher.json`.
 
+Point at the Android picture to scroll with the wheel. Click inside the picture to activate the control scheme for the current game. A wheel direction assigned in that scheme then triggers its action.
+
 In the BlueStacks preview, open a game and click the keyboard icon and choose **Controls editor**, or press **Ctrl+Shift+A**. Place the controls on the captured game image. Android keeps running while the editor is open. Save to return to the live view. **Ctrl+Shift+P** switches between the schemes saved for that game and BlueStacks instance. Hold a D-pad direction and an action button together to send two touches. The editor displays the binding markers. Live game hints and sensor tilt are available in the native Android session.
 
 ![Control bindings over SuperTuxKart in the BlueStacks preview](docs/screenshots/en-us/bluestacks-editor.png)

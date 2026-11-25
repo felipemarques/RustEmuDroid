@@ -375,8 +375,7 @@ impl MirrorPanel {
             return;
         }
         if self.mapped.foreground.is_some() && self.mapped.map.has_preview_mapping() {
-            let (mut events, mut modifiers) =
-                ui.input(|input| (input.events.clone(), input.modifiers));
+            let (events, mut modifiers) = ui.input(|input| (input.events.clone(), input.modifiers));
             // Feed mappings only after a click inside the preview has taken keyboard focus.
             let start = if self.input_focused {
                 Some(0)
@@ -399,17 +398,27 @@ impl MirrorPanel {
                         _ => false,
                     })
                     .map_or(events.len(), |n| start + n);
-                events.truncate(end);
                 modifiers.ctrl &= !self.mapped.shortcut_modifiers[0];
                 modifiers.shift &= !self.mapped.shortcut_modifiers[1];
+                let geometry = (rect, ppp, size);
+                let mut routed = 0;
+                let mut hover = self.pointer_pos;
                 if !self.input_focused {
                     self.mapped.release_contacts();
+                    // Deliver the pre-focus events and the click that gives the guest focus
+                    // before mapping later events from this same egui input batch.
+                    routed = start + 1;
+                    hover = self.route_input(&events[..routed], hover, geometry, 0, false);
                 }
                 let canvas = fitted_rect(rect, ppp);
-                let changes = self
-                    .mapped
-                    .map
-                    .frame(ui, canvas, &events[start..], modifiers, l);
+                let changes = self.mapped.map.preview_frame(
+                    ui,
+                    canvas,
+                    &events[start..end],
+                    modifiers,
+                    l,
+                    hover,
+                );
                 for change in changes {
                     if let Some(input) = self.mapped.contact(change, size) {
                         self.send(input);
@@ -428,6 +437,14 @@ impl MirrorPanel {
                         })
                     });
                 }
+                self.pointer_pos = self.route_input(
+                    &events[routed..],
+                    hover,
+                    geometry,
+                    end.saturating_sub(routed),
+                    aiming,
+                );
+                return;
             }
         }
         self.handle_input(ui.ctx(), rect, ppp, size, host_gesture);

@@ -124,6 +124,136 @@ fn key_event(key: Key, pressed: bool) -> Event {
 }
 
 #[test]
+fn wheel_before_and_after_guest_focus_uses_exactly_one_input_route() {
+    let (session, input) = MirrorSession::input_recorder();
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("wheel.json");
+    std::fs::write(
+        &path,
+        r#"{"org.example.game":{"buttons":{"Wheel:Up":[0.25,0.75]},"stick":null}}"#,
+    )
+    .unwrap();
+    let mut panel = MirrorPanel {
+        session: Some(session),
+        size: Some(GUEST),
+        ..Default::default()
+    };
+    panel.mapped.load(Some(path));
+    panel.apply_event(MirrorEvent::Foreground(7, Some("org.example.game".into())));
+    let ctx = egui::Context::default();
+    let wheel = |y| Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: egui::vec2(0., y),
+        modifiers: Modifiers::NONE,
+    };
+
+    mapped_frame(
+        &mut panel,
+        &ctx,
+        true,
+        vec![
+            Event::PointerMoved(CENTER),
+            wheel(1.),
+            primary(CENTER, true),
+            wheel(2.),
+            primary(CENTER, false),
+        ],
+    );
+    let calls: Vec<_> = input.try_iter().collect();
+    assert!(
+        matches!(calls.as_slice(), [
+        MirrorInput::Scroll([100, 50], GUEST, 0., 1.),
+        MirrorInput::Touch(TouchAction::Down, [100, 50], GUEST),
+        MirrorInput::Contact { id: down, epoch: 7, action: TouchAction::Down, point: [50, 75], size: GUEST },
+        MirrorInput::Contact { id: up, epoch: 7, action: TouchAction::Up, point: [50, 75], size: GUEST },
+        MirrorInput::Touch(TouchAction::Up, [100, 50], GUEST),
+    ] if down == up),
+        "{calls:?}"
+    );
+
+    mapped_frame(&mut panel, &ctx, true, vec![wheel(-1.)]);
+    assert!(matches!(
+        input.try_iter().collect::<Vec<_>>().as_slice(),
+        [MirrorInput::Scroll([100, 50], GUEST, 0., -1.)]
+    ));
+    // The first wheel event belongs to the preceding pointer location, even
+    // if another PointerMoved changes the final hover of this frame.
+    mapped_frame(&mut panel, &ctx, true, vec![Event::PointerMoved(TOOLBAR)]);
+    mapped_frame(
+        &mut panel,
+        &ctx,
+        true,
+        vec![wheel(1.), Event::PointerMoved(CENTER)],
+    );
+    assert!(
+        input.try_recv().is_err(),
+        "the wheel started outside the preview"
+    );
+    mapped_frame(
+        &mut panel,
+        &ctx,
+        true,
+        vec![wheel(1.), Event::PointerMoved(TOOLBAR)],
+    );
+    let calls: Vec<_> = input.try_iter().collect();
+    assert!(
+        matches!(calls.as_slice(), [
+        MirrorInput::Contact { id: down, epoch: 7, action: TouchAction::Down, point: [50, 75], size: GUEST },
+        MirrorInput::Contact { id: up, epoch: 7, action: TouchAction::Up, point: [50, 75], size: GUEST },
+    ] if down == up),
+        "{calls:?}"
+    );
+
+    mapped_frame(&mut panel, &ctx, false, vec![wheel(1.)]);
+    assert!(matches!(
+        input.try_iter().collect::<Vec<_>>().as_slice(),
+        [MirrorInput::Release]
+    ));
+    mapped_frame(
+        &mut panel,
+        &ctx,
+        true,
+        vec![wheel(1.), Event::PointerMoved(CENTER)],
+    );
+    assert!(
+        input.try_recv().is_err(),
+        "blur clears the old pointer location"
+    );
+    mapped_frame(
+        &mut panel,
+        &ctx,
+        true,
+        vec![wheel(1.), Event::PointerMoved(TOOLBAR)],
+    );
+    assert!(matches!(
+        input.try_iter().collect::<Vec<_>>().as_slice(),
+        [MirrorInput::Scroll([100, 50], GUEST, 0., 1.)]
+    ));
+    mapped_frame(
+        &mut panel,
+        &ctx,
+        true,
+        vec![Event::PointerMoved(TOOLBAR), wheel(1.)],
+    );
+    assert!(input.try_recv().is_err());
+
+    panel.mapped.map.toggle_quick(0.);
+    assert!(panel.controls_open());
+    mapped_frame(
+        &mut panel,
+        &ctx,
+        true,
+        vec![Event::PointerMoved(CENTER), wheel(-1.)],
+    );
+    assert!(input.try_recv().is_err());
+    panel.mapped.map.close_quick();
+    panel.mapped.map.toggle();
+    assert!(panel.controls_open());
+    mapped_frame(&mut panel, &ctx, true, vec![wheel(-1.)]);
+    assert!(input.try_recv().is_err());
+}
+
+#[test]
 fn maps_two_keys_to_separate_contacts_and_releases_on_foreground_loss() {
     let (session, input) = MirrorSession::input_recorder();
     let temp = tempfile::tempdir().unwrap();

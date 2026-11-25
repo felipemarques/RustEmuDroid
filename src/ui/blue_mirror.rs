@@ -5,6 +5,7 @@ use crate::bluestacks::{
     player_process::PlayerLifetime,
     preview::{PreviewRect, ThumbnailPreview},
 };
+use crate::display::mapping::pointer_position_after_event;
 use crate::surface_fps::SurfaceFps;
 use eframe::egui::{self, Event, Key, PointerButton};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -75,6 +76,7 @@ pub(super) struct MirrorPanel {
     player_check_at: Option<Instant>,
     size: Option<[u32; 2]>,
     last_touch: Option<[u32; 2]>,
+    pointer_pos: Option<egui::Pos2>,
     input_geometry: Option<(PreviewRect, f32, [u32; 2])>,
     input_focused: bool,
     rotation_pending: bool,
@@ -448,6 +450,7 @@ impl MirrorPanel {
         }
         self.mapped.release_contacts();
         self.input_geometry = None;
+        self.pointer_pos = None;
     }
 
     fn navigate(&mut self, input: MirrorInput) {
@@ -730,115 +733,127 @@ impl MirrorPanel {
         size: [u32; 2],
         host_gesture: bool,
     ) {
-        let geometry = (rect, ppp, size);
-        let point = |pos: egui::Pos2| rect.guest_point([pos.x, pos.y], ppp, size);
         if !self.input_allowed(ctx, rect, ppp, size, host_gesture) {
             return;
         }
-        ctx.input(|i| {
-            for event in &i.events {
-                match event {
-                    Event::PointerButton {
-                        pos,
-                        button: PointerButton::Primary,
-                        pressed,
-                        ..
-                    } => {
-                        if *pressed {
-                            if let Some(p) = point(*pos) {
-                                self.input_focused = true;
-                                self.input_geometry = Some(geometry);
-                                if self.last_touch.is_none()
-                                    && !self.mapped.map.captures_pointer(PointerButton::Primary)
-                                {
-                                    self.send(MirrorInput::Touch(TouchAction::Down, p, size));
-                                    self.last_touch = Some(p);
-                                }
-                            } else {
-                                self.release();
-                            }
-                        } else if self.last_touch.is_some() {
-                            if let Some(p) = point(*pos) {
-                                self.last_touch = None;
-                                self.send(MirrorInput::Touch(TouchAction::Up, p, size));
-                            } else {
-                                self.release();
-                            }
-                        }
-                    }
-                    Event::PointerMoved(pos) if self.last_touch.is_some() => {
+        self.pointer_pos = ctx
+            .input(|i| self.route_input(&i.events, self.pointer_pos, (rect, ppp, size), 0, false));
+    }
+
+    fn route_input(
+        &mut self,
+        events: &[Event],
+        mut hover: Option<egui::Pos2>,
+        geometry: (PreviewRect, f32, [u32; 2]),
+        mapped_wheel_until: usize,
+        was_aiming: bool,
+    ) -> Option<egui::Pos2> {
+        let (rect, ppp, size) = geometry;
+        let point = |pos: egui::Pos2| rect.guest_point([pos.x, pos.y], ppp, size);
+        for (index, event) in events.iter().enumerate() {
+            hover = pointer_position_after_event(hover, event);
+            match event {
+                Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed,
+                    ..
+                } => {
+                    if *pressed {
                         if let Some(p) = point(*pos) {
-                            self.send(MirrorInput::Touch(TouchAction::Move, p, size));
-                            self.last_touch = Some(p);
+                            self.input_focused = true;
+                            self.input_geometry = Some(geometry);
+                            if self.last_touch.is_none()
+                                && !self.mapped.map.captures_pointer(PointerButton::Primary)
+                            {
+                                self.send(MirrorInput::Touch(TouchAction::Down, p, size));
+                                self.last_touch = Some(p);
+                            }
+                        } else {
+                            self.release();
+                        }
+                    } else if self.last_touch.is_some() {
+                        if let Some(p) = point(*pos) {
+                            self.last_touch = None;
+                            self.send(MirrorInput::Touch(TouchAction::Up, p, size));
                         } else {
                             self.release();
                         }
                     }
-                    Event::PointerGone if !self.mapped.map.aims_pointer() => self.release(),
-                    Event::PointerButton {
-                        pos,
-                        button: PointerButton::Secondary,
-                        pressed: true,
-                        ..
-                    } if point(*pos).is_some()
-                        && !self.mapped.map.captures_pointer(PointerButton::Secondary) =>
-                    {
-                        self.navigate(MirrorInput::Back)
-                    }
-                    Event::MouseWheel { unit, delta, .. } => {
-                        if !self.mapped.map.owns_wheel(*delta)
-                            && let Some(p) = i.pointer.hover_pos().and_then(point)
-                        {
-                            let scale = match unit {
-                                egui::MouseWheelUnit::Point => 1. / 40.,
-                                egui::MouseWheelUnit::Line => 1.,
-                                egui::MouseWheelUnit::Page => 1.,
-                            };
-                            self.send(MirrorInput::Scroll(
-                                p,
-                                size,
-                                delta.x * scale,
-                                delta.y * scale,
-                            ));
-                        }
-                    }
-                    Event::Key {
-                        key,
-                        pressed,
-                        repeat,
-                        modifiers,
-                        ..
-                    } if self.input_focused
-                        && !self.mapped.map.captures(*key)
-                        && !(*key == Key::Escape && self.mapped.map.aims_pointer()) =>
-                    {
-                        if *key == Key::Escape
-                            && *pressed
-                            && (self.last_touch.is_some() || self.mapped.has_contacts())
-                        {
-                            self.navigate(MirrorInput::Back);
-                            continue;
-                        }
-                        if let Some(code) = keycode(*key) {
-                            let meta = u32::from(modifiers.shift)
-                                | (u32::from(modifiers.alt) << 1)
-                                | (u32::from(modifiers.ctrl) << 12);
-                            self.send(MirrorInput::Key(
-                                if *pressed {
-                                    KeyAction::Down
-                                } else {
-                                    KeyAction::Up
-                                },
-                                code,
-                                u32::from(*repeat),
-                                meta,
-                            ));
-                        }
-                    }
-                    _ => {}
                 }
+                Event::PointerMoved(pos) if self.last_touch.is_some() => {
+                    if let Some(p) = point(*pos) {
+                        self.send(MirrorInput::Touch(TouchAction::Move, p, size));
+                        self.last_touch = Some(p);
+                    } else {
+                        self.release();
+                    }
+                }
+                Event::PointerGone if !self.mapped.map.aims_pointer() => self.release(),
+                Event::PointerButton {
+                    pos,
+                    button: PointerButton::Secondary,
+                    pressed: true,
+                    ..
+                } if point(*pos).is_some()
+                    && !self.mapped.map.captures_pointer(PointerButton::Secondary) =>
+                {
+                    self.navigate(MirrorInput::Back)
+                }
+                Event::MouseWheel { unit, delta, .. } => {
+                    if (index >= mapped_wheel_until || !self.mapped.map.owns_wheel(*delta))
+                        && let Some(p) = hover.and_then(point)
+                    {
+                        let scale = match unit {
+                            egui::MouseWheelUnit::Point => 1. / 40.,
+                            egui::MouseWheelUnit::Line => 1.,
+                            egui::MouseWheelUnit::Page => 1.,
+                        };
+                        self.send(MirrorInput::Scroll(
+                            p,
+                            size,
+                            delta.x * scale,
+                            delta.y * scale,
+                        ));
+                    }
+                }
+                Event::Key {
+                    key,
+                    pressed,
+                    repeat,
+                    modifiers,
+                    ..
+                } if self.input_focused
+                    && !self.mapped.map.captures(*key)
+                    && !(*key == Key::Escape && (was_aiming || self.mapped.map.aims_pointer())) =>
+                {
+                    if *key == Key::Escape
+                        && *pressed
+                        && (self.last_touch.is_some() || self.mapped.has_contacts())
+                    {
+                        self.navigate(MirrorInput::Back);
+                        continue;
+                    }
+                    if let Some(code) = keycode(*key) {
+                        let meta = u32::from(modifiers.shift)
+                            | (u32::from(modifiers.alt) << 1)
+                            | (u32::from(modifiers.ctrl) << 12);
+                        self.send(MirrorInput::Key(
+                            if *pressed {
+                                KeyAction::Down
+                            } else {
+                                KeyAction::Up
+                            },
+                            code,
+                            u32::from(*repeat),
+                            meta,
+                        ));
+                    }
+                }
+                _ => {}
             }
-        });
+        }
+        hover
     }
 
     fn input_allowed(
@@ -856,7 +871,7 @@ impl MirrorPanel {
                     .iter()
                     .any(|event| matches!(event, Event::WindowFocused(false)))
         });
-        if host_gesture || self.rotation_pending || !focused {
+        if host_gesture || self.rotation_pending || self.controls_open() || !focused {
             self.release();
             return false;
         }

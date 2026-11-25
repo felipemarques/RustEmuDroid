@@ -113,6 +113,8 @@ Para instalar un juego desde tu PC, pulsa **Instalar APK** en la barra situada s
 
 Pulsa el icono de cámara o **Ctrl+Mayús+S** en la vista previa de BlueStacks para guardar la pantalla de Android a su resolución nativa. La captura PNG requiere una conexión ADB activa. El botón de carpeta abre `captures/` junto a `launcher.json`.
 
+Para desplazarte por Android, coloca el puntero sobre la imagen y usa la rueda. Haz clic en la imagen para activar el esquema del juego. A partir de ese momento, cada dirección de la rueda que hayas asignado activa el control correspondiente.
+
 En la vista previa de BlueStacks, abre un juego y pulsa el icono de teclado y elige **Editor de controles**, o pulsa **Ctrl+Shift+A**. Coloca los controles sobre la captura. Android sigue ejecutando el juego mientras editas. Guarda para volver a la vista en directo. **Ctrl+Shift+P** alterna entre los perfiles guardados para ese juego y esa instancia de BlueStacks. Mantén pulsados una dirección y un botón de acción a la vez para enviar dos toques. El editor muestra las marcas de las teclas. En la sesión Android nativa también puedes verlas mientras juegas y asignar el sensor de inclinación.
 
 ![Controles de SuperTuxKart en la vista previa de BlueStacks](docs/screenshots/es-es/bluestacks-editor.png)

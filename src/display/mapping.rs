@@ -869,6 +869,39 @@ impl Mapping {
         modifiers: egui::Modifiers,
         locale: Locale,
     ) -> Vec<Contact> {
+        self.frame_with_wheel_start(ui, rect, events, modifiers, locale, None)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn preview_frame(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: Rect,
+        events: &[egui::Event],
+        modifiers: egui::Modifiers,
+        locale: Locale,
+        pointer_before_events: Option<egui::Pos2>,
+    ) -> Vec<Contact> {
+        self.frame_with_wheel_start(
+            ui,
+            rect,
+            events,
+            modifiers,
+            locale,
+            Some(pointer_before_events),
+        )
+    }
+
+    fn frame_with_wheel_start(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: Rect,
+        events: &[egui::Event],
+        modifiers: egui::Modifiers,
+        locale: Locale,
+        // None uses egui's frame hover. The preview can explicitly have no known pointer yet.
+        wheel_start: Option<Option<egui::Pos2>>,
+    ) -> Vec<Contact> {
         let mut changes = vec![];
         if (!self.editing && self.layout().is_none()) || rect.width() < 1. || rect.height() < 1. {
             return changes;
@@ -903,17 +936,18 @@ impl Mapping {
                 input.pointer.any_down() || input.pointer.any_released(),
             )
         });
+        let normalized = |p: egui::Pos2| {
+            [
+                ((p.x - rect.left()) / rect.width()).clamp(0., 1.),
+                ((p.y - rect.top()) / rect.height()).clamp(0., 1.),
+            ]
+        };
         let frame = Frame {
             time,
             dt,
             size: rect.size(),
             taken: &[],
-            cursor: pointer.map(|p| {
-                [
-                    ((p.x - rect.left()) / rect.width()).clamp(0., 1.),
-                    ((p.y - rect.top()) / rect.height()).clamp(0., 1.),
-                ]
-            }),
+            cursor: pointer.map(normalized),
             edge_cursor: None,
         };
         let text_input = self.editing
@@ -942,7 +976,11 @@ impl Mapping {
             .layout()
             .map(|layout| layout.mouse_sensitivity)
             .unwrap_or_default();
+        let mut wheel_pointer = wheel_start.unwrap_or(pointer);
         for event in events {
+            if wheel_start.is_some() {
+                wheel_pointer = pointer_position_after_event(wheel_pointer, event);
+            }
             match *event {
                 egui::Event::Key {
                     key,
@@ -984,7 +1022,7 @@ impl Mapping {
                     }
                 }
                 egui::Event::MouseWheel { delta, .. }
-                    if pointer.is_some_and(|p| {
+                    if wheel_pointer.is_some_and(|p| {
                         visible.contains(p) && (!self.editing || self.canvas_contains(visible, p))
                     }) || self.grabbed_at.is_some() =>
                 {
@@ -992,7 +1030,7 @@ impl Mapping {
                         if !self.editing
                             && self.grabbed_at.is_none()
                             && !pointer_busy
-                            && pointer.is_some_and(|p| visible.contains(p))
+                            && wheel_pointer.is_some_and(|p| visible.contains(p))
                             && let Some(override_wheel) = self.layout().and_then(|layout| {
                                 layout
                                     .controls
@@ -1015,7 +1053,11 @@ impl Mapping {
                                 continue;
                             }
                         }
-                        self.handle_input(key, true, &frame, &mut changes);
+                        let wheel_frame = Frame {
+                            cursor: wheel_pointer.map(normalized),
+                            ..frame
+                        };
+                        self.handle_input(key, true, &wheel_frame, &mut changes);
                         let directional = !self.editing
                             && self.layout().is_some_and(|layout| {
                                 !layout.buttons.contains_key(key)
@@ -1031,7 +1073,7 @@ impl Mapping {
                             // Apply the wheel direction for one frame before releasing it.
                             self.wheel_releases.insert(key);
                         } else {
-                            self.handle_input(key, false, &frame, &mut changes);
+                            self.handle_input(key, false, &wheel_frame, &mut changes);
                         }
                     }
                 }
@@ -1232,6 +1274,17 @@ fn pointer_id(button: PointerButton) -> &'static str {
         PointerButton::Middle => "Mouse:Middle",
         PointerButton::Extra1 => "Mouse:Extra1",
         PointerButton::Extra2 => "Mouse:Extra2",
+    }
+}
+
+pub(crate) fn pointer_position_after_event(
+    previous: Option<egui::Pos2>,
+    event: &egui::Event,
+) -> Option<egui::Pos2> {
+    match *event {
+        egui::Event::PointerMoved(pos) | egui::Event::PointerButton { pos, .. } => Some(pos),
+        egui::Event::PointerGone => None,
+        _ => previous,
     }
 }
 
