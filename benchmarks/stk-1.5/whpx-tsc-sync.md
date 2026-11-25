@@ -50,6 +50,24 @@ python external/qemu/android/build/python/cmake.py --task Configure --target win
 
 ## What ran on the Windows hypervisor
 
+The full `qemu-system-x86_64` Release target linked successfully on Windows. Its AMD64 executable is 66,846,208 bytes, SHA-256 `ca65aa54a6d491512917837595ca4ae252fc667f7de5978775103990f10b36b5`. The private SDK copy contains the rebuilt core and 20 matched runtime files. Its stock launcher has SHA-256 `7476c5d7cf249182b7310d45e5304778bd5a337e8d6d11890edb27954b0f9717`. Both the launcher and core returned version `37.3.10.0 (build_id qa-whpx-16970787)`. The launcher’s `-accel-check` returned exit code zero and identified WHPX 10.0.26300 as usable. These three checks exercise Windows loading before an Android cold boot.
+
 A separate test on four real WHP virtual processors wrote identical TSC values at staggered times. With time advancing during writes, counter spread tracked the 92 ms and 96 ms write spans. Suspending partition time for the writes bounded the observed spread below 53 µs in both explicit-resume runs and a run that resumed time by executing the first VP. These bounds reflect the measurement resolution. [Probe source, measurements and reproduction](whpx-clock-probe/README.md)
 
-The Android test still needs two cold boots of the same rebuilt QEMU on the same image with the option off and on. Check the Android-selected clocksource, cross-vCPU offsets and elapsed time relative to the host before repeating the kart replay. The Windows experiment establishes the behavior of the hypervisor API on this PC. Android boot behavior and game FPS after the change are still open. [Android probe and method](windows-guest-clock-alignment.md)
+## Android 17 cold boots on the same executable
+
+Both boots completed on the Google Play API 37 image with four virtual CPUs, WHPX, the RTX 5070 Ti, 1600 × 900 and a nominal 90 Hz. The two processes loaded the same Windows executables and used the same arguments, guest image and graphics configuration. We changed the TSC option in the process environment. With it enabled, the final serial log recorded the four-CPU initialization and reset, and Linux selected TSC. [Measurements from both boots](whpx-tsc-android17.json)
+
+| At Android Home | Option disabled | Option enabled |
+|---|---:|---:|
+| Clock selected by Linux | HPET | TSC |
+| Largest estimated spread between virtual CPU counters, using guest RAW time | 2.257 s | 51 ns |
+| Largest absolute endpoint of the independent ordered-read offset bounds relative to CPU 0 | 2.258 s | 0.252 ms |
+| Adjacent cross-CPU reads that went backward, out of 27 | 14 | 0 |
+| Median CPU time per libc `gettimeofday` call | 9,114 ns | 18 ns |
+| Median CPU time per direct `gettimeofday` system call | 9,528 ns | 258 ns |
+| Median CPU time per libc `clock_gettime(CLOCK_MONOTONIC)` call | 9,138 ns | 17 ns |
+
+The 51 ns estimate uses a guest clock derived from TSC in the enabled arm. The ordered-read bounds provide an independent limit of about a quarter of a millisecond on this run. Each arm supplied nine alternating-order rounds and six batches of 20,000 calls per method. Each virtual CPU’s short-term rate interval relative to Windows QPC included zero drift in both arms. [How the estimators work](windows-guest-clock-alignment.md)
+
+An earlier pair booted twice and showed the same clock selections. The redirected host log flushed the enabled markers at shutdown, after the first collector had stopped waiting. That pair supplied no enabled timing sample. The complete repeat retained the live clock measurements and validated the markers against the closed log. The usual single Android 17 Home at 60 Hz was restored after the test. The table measures clock behavior. A matched gameplay replay is needed to measure its effect on game FPS.

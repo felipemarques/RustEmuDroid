@@ -1,0 +1,1011 @@
+{
+  "candidate_sha256": {
+    "qemu": "ca65aa54a6d491512917837595ca4ae252fc667f7de5978775103990f10b36b5",
+    "emulator": "7476c5d7cf249182b7310d45e5304778bd5a337e8d6d11890edb27954b0f9717"
+  },
+  "android": {
+    "ro.build.fingerprint": "google/sdk_gphone64_x86_64/emu64xa:17/CE2A.260420.051.A2/16418371:user/release-keys",
+    "ro.build.version.sdk": "37",
+    "ro.product.cpu.abi": "x86_64",
+    "ro.boot.qemu.vsync": "90",
+    "sys.boot_completed": "1",
+    "online_cpus": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "physical_size": "Physical size: 1600x900"
+  },
+  "renderer": {
+    "vulkan": "Selecting Vulkan device: NVIDIA GeForce RTX 5070 Ti, Version: 1.4.341",
+    "surfaceflinger_gles": "GLES: Google (NVIDIA Corporation), Android Emulator OpenGL ES Translator (NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2), OpenGL ES 3.1 (4.5.0 NVIDIA 610.88)"
+  },
+  "gate": {
+    "replay_eligible": true,
+    "reasons": [],
+    "replays_run": 0
+  },
+  "samples": "Per arm, subtract its first Windows QPC timestamp, first guest RAW timestamp and first TSC value independently. Order of CPU reads is preserved.",
+  "arms": {
+    "off": {
+      "clock_selection": {
+        "boot_clocksource_arguments": [
+          "pit"
+        ],
+        "switch_sequence": [
+          "hpet"
+        ],
+        "selected": "hpet",
+        "instability_lines": [
+          "[    0.305182] tsc: Marking TSC unstable due to check_tsc_sync_source failed"
+        ],
+        "qa_markers": []
+      },
+      "probe_checks": {
+        "guest_raw_rate_and_order_verified": true,
+        "cross_vcpu_tsc_regressions": [
+          [
+            0,
+            0,
+            1
+          ],
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            0,
+            2,
+            3
+          ],
+          [
+            2,
+            0,
+            1
+          ],
+          [
+            2,
+            1,
+            2
+          ],
+          [
+            2,
+            2,
+            3
+          ],
+          [
+            4,
+            0,
+            1
+          ],
+          [
+            4,
+            1,
+            2
+          ],
+          [
+            4,
+            2,
+            3
+          ],
+          [
+            6,
+            0,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            8,
+            0,
+            1
+          ],
+          [
+            8,
+            1,
+            2
+          ],
+          [
+            8,
+            2,
+            3
+          ]
+        ],
+        "max_abs_tsc_offset_bound_relative_to_cpu0_ns": 2257675226.3963113,
+        "largest_time_adjusted_offset_spread_ns": 2257352807.0422006,
+        "ordered_cross_cpu_gate_passed": false
+      },
+      "alignment_probe_sha256": "3714a30fe76cb9199965ca42c0c85a717a22af371499bc2de4b8d50b6014067e",
+      "raw_alignment_input_sha256": "261034d29c6184016c847f4ccf3167839a83dac64f4654e28306e7d0191aebaf",
+      "alignment": {
+        "allowed_cpus": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "guest_raw_minus_host_rate_bounds_ppm_by_cpu": {
+          "0": [
+            -502.78746655907366,
+            572.4381092722108
+          ],
+          "1": [
+            -487.72761472504203,
+            583.5644202503154
+          ],
+          "2": [
+            -488.5988458228629,
+            587.6760469276654
+          ],
+          "3": [
+            -531.6252158973356,
+            539.8565827237078
+          ]
+        },
+        "sampled_regressions": [],
+        "max_host_batch_round_trip_ms": 6.0243,
+        "ordered_tsc_offset_bounds_cycles_relative_to_first_cpu": {
+          "0": [
+            0,
+            0
+          ],
+          "1": [
+            -9004286519,
+            -9003607878
+          ],
+          "2": [
+            -9009237122,
+            -9007751561
+          ],
+          "3": [
+            -9013969440,
+            -9010957282
+          ]
+        },
+        "estimated_tsc_ticks_per_ns": 3.9925890733132805,
+        "per_round_spread_of_time_adjusted_tsc_offsets_ns": [
+          2257295292.7549253,
+          2257295626.3963113,
+          2257296034.3306584,
+          2257352807.0422006,
+          2257302971.7611747,
+          2257295250.7787848,
+          2257265039.6967835,
+          2257295178.6231527,
+          2257278689.1264873
+        ],
+        "largest_guest_clock_bracket_ns": 295700
+      },
+      "relative_alignment_batches": [
+        {
+          "host_send_ns": 0,
+          "host_end_ns": 4463100,
+          "cpus": {
+            "0": {
+              "before_ns": 0,
+              "ticks": 0,
+              "after_ns": 6600
+            },
+            "1": {
+              "before_ns": 78300,
+              "ticks": -9003607878,
+              "after_ns": 85200
+            },
+            "2": {
+              "before_ns": 150400,
+              "ticks": -9007751561,
+              "after_ns": 199000
+            },
+            "3": {
+              "before_ns": 603300,
+              "ticks": -9010039001,
+              "after_ns": 612300
+            }
+          }
+        },
+        {
+          "host_send_ns": 1005074700,
+          "host_end_ns": 1006978900,
+          "cpus": {
+            "3": {
+              "before_ns": 1002725000,
+              "ticks": -5008984280,
+              "after_ns": 1002732000
+            },
+            "2": {
+              "before_ns": 1002877200,
+              "ticks": -5004251962,
+              "after_ns": 1002947400
+            },
+            "1": {
+              "before_ns": 1002987700,
+              "ticks": -4999390360,
+              "after_ns": 1002998300
+            },
+            "0": {
+              "before_ns": 1003104600,
+              "ticks": 4004985160,
+              "after_ns": 1003111600
+            }
+          }
+        },
+        {
+          "host_send_ns": 2007513300,
+          "host_end_ns": 2012795800,
+          "cpus": {
+            "0": {
+              "before_ns": 2005794400,
+              "ticks": 8008389640,
+              "after_ns": 2005860600
+            },
+            "1": {
+              "before_ns": 2006787800,
+              "ticks": -991552199,
+              "after_ns": 2006856500
+            },
+            "2": {
+              "before_ns": 2007503700,
+              "ticks": -992961441,
+              "after_ns": 2007618600
+            },
+            "3": {
+              "before_ns": 2007751200,
+              "ticks": -996265321,
+              "after_ns": 2007811300
+            }
+          }
+        },
+        {
+          "host_send_ns": 3013311400,
+          "host_end_ns": 3016091700,
+          "cpus": {
+            "3": {
+              "before_ns": 3011220900,
+              "ticks": 3010128721,
+              "after_ns": 3011351200
+            },
+            "2": {
+              "before_ns": 3011660100,
+              "ticks": 3016010117,
+              "after_ns": 3011684500
+            },
+            "1": {
+              "before_ns": 3011783900,
+              "ticks": 3020899842,
+              "after_ns": 3011807800
+            },
+            "0": {
+              "before_ns": 3012061800,
+              "ticks": 12025931281,
+              "after_ns": 3012073400
+            }
+          }
+        },
+        {
+          "host_send_ns": 4016702900,
+          "host_end_ns": 4018332500,
+          "cpus": {
+            "0": {
+              "before_ns": 4014142600,
+              "ticks": 16026823240,
+              "after_ns": 4014151200
+            },
+            "1": {
+              "before_ns": 4014412100,
+              "ticks": 7023979160,
+              "after_ns": 4014419400
+            },
+            "2": {
+              "before_ns": 4014491300,
+              "ticks": 7019862678,
+              "after_ns": 4014499400
+            },
+            "3": {
+              "before_ns": 4014569700,
+              "ticks": 7016075239,
+              "after_ns": 4014593300
+            }
+          }
+        },
+        {
+          "host_send_ns": 5018622700,
+          "host_end_ns": 5021220100,
+          "cpus": {
+            "3": {
+              "before_ns": 5016079400,
+              "ticks": 11014691921,
+              "after_ns": 5016086700
+            },
+            "2": {
+              "before_ns": 5016233400,
+              "ticks": 11019667158,
+              "after_ns": 5016315800
+            },
+            "1": {
+              "before_ns": 5016454900,
+              "ticks": 11024729082,
+              "after_ns": 5016464300
+            },
+            "0": {
+              "before_ns": 5016547900,
+              "ticks": 20029015601,
+              "after_ns": 5016555600
+            }
+          }
+        },
+        {
+          "host_send_ns": 6021576900,
+          "host_end_ns": 6027601200,
+          "cpus": {
+            "0": {
+              "before_ns": 6019104400,
+              "ticks": 24031851120,
+              "after_ns": 6019177900
+            },
+            "1": {
+              "before_ns": 6019374100,
+              "ticks": 15028971842,
+              "after_ns": 6019384400
+            },
+            "2": {
+              "before_ns": 6019465600,
+              "ticks": 15024902119,
+              "after_ns": 6019473600
+            },
+            "3": {
+              "before_ns": 6022435800,
+              "ticks": 15032722879,
+              "after_ns": 6022460500
+            }
+          }
+        },
+        {
+          "host_send_ns": 7028008800,
+          "host_end_ns": 7030074100,
+          "cpus": {
+            "3": {
+              "before_ns": 7025741200,
+              "ticks": 19038459721,
+              "after_ns": 7025754600
+            },
+            "2": {
+              "before_ns": 7025970400,
+              "ticks": 19044555519,
+              "after_ns": 7026266100
+            },
+            "1": {
+              "before_ns": 7026418500,
+              "ticks": 19049682922,
+              "after_ns": 7026425700
+            },
+            "0": {
+              "before_ns": 7026514100,
+              "ticks": 28053986080,
+              "after_ns": 7026521700
+            }
+          }
+        },
+        {
+          "host_send_ns": 8030483600,
+          "host_end_ns": 8034607600,
+          "cpus": {
+            "0": {
+              "before_ns": 8030574500,
+              "ticks": 32062786161,
+              "after_ns": 8030614900
+            },
+            "1": {
+              "before_ns": 8030774100,
+              "ticks": 23059662442,
+              "after_ns": 8030782500
+            },
+            "2": {
+              "before_ns": 8030880900,
+              "ticks": 23055656479,
+              "after_ns": 8030887600
+            },
+            "3": {
+              "before_ns": 8030948500,
+              "ticks": 23051828879,
+              "after_ns": 8030956700
+            }
+          }
+        }
+      ],
+      "clock_cost_probe_sha256": "c1334fdf3c9c1eec19a903f993b9e8970b0ace819d8478af49df954f54b9e5e8",
+      "clock_cost_cpu_ns_per_call": {
+        "libc_gettimeofday": 9114.243625,
+        "syscall_gettimeofday": 9528.104725,
+        "libc_clock_monotonic": 9138.074
+      },
+      "clock_cost_batches": [
+        {
+          "batch": 1,
+          "method": "libc_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 216280400,
+          "thread_cpu_ns": 191252946
+        },
+        {
+          "batch": 1,
+          "method": "syscall_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 246349500,
+          "thread_cpu_ns": 210067857
+        },
+        {
+          "batch": 1,
+          "method": "libc_clock_monotonic",
+          "calls": 20000,
+          "elapsed_ns": 309509000,
+          "thread_cpu_ns": 244632823
+        },
+        {
+          "batch": 2,
+          "method": "syscall_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 240960100,
+          "thread_cpu_ns": 203222407
+        },
+        {
+          "batch": 2,
+          "method": "libc_clock_monotonic",
+          "calls": 20000,
+          "elapsed_ns": 247380100,
+          "thread_cpu_ns": 230346629
+        },
+        {
+          "batch": 2,
+          "method": "libc_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 178352000,
+          "thread_cpu_ns": 175694344
+        },
+        {
+          "batch": 3,
+          "method": "libc_clock_monotonic",
+          "calls": 20000,
+          "elapsed_ns": 183727200,
+          "thread_cpu_ns": 182037685
+        },
+        {
+          "batch": 3,
+          "method": "libc_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 189115500,
+          "thread_cpu_ns": 188838912
+        },
+        {
+          "batch": 3,
+          "method": "syscall_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 190074000,
+          "thread_cpu_ns": 185600294
+        },
+        {
+          "batch": 4,
+          "method": "libc_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 180508700,
+          "thread_cpu_ns": 176542803
+        },
+        {
+          "batch": 4,
+          "method": "syscall_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 182886600,
+          "thread_cpu_ns": 181772893
+        },
+        {
+          "batch": 4,
+          "method": "libc_clock_monotonic",
+          "calls": 20000,
+          "elapsed_ns": 183696100,
+          "thread_cpu_ns": 183485275
+        },
+        {
+          "batch": 5,
+          "method": "syscall_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 192094100,
+          "thread_cpu_ns": 191741893
+        },
+        {
+          "batch": 5,
+          "method": "libc_clock_monotonic",
+          "calls": 20000,
+          "elapsed_ns": 174497700,
+          "thread_cpu_ns": 174221471
+        },
+        {
+          "batch": 5,
+          "method": "libc_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 180543300,
+          "thread_cpu_ns": 174640546
+        },
+        {
+          "batch": 6,
+          "method": "libc_clock_monotonic",
+          "calls": 20000,
+          "elapsed_ns": 184708200,
+          "thread_cpu_ns": 181359593
+        },
+        {
+          "batch": 6,
+          "method": "libc_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 196302100,
+          "thread_cpu_ns": 188026942
+        },
+        {
+          "batch": 6,
+          "method": "syscall_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 191118300,
+          "thread_cpu_ns": 189382296
+        }
+      ]
+    },
+    "on": {
+      "clock_selection": {
+        "boot_clocksource_arguments": [
+          "pit"
+        ],
+        "switch_sequence": [
+          "tsc-early",
+          "tsc"
+        ],
+        "selected": "tsc",
+        "instability_lines": [],
+        "qa_markers": [
+          "synchronized init vcpus=4",
+          "synchronized reset vcpus=4"
+        ]
+      },
+      "probe_checks": {
+        "guest_raw_rate_and_order_verified": true,
+        "cross_vcpu_tsc_regressions": [],
+        "max_abs_tsc_offset_bound_relative_to_cpu0_ns": 251595.92911774563,
+        "largest_time_adjusted_offset_spread_ns": 50.63777072285302,
+        "ordered_cross_cpu_gate_passed": true
+      },
+      "alignment_probe_sha256": "3714a30fe76cb9199965ca42c0c85a717a22af371499bc2de4b8d50b6014067e",
+      "raw_alignment_input_sha256": "1400c71d03c8704ae55e52421da071fab9e7446fc5be54a1214684795d2c65a6",
+      "alignment": {
+        "allowed_cpus": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "guest_raw_minus_host_rate_bounds_ppm_by_cpu": {
+          "0": [
+            -214.14043948142503,
+            259.3121406366805
+          ],
+          "1": [
+            -207.31229863468758,
+            266.1361640097226
+          ],
+          "2": [
+            -202.5788880898327,
+            270.8730618525834
+          ],
+          "3": [
+            -212.6109538641563,
+            260.83001613441684
+          ]
+        },
+        "sampled_regressions": [],
+        "max_host_batch_round_trip_ms": 6.0289,
+        "ordered_tsc_offset_bounds_cycles_relative_to_first_cpu": {
+          "0": [
+            0,
+            0
+          ],
+          "1": [
+            -243360,
+            99959
+          ],
+          "2": [
+            -473281,
+            359158
+          ],
+          "3": [
+            -695440,
+            1004519
+          ]
+        },
+        "estimated_tsc_ticks_per_ns": 3.992588447366691,
+        "per_round_spread_of_time_adjusted_tsc_offsets_ns": [
+          40.07088225436746,
+          15.422668636048911,
+          50.63777072285302,
+          5.120540407515364,
+          40.059656463505235,
+          9.616176306735724,
+          34.67607860903081,
+          4.9389788491535,
+          10.24268343843869
+        ],
+        "largest_guest_clock_bracket_ns": 170
+      },
+      "relative_alignment_batches": [
+        {
+          "host_send_ns": 0,
+          "host_end_ns": 1962400,
+          "cpus": {
+            "0": {
+              "before_ns": 0,
+              "ticks": 0,
+              "after_ns": 130
+            },
+            "1": {
+              "before_ns": 25106,
+              "ticks": 99959,
+              "after_ns": 25167
+            },
+            "2": {
+              "before_ns": 90027,
+              "ticks": 359158,
+              "after_ns": 90087
+            },
+            "3": {
+              "before_ns": 251676,
+              "ticks": 1004519,
+              "after_ns": 251726
+            }
+          }
+        },
+        {
+          "host_send_ns": 1002251700,
+          "host_end_ns": 1008280600,
+          "cpus": {
+            "3": {
+              "before_ns": 1002413179,
+              "ticks": 4002223000,
+              "after_ns": 1002413239
+            },
+            "2": {
+              "before_ns": 1002509978,
+              "ticks": 4002609480,
+              "after_ns": 1002510049
+            },
+            "1": {
+              "before_ns": 1002676209,
+              "ticks": 4003273089,
+              "after_ns": 1002676259
+            },
+            "0": {
+              "before_ns": 1002741808,
+              "ticks": 4003535080,
+              "after_ns": 1002741878
+            }
+          }
+        },
+        {
+          "host_send_ns": 2008869800,
+          "host_end_ns": 2012773600,
+          "cpus": {
+            "0": {
+              "before_ns": 2008879027,
+              "ticks": 8020627239,
+              "after_ns": 2008879167
+            },
+            "1": {
+              "before_ns": 2010545645,
+              "ticks": 8027281440,
+              "after_ns": 2010545815
+            },
+            "2": {
+              "before_ns": 2010701644,
+              "ticks": 8027903878,
+              "after_ns": 2010701714
+            },
+            "3": {
+              "before_ns": 2010773808,
+              "ticks": 8028192040,
+              "after_ns": 2010773888
+            }
+          }
+        },
+        {
+          "host_send_ns": 3013178600,
+          "host_end_ns": 3015489600,
+          "cpus": {
+            "3": {
+              "before_ns": 3013391612,
+              "ticks": 12031232224,
+              "after_ns": 3013391672
+            },
+            "2": {
+              "before_ns": 3013511117,
+              "ticks": 12031709359,
+              "after_ns": 3013511177
+            },
+            "1": {
+              "before_ns": 3013628324,
+              "ticks": 12032177360,
+              "after_ns": 3013628395
+            },
+            "0": {
+              "before_ns": 3013710918,
+              "ticks": 12032507161,
+              "after_ns": 3013711008
+            }
+          }
+        },
+        {
+          "host_send_ns": 4016081500,
+          "host_end_ns": 4017697700,
+          "cpus": {
+            "0": {
+              "before_ns": 4015995117,
+              "ticks": 16034215718,
+              "after_ns": 4015995257
+            },
+            "1": {
+              "before_ns": 4016062051,
+              "ticks": 16034482679,
+              "after_ns": 4016062111
+            },
+            "2": {
+              "before_ns": 4016125219,
+              "ticks": 16034734881,
+              "after_ns": 4016125289
+            },
+            "3": {
+              "before_ns": 4016286197,
+              "ticks": 16035377561,
+              "after_ns": 4016286257
+            }
+          }
+        },
+        {
+          "host_send_ns": 5018093700,
+          "host_end_ns": 5023877000,
+          "cpus": {
+            "3": {
+              "before_ns": 5017734568,
+              "ticks": 20033748760,
+              "after_ns": 5017734618
+            },
+            "2": {
+              "before_ns": 5017939537,
+              "ticks": 20034567119,
+              "after_ns": 5017939597
+            },
+            "1": {
+              "before_ns": 5021672925,
+              "ticks": 20049472999,
+              "after_ns": 5021672975
+            },
+            "0": {
+              "before_ns": 5021739738,
+              "ticks": 20049739798,
+              "after_ns": 5021739799
+            }
+          }
+        },
+        {
+          "host_send_ns": 6024443600,
+          "host_end_ns": 6026021000,
+          "cpus": {
+            "0": {
+              "before_ns": 6024168987,
+              "ticks": 24052027279,
+              "after_ns": 6024169077
+            },
+            "1": {
+              "before_ns": 6024290823,
+              "ticks": 24052513878,
+              "after_ns": 6024290933
+            },
+            "2": {
+              "before_ns": 6024390207,
+              "ticks": 24052910519,
+              "after_ns": 6024390307
+            },
+            "3": {
+              "before_ns": 6024507915,
+              "ticks": 24053380438,
+              "after_ns": 6024507985
+            }
+          }
+        },
+        {
+          "host_send_ns": 7026380900,
+          "host_end_ns": 7028085000,
+          "cpus": {
+            "3": {
+              "before_ns": 7026530530,
+              "ticks": 28054044319,
+              "after_ns": 7026530581
+            },
+            "2": {
+              "before_ns": 7026586173,
+              "ticks": 28054266478,
+              "after_ns": 7026586233
+            },
+            "1": {
+              "before_ns": 7026643760,
+              "ticks": 28054496399,
+              "after_ns": 7026643820
+            },
+            "0": {
+              "before_ns": 7026704713,
+              "ticks": 28054739759,
+              "after_ns": 7026704763
+            }
+          }
+        },
+        {
+          "host_send_ns": 8028312400,
+          "host_end_ns": 8030150700,
+          "cpus": {
+            "0": {
+              "before_ns": 8028431250,
+              "ticks": 32054221599,
+              "after_ns": 8028431330
+            },
+            "1": {
+              "before_ns": 8028511118,
+              "ticks": 32054540518,
+              "after_ns": 8028511208
+            },
+            "2": {
+              "before_ns": 8028614048,
+              "ticks": 32054951519,
+              "after_ns": 8028614149
+            },
+            "3": {
+              "before_ns": 8028695128,
+              "ticks": 32055275118,
+              "after_ns": 8028695189
+            }
+          }
+        }
+      ],
+      "clock_cost_probe_sha256": "c1334fdf3c9c1eec19a903f993b9e8970b0ace819d8478af49df954f54b9e5e8",
+      "clock_cost_cpu_ns_per_call": {
+        "libc_gettimeofday": 18.11205,
+        "syscall_gettimeofday": 258.05242499999997,
+        "libc_clock_monotonic": 17.34415
+      },
+      "clock_cost_batches": [
+        {
+          "batch": 1,
+          "method": "libc_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 364756,
+          "thread_cpu_ns": 363022
+        },
+        {
+          "batch": 1,
+          "method": "syscall_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 5683331,
+          "thread_cpu_ns": 5412981
+        },
+        {
+          "batch": 1,
+          "method": "libc_clock_monotonic",
+          "calls": 20000,
+          "elapsed_ns": 350880,
+          "thread_cpu_ns": 350199
+        },
+        {
+          "batch": 2,
+          "method": "syscall_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 4318101,
+          "thread_cpu_ns": 4205523
+        },
+        {
+          "batch": 2,
+          "method": "libc_clock_monotonic",
+          "calls": 20000,
+          "elapsed_ns": 343917,
+          "thread_cpu_ns": 343407
+        },
+        {
+          "batch": 2,
+          "method": "libc_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 355950,
+          "thread_cpu_ns": 355058
+        },
+        {
+          "batch": 3,
+          "method": "libc_clock_monotonic",
+          "calls": 20000,
+          "elapsed_ns": 344057,
+          "thread_cpu_ns": 343567
+        },
+        {
+          "batch": 3,
+          "method": "libc_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 362091,
+          "thread_cpu_ns": 361460
+        },
+        {
+          "batch": 3,
+          "method": "syscall_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 6364903,
+          "thread_cpu_ns": 6152593
+        },
+        {
+          "batch": 4,
+          "method": "libc_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 352242,
+          "thread_cpu_ns": 351722
+        },
+        {
+          "batch": 4,
+          "method": "syscall_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 5184106,
+          "thread_cpu_ns": 5140957
+        },
+        {
+          "batch": 4,
+          "method": "libc_clock_monotonic",
+          "calls": 20000,
+          "elapsed_ns": 342244,
+          "thread_cpu_ns": 341713
+        },
+        {
+          "batch": 5,
+          "method": "syscall_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 4961142,
+          "thread_cpu_ns": 4799754
+        },
+        {
+          "batch": 5,
+          "method": "libc_clock_monotonic",
+          "calls": 20000,
+          "elapsed_ns": 410861,
+          "thread_cpu_ns": 408908
+        },
+        {
+          "batch": 5,
+          "method": "libc_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 594742,
+          "thread_cpu_ns": 593860
+        },
+        {
+          "batch": 6,
+          "method": "libc_clock_monotonic",
+          "calls": 20000,
+          "elapsed_ns": 525163,
+          "thread_cpu_ns": 524492
+        },
+        {
+          "batch": 6,
+          "method": "libc_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 552734,
+          "thread_cpu_ns": 551913
+        },
+        {
+          "batch": 6,
+          "method": "syscall_gettimeofday",
+          "calls": 20000,
+          "elapsed_ns": 5267159,
+          "thread_cpu_ns": 5181140
+        }
+      ]
+    }
+  }
+}
