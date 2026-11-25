@@ -1,0 +1,19 @@
+diff --git a/android/android-emu/android/opengles.cpp b/android/android-emu/android/opengles.cpp
+--- a/android/android-emu/android/opengles.cpp
++++ b/android/android-emu/android/opengles.cpp
+@@ -485,6 +485,14 @@
+     // Always enable compressed texture emulation
+     gfxstreamFeatures.VulkanAstcEmulation.setEnabled(true);
+     gfxstreamFeatures.VulkanEtc2Emulation.setEnabled(true);
+ 
++    const char* cachedHost = getenv("RUSTEMUDROID_QA_VULKAN_CACHED_HOST");
++    if (cachedHost && strcmp(cachedHost, "1") == 0) {
++        // gfxstream checks compatible heaps, memoryTypeBits and external memory paths.
++        // Keep the stock feature settings when the isolated test is not opted in.
++        gfxstreamFeatures.VulkanAllocateUncachedHostVisibleAsCached.setEnabled(true);
++        dinfo("RustEmuDroid QA: requested cached Vulkan host allocations");
++    }
++
+     const AndroidOptions* opts = getConsoleAgents() ? getConsoleAgents()->settings->android_cmdLineOptions() : nullptr;
+     if (opts) {
+         if (opts->vulkan_validation) {

@@ -1,0 +1,53 @@
+meta	Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)	4318	0	65536	64	6	47	65536	16
+type	2	1	6
+type	3	1	14
+type	5	0	7
+sample	0	-1	scalar32	211900	202038
+sample	0	-1	memcpy	77900	69944
+sample	0	2	memcpy	9590300	9570853
+sample	0	2	scalar32	82916200	82030831
+sample	0	3	scalar32	197700	188713
+sample	0	3	memcpy	65300	57190
+sample	0	5	memcpy	17115100	17118841
+sample	0	5	scalar32	136083300	135002770
+sample	1	5	memcpy	16779900	16768283
+sample	1	5	scalar32	137816400	136020887
+sample	1	3	scalar32	201000	190497
+sample	1	3	memcpy	65300	57140
+sample	1	2	memcpy	10654700	10640070
+sample	1	2	scalar32	84670600	84660653
+sample	1	-1	scalar32	195300	183132
+sample	1	-1	memcpy	74700	66227
+sample	2	-1	scalar32	184800	182211
+sample	2	-1	memcpy	74100	66679
+sample	2	2	memcpy	9180800	9176849
+sample	2	2	scalar32	92119600	92110645
+sample	2	3	scalar32	195000	186378
+sample	2	3	memcpy	64300	56609
+sample	2	5	memcpy	16730800	16716440
+sample	2	5	scalar32	132554900	131953333
+sample	3	5	memcpy	16833700	16822362
+sample	3	5	scalar32	131164400	130912108
+sample	3	3	scalar32	475700	461859
+sample	3	3	memcpy	110800	98840
+sample	3	2	memcpy	17063500	13547474
+sample	3	2	scalar32	90860900	90844734
+sample	3	-1	scalar32	229000	217599
+sample	3	-1	memcpy	76400	68662
+sample	4	-1	scalar32	197200	188693
+sample	4	-1	memcpy	76900	68712
+sample	4	2	memcpy	15199600	15097193
+sample	4	2	scalar32	92876600	92250813
+sample	4	3	scalar32	197900	186849
+sample	4	3	memcpy	64800	56769
+sample	4	5	memcpy	17026900	17011300
+sample	4	5	scalar32	132683200	131255834
+sample	5	5	memcpy	17646000	17461004
+sample	5	5	scalar32	134901300	134829128
+sample	5	3	scalar32	199700	190185
+sample	5	3	memcpy	80200	71718
+sample	5	2	memcpy	9412400	9405900
+sample	5	2	scalar32	80754200	80217726
+sample	5	-1	scalar32	202000	193953
+sample	5	-1	memcpy	77600	68942
+complete
