@@ -65,29 +65,38 @@ These are elapsed durations on the calling CPU thread. A queue API call can spen
 
 A signed, optimized x86-64 QA APK was built from the pinned source. Offline checks verified its separate package, matching JNI classes, SDL2 dependency, stock Black Forest inputs and eight compiled marker labels. The patch also compiled as an Android ARMv7 driver object. A three-frame fixture used STK's own marker stack and CSV writer and verified the profiler summary with a controlled clock.
 
-## Windows Android 17 results
+## Windows results at 90 Hz
 
-RustEmuDroid 0.18.1 ran the standalone x86-64 QA APK in an Android 17 Google Play AVD on a GeForce RTX 5070 Ti. Both Black Forest replays used High/Vulkan, 1600×900 at render scale 1, a 90 FPS game cap and game VSync. Android reported a 90 Hz active mode during both runs. STK reported Vulkan 1.3 through Goldfish GFXStream and selected FIFO (`VkPresentModeKHR=2`) on both runs. The 21 exported graphics fields matched between runs and matched the earlier stock x86-64 runs A1 and A2 at 90 Hz.
+RustEmuDroid 0.18.1 ran the standalone x86-64 QA APK in an Android 17 Google Play AVD. BlueStacks 5.22.166.1003 ran the exact same APK as x86-64 on a separate Pie64 lab instance with Android 9. Both used a GeForce RTX 5070 Ti. The four Black Forest replays used High/Vulkan, 1600×900 at render scale 1, a 90 FPS game cap and game VSync. Android reported an active 90 Hz mode during each replay. STK reported Vulkan 1.3 and FIFO (`VkPresentModeKHR=2`) on both engines. RustEmuDroid reported Goldfish GFXStream driver `26.0.65.35`, while BlueStacks reported NVIDIA driver `610.88.0.0`. The 21 exported graphics fields matched across the four runs and matched the earlier stock x86-64 runs A1 and A2 at 90 Hz. The guest Android versions, display density and graphics implementations differ.
 
-| Replay | STK frames | STK duration | STK FPS | Android SurfaceView presentations | SurfaceView rate | SurfaceView P99 interval |
+| Engine and replay | STK frames | STK duration | STK FPS | Android SurfaceView presentations | SurfaceView rate | SurfaceView P99 interval |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 3,159 | 38.157 s | 82.790 | 1,626 in 20.024 s | 81.204/s | 23.850 ms |
-| 2 | 3,157 | 38.073 s | 82.920 | 1,647 in 20.022 s | 82.258/s | 23.483 ms |
+| RustEmuDroid 1 | 3,159 | 38.157 s | 82.790 | 1,626 in 20.024 s | 81.204/s | 23.850 ms |
+| RustEmuDroid 2 | 3,157 | 38.073 s | 82.920 | 1,647 in 20.022 s | 82.258/s | 23.483 ms |
+| BlueStacks 1 | 3,432 | 38.127 s | 90.015 | 1,801 in 20.018 s | 89.967/s | 11.111 ms |
+| BlueStacks 2 | 3,430 | 38.125 s | 89.967 | 1,801 in 20.026 s | 89.931/s | 11.111 ms |
 
 STK FPS divides its frame count by the full replay duration. The Android rate uses a separate, approximately 20-second window of presentation timestamps for the foreground QA game's SurfaceView. That rate describes Android's compositor and does not measure frames shown by the Windows launcher or physical monitor.
 
-| Scope | Replay 1 P50 | Replay 1 P95 | Replay 2 P50 | Replay 2 P95 |
-| --- | ---: | ---: | ---: | ---: |
-| `Main loop` | 11.392 ms | 17.083 ms | 11.476 ms | 17.061 ms |
-| `VK endScene` | 2.428 ms | 6.680 ms | 2.455 ms | 6.744 ms |
-| `acquire` | 1.003 ms | 5.588 ms | 0.922 ms | 5.665 ms |
-| `present` | 0.302 ms | 0.758 ms | 0.307 ms | 0.848 ms |
+The table pools both passes per engine. Each mean divides total scope duration by all positive `Main loop` samples, including frames where a child scope recorded zero duration.
 
-`acquire` accounted for the largest measured share of `endScene` time in both runs. These samples cannot attribute that time to a specific GPU or compositor bottleneck. Both replays use the instrumented build, so the cost of the added markers remains unmeasured. An equivalent BlueStacks run with the same x86-64 APK and verified 90 Hz Vulkan mode is still needed for a paired comparison.
+| CPU-thread elapsed time per frame | RustEmuDroid | BlueStacks |
+| --- | ---: | ---: |
+| `Main loop` | 12.069 ms | 11.112 ms |
+| `IrrDriver update` | 10.636 ms | 10.644 ms |
+| `drawAll()` | 7.083 ms | 2.178 ms |
+| `VK endScene` | 3.171 ms | 8.301 ms |
+| `acquire` | 1.881 ms | 7.506 ms |
+| `record` | 0.403 ms | 0.144 ms |
+| `submit` | 0.082 ms | 0.074 ms |
+| `present` | 0.361 ms | 0.452 ms |
+| `Main loop` minus `IrrDriver update` | 1.433 ms | 0.469 ms |
 
-The APK has SHA-256 `dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e`. The data include the game reports' digests, all reported graphics fields and all phase summaries. [Sanitized Windows Android 17 data](windows-vulkan-90hz-scoped-native.json)
+BlueStacks spent more elapsed time in `vkAcquireNextImageKHR` and less in `drawAll()`. Total `IrrDriver update` differed by only 0.007 ms per frame, while the rest of `Main loop` averaged 0.964 ms more on RustEmuDroid. The acquire interval includes waiting for a swapchain image and cannot establish GPU execution time or a GPU bottleneck. Each host ran two samples in separate batches. The next VSync test will change only the game option on RustEmuDroid and check whether it changes the actual FIFO present mode before measuring the alternative twice.
 
-To regenerate the aggregate from private QA evidence, place `apk-receipt.json` and `results.json` beside the two `lap-N` directories. Each lap needs its game report, CPU profile, renderer log and active-display receipt. Include the optional `presentations.json` only for a valid SurfaceView capture. The exporter verifies the APK scope, ABI reported by the runner, replay duration, effective 90 Hz, Vulkan evidence and matching graphics fields. It omits timestamps, process IDs, layers and local paths.
+The APK has SHA-256 `dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e`. The data include game-report digests, all reported graphics fields and all phase summaries. [RustEmuDroid data](windows-vulkan-90hz-scoped-native.json) · [BlueStacks Pie64 data](windows-vulkan-90hz-scoped-pie64.json)
+
+To regenerate the aggregate from private QA evidence, place the operator's receipt (`apk-receipt.json` for RustEmuDroid or `receipt.json` for BlueStacks) and `results.json` beside the two `lap-N` directories. Each lap needs its game report, CPU profile, renderer log and active-display receipt. Include the optional `presentations.json` only for a valid SurfaceView capture. The exporter verifies the APK scope, ABI reported by the runner, replay duration, effective 90 Hz, Vulkan evidence and matching graphics fields. It omits timestamps, process IDs, layers and local paths.
 
 ```sh
 python benchmarks/stk-1.5/export-vulkan-end-scene.py /path/to/qa-run \
@@ -96,3 +105,16 @@ python benchmarks/stk-1.5/export-vulkan-end-scene.py /path/to/qa-run \
 ```
 
 A paired BlueStacks export uses `--engine "BlueStacks 5 Pie64" --android 9` with that player's version and `--match-reference benchmarks/stk-1.5/windows-vulkan-90hz-scoped-native.json`. The exporter checks the same APK digest, ABI, graphics fields, active display period and Vulkan present modes before writing that pair. Record host, driver and renderer conditions separately when interpreting the results.
+
+For an instrumentation baseline, use `--mode baseline --compare-scoped path/to/scoped.json` on two completed runs from the same engine and ABI. The baseline must have the same package and game settings, signed build assets matching the scoped APK, and neither optional phase columns nor the present-mode log. The exporter records scoped-minus-baseline differences in game FPS, SurfaceView rate where measured in both, and P95 elapsed times for `Main loop` and `IrrDriver update`. It pairs runs by ordinal across the two batches. This design cannot separate instrumentation cost from run-to-run or batch differences. The baseline's actual Vulkan present mode is unobserved with the diagnostic log disabled.
+
+### Android 17 instrumentation baseline
+
+The x86-64 baseline APK (`def3b0fd211c91eee4d91cfabae41283ed339c3fef203f3f9b0432f48e5807cd`) used the same signing certificate and all 5,577 assets matched by SHA-256. The APK's ELF, renderer log and profiler exports contained no optional Vulkan instrumentation. On RustEmuDroid 0.18.1 the game's own reports recorded the same 21 graphics fields and the RTX Vulkan driver as the scoped runs.
+
+| Replay | Baseline STK FPS | Baseline Android SurfaceView rate | Scoped minus baseline FPS | Scoped minus baseline SurfaceView rate | Scoped minus baseline P95 `Main loop` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 83.666 | 81.502/s | −0.877 | −0.298/s | +0.531 ms |
+| 2 | 83.478 | 82.388/s | −0.558 | −0.130/s | +0.398 ms |
+
+The scoped batch was modestly slower in these two comparisons. The measured difference includes any change between batches and cannot isolate the overhead of the markers. [Sanitized Android 17 baseline data](windows-vulkan-90hz-baseline-native.json)

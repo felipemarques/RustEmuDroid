@@ -1,0 +1,327 @@
+{
+  "schema_version": 1,
+  "host": "Windows x86-64",
+  "engine": "BlueStacks 5 Pie64",
+  "engine_version": "5.22.166.1003",
+  "android_version": "9",
+  "game": "SuperTuxKart 1.5",
+  "game_package": "org.rustemudroid.qa.stkvulkan",
+  "apk_sha256": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e",
+  "game_abi": "x86_64",
+  "instrumentation": "scoped",
+  "scene": "Black Forest",
+  "preset": "High/Vulkan",
+  "game_fps_cap": 90,
+  "game_vsync": true,
+  "runs": [
+    {
+      "run": 1,
+      "game_frames": 3432,
+      "game_duration_ms": 38127,
+      "game_fps": 90.01495003540798,
+      "game_report_sha256": "7783ecc03d3320761df57cbacf91e28c20986ec73a968d861b5abbe52bf5a5a4",
+      "frame_profile_sha256": "a45fb39349d636d2e8909fa45a03307de1c245b7984dfa559056ac9e5e49bedb",
+      "graphics": {
+        "Resolution width": "1600",
+        "Resolution height": "900",
+        "Render resolution": "1",
+        "Dynamic lighting": "1",
+        "Particle effects": "2",
+        "Animated characters": "1",
+        "Geometry Detail": "4",
+        "Bloom": "1",
+        "Glow": "1",
+        "Light Shaft": "1",
+        "Anti-Aliasing (MLAA)": "0",
+        "SSAO": "1",
+        "Anisotropic Filtering": "16",
+        "Shadow Resolution": "1024",
+        "Light scattering": "0",
+        "Degraded IBL": "0",
+        "Motion Blur": "0",
+        "Depth of Field": "0",
+        "Texture compression": "1",
+        "HD Textures": "0",
+        "HQ Mipmap": "0"
+      },
+      "surface_flinger_period_ns": 11111111,
+      "surface_view": {
+        "duration_s": 20.01842815,
+        "presentations": 1801,
+        "presentations_per_second": 89.96710363595655,
+        "p99_interval_ms": 11.111111,
+        "max_interval_ms": 11.111111,
+        "intervals_over_250_ms": 0
+      },
+      "vulkan_renderer": "NVIDIA GeForce RTX 5070 Ti",
+      "vulkan_api_version": "1.3.0",
+      "vulkan_driver_version": "610.88.0.0",
+      "swapchains": [
+        {
+          "present_mode_id": 2,
+          "present_mode": "FIFO"
+        }
+      ],
+      "cpu_scopes": {
+        "Main loop": {
+          "frames_main_gt_0": 3432,
+          "frames_segment_gt_0": 3432,
+          "sum_ms": 38127.168,
+          "mean_ms": 11.109315,
+          "p50_ms": 11.1115,
+          "p95_ms": 12.397
+        },
+        "IrrDriver update": {
+          "frames_main_gt_0": 3432,
+          "frames_segment_gt_0": 3432,
+          "sum_ms": 36488.039,
+          "mean_ms": 10.631713,
+          "p50_ms": 10.666,
+          "p95_ms": 11.83
+        },
+        "VK endScene": {
+          "frames_main_gt_0": 3432,
+          "frames_segment_gt_0": 3432,
+          "sum_ms": 28248.947,
+          "mean_ms": 8.231045,
+          "p50_ms": 8.3705,
+          "p95_ms": 9.791
+        },
+        "VK endScene fence": {
+          "frames_main_gt_0": 3432,
+          "frames_segment_gt_0": 3432,
+          "sum_ms": 297.219,
+          "mean_ms": 0.086602,
+          "p50_ms": 0.081,
+          "p95_ms": 0.134
+        },
+        "VK endScene reset": {
+          "frames_main_gt_0": 3432,
+          "frames_segment_gt_0": 3432,
+          "sum_ms": 74.067,
+          "mean_ms": 0.021581,
+          "p50_ms": 0.02,
+          "p95_ms": 0.03
+        },
+        "VK endScene acquire": {
+          "frames_main_gt_0": 3432,
+          "frames_segment_gt_0": 3432,
+          "sum_ms": 25560.758,
+          "mean_ms": 7.447773,
+          "p50_ms": 7.607,
+          "p95_ms": 8.938
+        },
+        "VK endScene record": {
+          "frames_main_gt_0": 3432,
+          "frames_segment_gt_0": 3432,
+          "sum_ms": 487.725,
+          "mean_ms": 0.142111,
+          "p50_ms": 0.107,
+          "p95_ms": 0.227
+        },
+        "VK endScene submit": {
+          "frames_main_gt_0": 3432,
+          "frames_segment_gt_0": 3432,
+          "sum_ms": 247.842,
+          "mean_ms": 0.072215,
+          "p50_ms": 0.057,
+          "p95_ms": 0.131
+        },
+        "VK endScene present": {
+          "frames_main_gt_0": 3432,
+          "frames_segment_gt_0": 3432,
+          "sum_ms": 1519.955,
+          "mean_ms": 0.442877,
+          "p50_ms": 0.382,
+          "p95_ms": 0.845
+        },
+        "VK endScene recovery": {
+          "frames_main_gt_0": 3432,
+          "frames_segment_gt_0": 0,
+          "sum_ms": 0.0,
+          "mean_ms": 0.0,
+          "p50_ms": 0.0,
+          "p95_ms": 0.0
+        },
+        "VK endScene other": {
+          "frames_main_gt_0": 3432,
+          "frames_segment_gt_0": 3432,
+          "sum_ms": 61.381,
+          "mean_ms": 0.017885,
+          "p50_ms": 0.016,
+          "p95_ms": 0.024
+        },
+        "drawAll() for kart 0": {
+          "frames_main_gt_0": 3432,
+          "frames_segment_gt_0": 3432,
+          "sum_ms": 7660.622,
+          "mean_ms": 2.232116,
+          "p50_ms": 2.08,
+          "p95_ms": 3.552
+        }
+      }
+    },
+    {
+      "run": 2,
+      "game_frames": 3430,
+      "game_duration_ms": 38125,
+      "game_fps": 89.9672131147541,
+      "game_report_sha256": "990e926726ff33e329f0a949f557523e1ee188246a51a3cf00711a07b41f2cbe",
+      "frame_profile_sha256": "85322a980a015686cdd33a0a74daed4494869a7918fe322770a3d6f48ea6a7a1",
+      "graphics": {
+        "Resolution width": "1600",
+        "Resolution height": "900",
+        "Render resolution": "1",
+        "Dynamic lighting": "1",
+        "Particle effects": "2",
+        "Animated characters": "1",
+        "Geometry Detail": "4",
+        "Bloom": "1",
+        "Glow": "1",
+        "Light Shaft": "1",
+        "Anti-Aliasing (MLAA)": "0",
+        "SSAO": "1",
+        "Anisotropic Filtering": "16",
+        "Shadow Resolution": "1024",
+        "Light scattering": "0",
+        "Degraded IBL": "0",
+        "Motion Blur": "0",
+        "Depth of Field": "0",
+        "Texture compression": "1",
+        "HD Textures": "0",
+        "HQ Mipmap": "0"
+      },
+      "surface_flinger_period_ns": 11111111,
+      "surface_view": {
+        "duration_s": 20.0263635,
+        "presentations": 1801,
+        "presentations_per_second": 89.93145460482629,
+        "p99_interval_ms": 11.111111,
+        "max_interval_ms": 33.333333,
+        "intervals_over_250_ms": 0
+      },
+      "vulkan_renderer": "NVIDIA GeForce RTX 5070 Ti",
+      "vulkan_api_version": "1.3.0",
+      "vulkan_driver_version": "610.88.0.0",
+      "swapchains": [
+        {
+          "present_mode_id": 2,
+          "present_mode": "FIFO"
+        }
+      ],
+      "cpu_scopes": {
+        "Main loop": {
+          "frames_main_gt_0": 3430,
+          "frames_segment_gt_0": 3430,
+          "sum_ms": 38125.899,
+          "mean_ms": 11.115422,
+          "p50_ms": 11.107,
+          "p95_ms": 12.519
+        },
+        "IrrDriver update": {
+          "frames_main_gt_0": 3430,
+          "frames_segment_gt_0": 3430,
+          "sum_ms": 36547.998,
+          "mean_ms": 10.655393,
+          "p50_ms": 10.677,
+          "p95_ms": 11.994
+        },
+        "VK endScene": {
+          "frames_main_gt_0": 3430,
+          "frames_segment_gt_0": 3430,
+          "sum_ms": 28710.074,
+          "mean_ms": 8.370284,
+          "p50_ms": 8.441,
+          "p95_ms": 10.014
+        },
+        "VK endScene fence": {
+          "frames_main_gt_0": 3430,
+          "frames_segment_gt_0": 3430,
+          "sum_ms": 282.472,
+          "mean_ms": 0.082353,
+          "p50_ms": 0.079,
+          "p95_ms": 0.119
+        },
+        "VK endScene reset": {
+          "frames_main_gt_0": 3430,
+          "frames_segment_gt_0": 3430,
+          "sum_ms": 74.154,
+          "mean_ms": 0.021619,
+          "p50_ms": 0.02,
+          "p95_ms": 0.029
+        },
+        "VK endScene acquire": {
+          "frames_main_gt_0": 3430,
+          "frames_segment_gt_0": 3430,
+          "sum_ms": 25948.726,
+          "mean_ms": 7.565226,
+          "p50_ms": 7.6885,
+          "p95_ms": 9.042
+        },
+        "VK endScene record": {
+          "frames_main_gt_0": 3430,
+          "frames_segment_gt_0": 3430,
+          "sum_ms": 500.021,
+          "mean_ms": 0.145779,
+          "p50_ms": 0.109,
+          "p95_ms": 0.231
+        },
+        "VK endScene submit": {
+          "frames_main_gt_0": 3430,
+          "frames_segment_gt_0": 3430,
+          "sum_ms": 261.131,
+          "mean_ms": 0.076131,
+          "p50_ms": 0.061,
+          "p95_ms": 0.145
+        },
+        "VK endScene present": {
+          "frames_main_gt_0": 3430,
+          "frames_segment_gt_0": 3430,
+          "sum_ms": 1583.638,
+          "mean_ms": 0.461702,
+          "p50_ms": 0.376,
+          "p95_ms": 0.909
+        },
+        "VK endScene recovery": {
+          "frames_main_gt_0": 3430,
+          "frames_segment_gt_0": 0,
+          "sum_ms": 0.0,
+          "mean_ms": 0.0,
+          "p50_ms": 0.0,
+          "p95_ms": 0.0
+        },
+        "VK endScene other": {
+          "frames_main_gt_0": 3430,
+          "frames_segment_gt_0": 3430,
+          "sum_ms": 59.932,
+          "mean_ms": 0.017473,
+          "p50_ms": 0.016,
+          "p95_ms": 0.024
+        },
+        "drawAll() for kart 0": {
+          "frames_main_gt_0": 3430,
+          "frames_segment_gt_0": 3430,
+          "sum_ms": 7284.165,
+          "mean_ms": 2.123663,
+          "p50_ms": 2.025,
+          "p95_ms": 3.249
+        }
+      }
+    }
+  ],
+  "pooled_mean_cpu_scope_ms": {
+    "Main loop": 11.11236767706208,
+    "IrrDriver update": 10.643549548236665,
+    "VK endScene": 8.300644272806762,
+    "VK endScene fence": 0.08447843194403964,
+    "VK endScene reset": 0.021600262314194114,
+    "VK endScene acquire": 7.506482658117166,
+    "VK endScene record": 0.14394433109880503,
+    "VK endScene submit": 0.07417269017779073,
+    "VK endScene present": 0.4522869425823375,
+    "VK endScene recovery": 0.0,
+    "VK endScene other": 0.017678956572427865,
+    "drawAll() for kart 0": 2.1779054211600117,
+    "Main loop minus IrrDriver update": 0.46881812882541496
+  }
+}

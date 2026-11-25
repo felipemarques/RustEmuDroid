@@ -11,6 +11,7 @@ import sys
 
 MAIN = "Main loop"
 DRIVER = "IrrDriver update"
+DRAW = "drawAll() for kart 0"
 END_SCENE = "VK endScene"
 PHASES = tuple(f"{END_SCENE} {name}" for name in (
     "fence", "reset", "acquire", "record", "submit", "present",
@@ -24,21 +25,26 @@ def remove_trailing_column(row):
     return row[:-1] if row and not row[-1].strip() else row
 
 
-def read_profile(path):
-    series = {name: [] for name in SEGMENTS}
+def read_profile(path, *, scoped=True):
+    required = (MAIN, DRIVER, END_SCENE, *PHASES) if scoped else (MAIN, DRIVER)
+    series = {name: [] for name in (SEGMENTS if scoped else required)}
     with path.open(encoding="utf-8-sig", newline="") as stream:
         heading = stream.readline().removeprefix("#")
         headers = [
             re.sub(r"\(\d+\)$", "", field.strip())
             for field in remove_trailing_column(next(csv.reader([heading], skipinitialspace=True)))
         ]
-        required = (MAIN, DRIVER, END_SCENE, *PHASES)
+        if not scoped and any(name.startswith(END_SCENE) for name in headers):
+            raise ValueError("baseline profile contains optional Vulkan instrumentation")
         for name in required:
             if headers.count(name) != 1:
                 raise ValueError(f"expected one {name!r} column, found {headers.count(name)}")
         if headers.count(RECOVERY) > 1:
             raise ValueError(f"duplicate {RECOVERY!r} column")
         columns = {name: headers.index(name) for name in required}
+        if headers.count(DRAW) == 1:
+            columns[DRAW] = headers.index(DRAW)
+            series[DRAW] = []
         if RECOVERY in headers:
             columns[RECOVERY] = headers.index(RECOVERY)
 
@@ -47,19 +53,24 @@ def read_profile(path):
             if len(row) != len(headers):
                 raise ValueError(f"row {line} has {len(row)} columns, expected {len(headers)}")
             values = {name: int(row[index]) for name, index in columns.items()}
-            values.setdefault(RECOVERY, 0)
             if any(value < 0 for value in values.values()):
                 raise ValueError(f"row {line} contains a negative duration")
             if values[MAIN] == 0:
                 continue
-            measured = sum(values[name] for name in (*PHASES, RECOVERY))
-            if not measured <= values[END_SCENE] <= values[DRIVER] <= values[MAIN]:
+            if values[DRIVER] > values[MAIN]:
                 raise ValueError(f"row {line} violates profiler scope nesting")
-            values[REMAINDER] = values[END_SCENE] - measured
+            if scoped:
+                values.setdefault(RECOVERY, 0)
+                measured = sum(values[name] for name in (*PHASES, RECOVERY))
+                if not measured <= values[END_SCENE] <= values[DRIVER]:
+                    raise ValueError(f"row {line} violates profiler scope nesting")
+                values[REMAINDER] = values[END_SCENE] - measured
             for name, value in values.items():
                 series[name].append(value)
 
-    if not any(series[END_SCENE]):
+    if not series[MAIN]:
+        raise ValueError("no positive Main loop duration")
+    if scoped and not any(series[END_SCENE]):
         raise ValueError("no positive Vulkan endScene duration inside Main loop")
     return series
 
@@ -81,9 +92,10 @@ def write_summary(series):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("profile", type=Path, help="STK *.profile-black_forest-cpu-0.csv")
+    parser.add_argument("--baseline", action="store_true", help="require absence of optional Vulkan markers")
     args = parser.parse_args()
     try:
-        series = read_profile(args.profile)
+        series = read_profile(args.profile, scoped=not args.baseline)
     except (OSError, ValueError) as error:
         parser.exit(1, f"{args.profile}: {error}\n")
     write_summary(series)

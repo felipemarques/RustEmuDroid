@@ -26,6 +26,8 @@ On November 24, 2026 the v0.14.0 test used a 1600 × 900 Pie64 guest. The fitted
 
 The published v0.18.1 Windows client also recovered when the player closed first. The test displayed the restored 1600 × 900 Android guest in a 1072 × 603 preview, closed the official player window and confirmed the BlueStacks exit dialog. The player process and its listener exited within 3.94 seconds of the close request. The same Rust process and window displayed **No active session** and **Start Android**. No second VM appeared during the test. [Windows release](https://github.com/felipemarques/RustEmuDroid/releases/tag/v0.18.1)
 
+After the x86-64 replay pair, we tested PNG capture in the v0.19.0 Windows client against the same running Pie64 instance. Two camera-button clicks and one **Ctrl+Shift+S** produced three distinct filenames in the selected profile's captures folder. On a static 1600 × 900 Android screen, all three files had identical pixels to ADB screenshots taken before and after the actions. The toolbar displayed the saved filename. [Capture instructions](../README.md#open-an-installed-bluestacks-instance-on-windows)
+
 ### Booting an archived data disk with the installed BlueStacks engine
 
 On November 24 we created a separate, stopped Pie64 instance in BlueStacks 5.22.166.1003 on Windows. The Multi-instance Manager registered it as `Pie64_1`. We preserved its fresh data disk, restored a working copy of the archived `Data.vhdx` to its data slot and verified the full 13,208,911,872 bytes by SHA-256 before boot. Its factory root and boot media were the read-only attachments selected by the manager. The primary instance retained its own data disk.
