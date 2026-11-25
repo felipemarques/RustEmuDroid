@@ -1,0 +1,87 @@
+{
+  "client": "RustEmuDroid 0.22.0",
+  "android": "Android 17 Google Play r7 x86-64",
+  "qemu_sha256": "b9feb63b82209b4b93ef39131687d25782bc291219bfc59b1a91909076a519c8",
+  "cache_enabled": true,
+  "tsc_synchronization": false,
+  "scope": "One media smoke after two scored Mailbox replays",
+  "fixtures": {
+    "files": {
+      "avc.mp4": "92d9a7972601eab87d62a7f272470ae00157dec1201e0bb64258fd2684d02ef4",
+      "probe.jar": "0a2082186676a38314a70e1f031a1f2ccb481b4c0614230ec93f3eed81bea9ae",
+      "vp8.webm": "ac772239bc1a1996e61801e61de15cd7ebac3bc3514e28f5bf4e9132ec14c6fc",
+      "vp9.webm": "9d1cf1ee397c4819125b09398f820b7052929317288c47d54f67a7fe70ee3288"
+    },
+    "java_source_sha256": "9e4137a06009ec9fd0f78681ea7976f00483f01e324cce0b931eef0068e8b4c1"
+  },
+  "guest_temporary_files_removed": true,
+  "decoders": [
+    {
+      "mime": "video/avc",
+      "codec": "c2.goldfish.h264.decoder",
+      "software_only": false,
+      "hardware_accelerated": true,
+      "error_type": "android.media.MediaCodec$CodecException"
+    },
+    {
+      "mime": "video/avc",
+      "codec": "c2.android.avc.decoder",
+      "software_only": true,
+      "hardware_accelerated": false,
+      "decoded": {
+        "frames": 12,
+        "distinct_frames": 12,
+        "last_pts_us": 916666
+      }
+    },
+    {
+      "mime": "video/x-vnd.on2.vp8",
+      "codec": "c2.goldfish.vp8.decoder",
+      "software_only": false,
+      "hardware_accelerated": true,
+      "error_type": "android.media.MediaCodec$CodecException"
+    },
+    {
+      "mime": "video/x-vnd.on2.vp8",
+      "codec": "c2.android.vp8.decoder",
+      "software_only": true,
+      "hardware_accelerated": false,
+      "decoded": {
+        "frames": 12,
+        "distinct_frames": 12,
+        "last_pts_us": 917000
+      }
+    },
+    {
+      "mime": "video/x-vnd.on2.vp9",
+      "codec": "c2.goldfish.vp9.decoder",
+      "software_only": false,
+      "hardware_accelerated": true,
+      "error_type": "android.media.MediaCodec$CodecException"
+    },
+    {
+      "mime": "video/x-vnd.on2.vp9",
+      "codec": "c2.android.vp9.decoder",
+      "software_only": true,
+      "hardware_accelerated": false,
+      "decoded": {
+        "frames": 12,
+        "distinct_frames": 12,
+        "last_pts_us": 917000
+      }
+    }
+  ],
+  "recording": {
+    "backend": "Android Emulator console screenrecord",
+    "codec": "vp9",
+    "width": 640,
+    "height": 360,
+    "requested_fps": 12,
+    "decoded_frames": 69,
+    "distinct_downscaled_luma_frames": 44,
+    "record_start": "OK",
+    "record_stop": "OK",
+    "recording_sha256": "0734352b439d15d4d0b168014d649b46eef42cf1e553b851507747ccad127449"
+  },
+  "verified_home_restored": true
+}

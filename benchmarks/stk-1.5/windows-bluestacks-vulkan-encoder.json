@@ -46,7 +46,37 @@
     "_ZN9gfxstream2vk15ResourceTracker21on_vkBindBufferMemoryEPv8VkResultP10VkDevice_TP10VkBuffer_TP16VkDeviceMemory_Tm",
     "_ZN9gfxstream2vk15ResourceTracker19on_vkAllocateMemoryEPv8VkResultP10VkDevice_TPK20VkMemoryAllocateInfoPK21VkAllocationCallbacksPP16VkDeviceMemory_T",
     "_ZN9gfxstream2vk9VkEncoder33vkMapMemoryIntoAddressSpaceGOOGLEEP10VkDevice_TP16VkDeviceMemory_TPmj",
-    "_ZN9gfxstream2vk15ResourceTracker22on_vkBindBufferMemory2EPv8VkResultP10VkDevice_TjPK22VkBindBufferMemoryInfo"
+    "_ZN9gfxstream2vk15ResourceTracker22on_vkBindBufferMemory2EPv8VkResultP10VkDevice_TjPK22VkBindBufferMemoryInfo",
+    "_ZN9gfxstream2vk9VkEncoder39vkQueueCommitDescriptorSetUpdatesGOOGLEEP9VkQueue_TjPKP18VkDescriptorPool_TjPKP23VkDescriptorSetLayout_TPKmPKjSF_SF_jPK20VkWriteDescriptorSetj",
+    "_ZN9gfxstream2vk15ResourceTracker25on_vkUpdateDescriptorSetsEPvP10VkDevice_TjPK20VkWriteDescriptorSetjPK19VkCopyDescriptorSet"
   ],
+  "descriptor_symbol_crosscheck": {
+    "hal_dependencies_evidence": "ev_a58b53460aaca5e2e7169f3250690106a5648bfbbbdcc288255dc315a79677b9",
+    "encoder_exports_evidence": "ev_9cffcef0ac2ca8f1957f4c1f884225db5d7b33f38aab4840ed1e08dcb5a747cd",
+    "hal_dynsym_imports_examined": 2016,
+    "encoder_exports_examined": 4410,
+    "symbols": [
+      {"name": "VkEncoder::vkQueueCommitDescriptorSetUpdatesGOOGLE", "hal_dynsym_index": 330, "encoder_elf_symbol_value": "0x139a00"},
+      {"name": "ResourceTracker::on_vkUpdateDescriptorSets", "hal_dynsym_index": 405, "encoder_elf_symbol_value": "0xeacf0"}
+    ]
+  },
+  "windows_renderer": {
+    "file": "libOpenglRender.dll",
+    "sha256": "3cb0f06fee25ecf21f3cecab59a09c354db39bbe97d3af0a83c640427c245b5f",
+    "size_bytes": 12686256,
+    "method": "Read-only exact ASCII substring scan. Offsets are zero-based file positions in PE .rdata. The first match may be inside a longer string.",
+    "file_offsets": {
+      "ANDROID_EMU_vulkan_batched_descriptor_set_update": 5705432,
+      "vkQueueCommitDescriptorSetUpdatesGOOGLE": 4741024
+    },
+    "all_file_offsets": {
+      "ANDROID_EMU_vulkan_batched_descriptor_set_update": [5705432],
+      "vkQueueCommitDescriptorSetUpdatesGOOGLE": [4741024, 4750651, 6137616, 6159155]
+    },
+    "standalone_nul_delimited_file_offsets": {
+      "ANDROID_EMU_vulkan_batched_descriptor_set_update": 5705432,
+      "vkQueueCommitDescriptorSetUpdatesGOOGLE": 6137616
+    }
+  },
   "limitations": "Matching dynamic declarations establish available interfaces. They do not establish invocation rates, actual memory cache policy, host backend implementation or a particular performance gain."
 }

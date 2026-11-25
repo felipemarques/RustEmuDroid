@@ -6,6 +6,10 @@ With the same **v0.21.1 Rust window** and a separately rebuilt Android engine, a
 
 With the v0.22.0 client and the newly linked Windows engine, the same kart replay measured **84.73 game FPS with the cache off and 90.16 with it on**. Android P99 fell from 23.17 to 14.46 ms. The Rust panel processed 86.32 frames/s with the cache on. This pair qualified the build made with FFmpeg and libvpx sources. [Build identity, sampling and traces](../benchmarks/stk-1.5/windows-source-media-cache-rtx.md)
 
+In two Mailbox replays per runtime, the game measured **163.54–176.38 FPS on RustEmuDroid**, **289.67–294.92 on Kemu** and **350.42–372.41 on BlueStacks**. Android SurfaceView stayed near 90 presentations/s on each. Internal render throughput and guest presentation have separate counters. [Matched Mailbox runs](../benchmarks/stk-1.5/windows-rtx-mailbox-peers.md)
+
+In a separate stock SDK probe, enabling `VulkanAllocateHostMemory` cut the median time for 4 MiB of type-2 32-bit writes from **91.843 to 0.290 ms**. The relinked media engine also passed a short software decode and VP9 recording test. The three Goldfish hardware-advertised decoders failed the tested acquisition path. These two checks establish neither an in-game improvement from the stock option nor hardware video decoding. [Stock mapped writes](../benchmarks/stk-1.5/windows-stock-vulkan-host-memory.md) · [Decode and recording results](../benchmarks/stk-1.5/windows-source-media-cache-rtx.md#media-smoke-on-the-relinked-engine)
+
 ## SuperTuxKart from the first prototype through v0.21.1
 
 With Vulkan caching active in all four RTX runs, synchronizing the virtual clock reduced QEMU CPU use by **18.7%**, from 2,188 to 1,778 ms of CPU time per second. Pooled game rates were **90.17 FPS with the regular clock** and **90.02 with synchronization**. The Android P99 ranges overlapped. Both configurations approached the 90 Hz FIFO ceiling. [Combined cache and clock experiment](../benchmarks/stk-1.5/windows-cache-tsc-kart-rtx.md)

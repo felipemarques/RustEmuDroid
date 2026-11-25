@@ -17,6 +17,14 @@ The separate mapped-write probe copied 4 MiB at a time into guest memory type 2 
 
 With the cache enabled and VSync off in the game, the renderer selected Mailbox (`VkPresentModeKHR = 1`). The game reported **183.63 FPS**, while the Android surface presented **90.01 frames/s** on the 90 Hz guest. The Windows foreground check failed during sampling, so there is no qualified panel result or three-player ranking for this run. Its raw game report and separate Android timestamps are retained under `exploratory_mailbox` in the [data](windows-source-media-cache-rtx.json).
 
+Two subsequent Mailbox replays on the same relinked engine passed the Windows foreground and moving-image checks. The game measured **163.54 and 176.38 FPS**, the Android surface **89.81 and 90.05 presentations/s**, and the Rust panel **85.46 and 87.43 processed frames/s**. The same workload ran twice each on Kemu and BlueStacks. [Six matched replays and raw traces](windows-rtx-mailbox-peers.md)
+
+## Media smoke on the relinked engine
+
+After the two qualified Mailbox runs, a short Android MediaCodec test decoded H.264, VP8 and VP9 with the software decoders. Each returned 12 distinct frames. The three `c2.goldfish.*` implementations advertised hardware acceleration and raised `MediaCodec.CodecException` in the buffer-output test. That leaves hardware decoding and ordinary surface-output playback unverified.
+
+The Android Emulator console's `screenrecord` path started and stopped successfully. Its 640 × 360 VP9 WebM contained 69 decoded frames and 44 distinct images after scaling to 32 × 18 grayscale for comparison. These are smoke-test counts. Temporary guest fixtures were removed and the usual 60 Hz Home was restored. The recording stays private. [Sanitized media receipt](windows-source-media-cache-rtx-media.json)
+
 ## Engine and installation
 
 The cache module ZIP has SHA-256 `a67d12ec5abbb220cce81ecf623174d278fab08dd5d0a08441be51c642395146`. Its QEMU has SHA-256 `b9feb63b82209b4b93ef39131687d25782bc291219bfc59b1a91909076a519c8`. The public stager installed the 12 project-built modules at 20 paths in a separate SDK installation. Its checks verified the archive, both executable versions and WHPX availability. The game comparison exercised this QEMU build's graphics path. Codec playback and recording require their own validation. [Installation and verification commands](../../experiments/whpx-clock/README.md#2-create-the-private-runtime)

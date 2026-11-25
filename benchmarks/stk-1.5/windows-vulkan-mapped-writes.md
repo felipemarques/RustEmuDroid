@@ -32,6 +32,8 @@ Two cold boots used the same experimental QEMU, stock gfxstream DLL, RTX 5070 Ti
 
 The option brought type 2 writes into the range of ordinary memory. Type 5 remained slow. Both boots advertised the same guest memory types. The original thread-CPU qualification rule could not classify the enabled arm because it required positive readings throughout. The elapsed measurements and the game's actual use of type 2 motivated a separate four-replay game test. The table measures memory access only. [Probe source](mapped-write.c) · [Validation and medians](summarize-mapped-writes.py)
 
+A separate A/B on Google's stock Windows SDK used `VulkanAllocateHostMemory` with the patched cache and clock changes absent. Type 2 fell from **10.108 to 0.086 ms** for bulk copy and **91.843 to 0.290 ms** for 32-bit stores. The storage buffer's compatibility mask excluded type 5 in the enabled boot. [Stock SDK test and raw samples](windows-stock-vulkan-host-memory.md)
+
 ## How Kemu handles the game's buffer
 
 Kemu 0.7.1 exposed an Adreno 830 to its Android 16 guest while the Windows gfxstream log selected the RTX 5070 Ti. The RustEmuDroid 0.21.1 window ran Kemu’s engine and system image. In one 90 Hz boot we ran the same x86-64 probe, then played the instrumented Black Forest replay. All 18 mapped object-storage allocations used type 2, heap 1, flags `0x6`, just as on the Android 17 SDK engine. All 12 uniform/indirect allocations used Kemu type 4, heap 0, flags `0x7`. [Full allocation trace](windows-draw-buffer-allocations-kemu16.json)
@@ -47,6 +49,8 @@ Kemu already reached roughly the same write speeds that the cache option enabled
 ## BlueStacks Pie64's guest Vulkan driver
 
 REA inspected two x86-64 Android libraries extracted from the private copy of the BlueStacks 5.22.166.1003 system image. The default Vulkan driver declares a dependency on `libvulkan_enc.so`. Its imported allocation, mapping and binding functions match symbols exported by that library, including `gfxstream::vk::ResourceTracker::on_vkAllocateMemory`, `VkEncoder::vkMapMemory` and `VkEncoder::vkMapMemoryIntoAddressSpaceGOOGLE`. This places a gfxstream encoder in the guest driver interface. AOSP's implementation documents the roles of the resource tracker and encoder. The exact BlueStacks source revision and host caching policy are unknown. [ELF matches, artifact hashes and REA evidence IDs](windows-bluestacks-vulkan-encoder.json) · [AOSP resource tracker](https://android.googlesource.com/platform/external/mesa3d/+/cba72e4fb9e0f3c9a10f446355a83a62e8fa8b9d/src/gfxstream/guest/vulkan_enc/ResourceTracker.cpp)
+
+The same Android driver imports the encoder's descriptor-update tracker and its queue command for submitting descriptor sets in batches. The Windows renderer from this installation contains both the corresponding feature name and queue command name. These findings give us a reason to test the corresponding switch in the official SDK. Whether BlueStacks negotiated batching or invoked it in this replay remains open. [Matched guest symbols, Windows renderer hash and string offsets](windows-bluestacks-vulkan-encoder.json)
 
 ### Measured writes and game allocations on Pie64
 

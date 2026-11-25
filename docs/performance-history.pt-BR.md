@@ -6,6 +6,10 @@ Na mesma **janela Rust da v0.21.1**, uma compilação experimental do motor Andr
 
 Com o cliente v0.22.0 e a nova compilação do motor Windows, o mesmo replay do kart marcou **84,73 FPS com o cache desligado e 90,16 com ele ligado**. O P99 do Android caiu de 23,17 para 14,46 ms. O painel Rust processou 86,32 quadros/s com o cache ligado. O par de corridas verificou a compilação feita com as fontes do FFmpeg e do libvpx. [Identidade do motor, método e dados](../benchmarks/stk-1.5/windows-source-media-cache-rtx.md)
 
+Em duas corridas Mailbox por motor, o jogo marcou **163,54–176,38 FPS no RustEmuDroid**, **289,67–294,92 no Kemu** e **350,42–372,41 no BlueStacks**. A SurfaceView do Android ficou perto de 90 apresentações/s nos três. A taxa de quadros gerados pelo jogo e a cadência do Android vêm de contadores separados. [Seis corridas Mailbox comparáveis](../benchmarks/stk-1.5/windows-rtx-mailbox-peers.md)
+
+Em uma sonda separada no SDK de fábrica, `VulkanAllocateHostMemory` baixou a mediana das escritas de 32 bits em 4 MiB do tipo 2 de **91,843 para 0,290 ms**. O motor recompilado também passou no teste curto de decodificação por software e gravação VP9. Os três decodificadores Goldfish anunciados como acelerados retornaram erro no caminho testado. O ganho em jogo com a opção do SDK e a decodificação acelerada seguem sem confirmação. [Escritas mapeadas no SDK de fábrica](../benchmarks/stk-1.5/windows-stock-vulkan-host-memory.md) · [Teste de mídia](../benchmarks/stk-1.5/windows-source-media-cache-rtx.md#media-smoke-on-the-relinked-engine)
+
 ## SuperTuxKart do primeiro protótipo até a v0.21.1
 
 Com o cache Vulkan ativo nas quatro corridas da RTX, sincronizar o relógio virtual reduziu o uso de CPU do QEMU em **18,7%**, de 2.188 para 1.778 ms de CPU por segundo. O jogo marcou **90,17 FPS com o relógio padrão** e **90,02 com sincronização**. Os intervalos de P99 do Android se sobrepuseram. As duas configurações chegaram perto do teto de 90 Hz em FIFO. [Ensaio combinado de cache e relógio](../benchmarks/stk-1.5/windows-cache-tsc-kart-rtx.md)
