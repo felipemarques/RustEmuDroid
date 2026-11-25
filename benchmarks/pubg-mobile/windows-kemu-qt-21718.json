@@ -1,0 +1,132 @@
+{
+  "format_version": 1,
+  "fresh": {
+    "date": "2026-11-25",
+    "frontend": "Kemu original Qt 0.7.1",
+    "isolated_windows_qa_profile": true,
+    "frontend_sha256": "e5052772b1e1ec19e60d59d9d48588f62712a62f8f0c7ef08f4a189260cd978a",
+    "qemu_sha256": "9b6dd661855a65266fb8982cdea913fb189f9e967821cb621f51b85fd96ad3ea",
+    "android": 16,
+    "sdk": 36,
+    "vcpus": 4,
+    "guest_ram_gib": 8,
+    "display_px": [
+      1600,
+      900
+    ],
+    "nominal_display_hz": 60,
+    "sf_period_ns": 16666666,
+    "emulator_graphics": "gfxstream, host Vulkan, NVIDIA GeForce RTX 5070 Ti, NVIDIA 610.88",
+    "guest_egl_property": "angle",
+    "guest_native_bridge": "libberberis_arm64.so",
+    "game_graphics_api_verified": false,
+    "apk": {
+      "versionCode": "21718",
+      "versionName": "4.7.0",
+      "primaryCpuAbi": "arm64-v8a",
+      "package": "com.tencent.ig",
+      "apk_sha256": "c08785d8a8cd194076d3547a26a2ed7654b954e92f0ba3aa99efd8d9ca5b6b6f"
+    },
+    "lobby_reached": false,
+    "timed_game_measurement": null,
+    "accounts_or_terms_used": false,
+    "modes": [
+      {
+        "name": "Kemu default",
+        "mode_override": false,
+        "launches": 1,
+        "reported_activity": "SplashActivity",
+        "am_start_wait_ms": [
+          10029
+        ],
+        "sigill_count": 1,
+        "last_visible_screen": "Android Home",
+        "termination": "SIGILL/ILL_ILLOPN, then Android failed-to-attach start timeout",
+        "cleanup": {
+          "fixture_package_absent": true,
+          "qa_performance_ini_restored_byte_for_byte": true,
+          "normal_launcher_preferences_unchanged": true,
+          "habitual_home_restored": {
+            "release": "0.21.1",
+            "android": 17,
+            "active_vm_count": 1,
+            "sf_period_ns": 16666666,
+            "official_exe_sha256": "513fc67688ba6c5e48a57f0db097ffc6c7fcf5358b5133c5f1d2ce2ae51de949"
+          }
+        }
+      },
+      {
+        "name": "Lightweight",
+        "property": {
+          "before": "",
+          "effective_property": "lite-translate-or-interpret",
+          "lightweight_requested": true
+        },
+        "launches": 2,
+        "reported_activity": "GameActivity",
+        "am_start_wait_ms": [
+          3383,
+          3130
+        ],
+        "sigill_count": 2,
+        "brief_visual_progress": "Android PUBG icon splash",
+        "last_visible_screen": "Android Home",
+        "termination": "SIGILL/ILL_ILLOPN on MainThread-UE4",
+        "host_fault_mapping": "/memfd:exec",
+        "guest_top_frame": "ARM64 libc native_bridge_malloc+0",
+        "guest_caller": {
+          "library": "libGCloudVoice.so",
+          "elf_pc_offset": "0x2caa34",
+          "build_id": "8ae7a2e5773aae519d412306b9edfbb421ecbb6b"
+        },
+        "crash_receipt_sha256": "1a64b102bd513af8fd45a5a00ebceff7c072bd9160a4ee17329a875a19ac9774",
+        "cleanup": {
+          "fixture_package_absent": true,
+          "qa_performance_ini_restored_byte_for_byte": true,
+          "normal_launcher_preferences_unchanged": true,
+          "habitual_home_restored": {
+            "release": "0.21.1",
+            "android": 17,
+            "active_vm_count": 1,
+            "sf_period_ns": 16666666,
+            "official_exe_sha256": "513fc67688ba6c5e48a57f0db097ffc6c7fcf5358b5133c5f1d2ce2ae51de949"
+          }
+        }
+      }
+    ]
+  },
+  "historical": {
+    "date": "2026-11-22",
+    "launcher": "local Kemu launcher",
+    "version_name": "4.7.0",
+    "version_code": 21783,
+    "abi": "arm64-v8a",
+    "translation_mode": "lite-translate-or-interpret",
+    "scene": "3D tutorial, Balanced, before first objective",
+    "nominal_display_hz": 60,
+    "surface_px": [
+      1600,
+      900
+    ],
+    "physical_gpu": "NVIDIA GeForce RTX 5070 Ti",
+    "bluestacks_open_concurrently": true,
+    "presentations": 1812,
+    "elapsed_host_seconds": 30.19,
+    "first_to_last_present_seconds": 30.18,
+    "surface_presentations_per_host_second": 60.02,
+    "inter_present_ms": {
+      "p50": 16.66,
+      "p95": 18.08,
+      "p99": 19.32
+    },
+    "summary_csv_sha256": "13b27384238c1b97d524060e718bde2ccbe5bee60713a17f0a72b14e930e3907",
+    "collector_script_sha256": "c10749a3c41bfe2cd913cac0fd3b92fa22ea9f1ec7726ec1fc88210a2668227c",
+    "timestamp_column_one_indexed": 2,
+    "minimum_sleep_ms": 250,
+    "deduplicated": true,
+    "requires_poll_buffer_overlap": true,
+    "percentile_method": "nearest-rank",
+    "raw_timestamps_available": false,
+    "matched_control": false
+  }
+}

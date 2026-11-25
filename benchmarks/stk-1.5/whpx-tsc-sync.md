@@ -29,6 +29,25 @@ The two real QEMU translation units compiled to Windows AMD64 COFF using Clang i
 
 The object check used GLib from `qemu-android-deps` revision `b06aee625002d0738c5576bbf437b9378229bef0` and the Windows compatibility headers from AEMU revision `36815ef31763c79dfc42b461e6ce35264ead08c4`. A runnable build also requires the source and prebuilts from the emulator host manifest. Record the exact dependency revisions used. The build snapshot identifies QEMU's source while the official installation supplies no complete dependency lock. A rebuild can provide an A/B comparison within its own binary. [Upstream Windows build guide](https://android.googlesource.com/platform/external/qemu/+/538bcdea5479b3857cd8885cbb9306bfec9c7247/android/docs/WINDOWS-DEV.md)
 
+### Reproduce the Windows source checkout
+
+The [Windows build manifest](whpx-windows-build-manifest.xml) pins all 60 AOSP projects from the local build checkout. All 60 revisions were checked against their actual Git HEADs. The standalone XML uses the absolute AOSP fetch URL and has SHA-256 `f3b9420ea72b0161e45595096752b4cbefa7c031e9d4f59128b239e95d762f65`. These were the dependencies used for this rebuild. Google identifies the official QEMU snapshot but has not supplied the complete dependency lock for the shipped package here.
+
+Open a Visual Studio x64 developer shell in an empty directory with a short Windows path. The Android Repo tool, Git, Python, Windows SDK and C++ toolchain must be available. Supply a file URL to your downloaded copy of the XML or the raw GitHub URL. A separate local `repo init` and `repo list --all --path` with the standalone XML recovered the same 60 project paths. The full source checkout and prebuilts used about 54 GiB of free space on this PC before compilation.
+
+```powershell
+repo init --standalone-manifest -u https://raw.githubusercontent.com/felipemarques/RustEmuDroid/main/benchmarks/stk-1.5/whpx-windows-build-manifest.xml -g default,platform-windows --depth=1 --partial-clone --clone-filter=blob:none
+repo sync -j2 --no-tags --current-branch --optimized-fetch
+```
+
+Apply the patch in `external/qemu` as described above. From the checkout root, these are the configuration and target used for the Windows test build. Launch both steps from the x64 developer shell so the compiler can find the UCRT headers.
+
+```powershell
+$buildDir = [IO.Path]::GetFullPath((Join-Path (Get-Location).Path '..\build'))
+python external/qemu/android/build/python/cmake.py --task Configure --target windows --out $buildDir --ccache none --crash none --sdk_build_number qa-whpx-16970787 --cmake_option OPTION_MINBUILD=ON --cmake_option BUILD_TESTING=OFF
+& ./prebuilts/cmake/windows-x86/bin/cmake.exe --build $buildDir --parallel 2 --target qemu-system-x86_64
+```
+
 ## What ran on the Windows hypervisor
 
 A separate test on four real WHP virtual processors wrote identical TSC values at staggered times. With time advancing during writes, counter spread tracked the 92 ms and 96 ms write spans. Suspending partition time for the writes bounded the observed spread below 53 µs in both explicit-resume runs and a run that resumed time by executing the first VP. These bounds reflect the measurement resolution. [Probe source, measurements and reproduction](whpx-clock-probe/README.md)

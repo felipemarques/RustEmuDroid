@@ -442,6 +442,8 @@ A separate fixture reproduced a burst of 61,440 minor faults by writing to 240 M
 
 ### PUBG startup on Kemu Android 16
 
+The original Kemu Qt 0.7.1 player on the RTX 5070 Ti tried PUBG 4.7.0/21718 on a clean QA profile in both translator settings. The standard run crashed during startup. Both lightweight runs reached Android's `GameActivity` startup and then crashed with SIGILL before the Lobby. A different installation with build 21783 previously reached a playable 3D tutorial and recorded 60.02 Android presentations/s over 30.19 s. The three-player Lobby comparison still lacks a Kemu value. [Startup attempts, tutorial conditions and measurements](../benchmarks/pubg-mobile/windows-kemu-qt-21718.md)
+
 REA identified Berberis in the Android 17 Google Play build `16418371`. Its ARM64 translator defaults to `two-gear` and also recognizes the lightweight mode used on the Kemu Android 16 image. On the stock Google Play image, Android classifies the mode property as `default_prop`, which only `init` may set. The emulator's supported boot property option requires a QEMU-labeled property. The Windows launcher therefore has no verified setting for switching the translator in an installed PUBG process on this image. [Android property policy](https://android.googlesource.com/platform/system/sepolicy/+/refs/heads/main/private/property.te#800) · [Emulator boot options](https://developer.android.com/studio/run/emulator-commandline)
 
 We tested the existing Original profile in RustEmuDroid 0.13.3 on Windows with Kemu Android 16, the RTX 5070 Ti, 1600 × 900 and the same ARM64 PUBG build 4.7.0 (21718). Each test had its own VM boot. We verified the selected GPU, game version, AVD and Berberis translation mode on each launch.
