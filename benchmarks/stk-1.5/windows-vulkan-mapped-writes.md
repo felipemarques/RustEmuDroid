@@ -15,6 +15,23 @@ The probe ran on the habitual RustEmuDroid 0.21.1 Android Home, with one VM and 
 
 For both write patterns the cacheable mapping performed similarly to ordinary memory on this device. The uncached mappings were sensitive to the write pattern. The experiment measures synthetic writes with no GPU submission. It does not establish which allocation STK uses, how many such writes STK issues, or how much an emulator change can improve a game. A host build was running during this diagnostic. [All 48 elapsed and thread CPU measurements](windows-mapped-writes-sdk-stock.tsv) · [Per-device Vulkan properties](windows-kart-vulkan-capabilities.json)
 
+## Which memory SuperTuxKart used
+
+During a separate Black Forest replay on the experimental SDK engine with the cached-allocation switch disabled, all 18 mapped storage-buffer allocations observed in the instrumented draw-call code used **type 2, heap 1**. All 12 mapped uniform/indirect allocations used **type 5, heap 0**. The collector matched the 30 consecutive allocation records to one game process and checked their flags against the same guest's Vulkan inventory. This identifies the allocation used by the game for object data. The trace counts allocations, while the bytes written per frame remain unmeasured. [All 30 allocations](windows-draw-buffer-allocations-sdk17.json) · [Game instrumentation patch](vulkan-draw-buffer-memory.patch)
+
+## Effect of enabling cached allocations
+
+Two cold boots used the same experimental QEMU, stock gfxstream DLL, RTX 5070 Ti, 90 Hz Android 17 profile and probe executable. The virtual-clock fix stayed off. Each boot ran six batches per cell. The values below are **median elapsed milliseconds per 4 MiB**. Use elapsed time for these short samples because the guest thread CPU counter returned zero in three of the 48 enabled measurements. All 96 elapsed measurements were positive. [Option disabled](windows-mapped-writes-cache-off.tsv) · [Option enabled](windows-mapped-writes-cache-on.tsv)
+
+| CPU write destination | Bulk copy, off → on | 32-bit writes, off → on |
+|---|---:|---:|
+| Ordinary memory | 0.068 → 0.070 ms | 0.214 → 0.228 ms |
+| Type 2, used for game object storage | **14.540 → 0.069 ms** | **99.596 → 0.196 ms** |
+| Type 3, already cached | 0.090 → 0.077 ms | 0.290 → 0.212 ms |
+| Type 5, used for uniform/indirect buffers | 20.751 → 21.595 ms | 159.401 → 179.743 ms |
+
+The option brought type 2 writes into the range of ordinary memory. Type 5 remained slow. Both boots advertised the same guest memory types. The original thread-CPU qualification rule could not classify the enabled arm because it required positive readings throughout. The elapsed measurements and the game's actual use of type 2 motivated a separate four-replay game test. The table measures memory access only. [Probe source](mapped-write.c) · [Validation and medians](summarize-mapped-writes.py)
+
 ## Reproduction
 
 An independent cold boot of the source-built SDK core reproduced the ordering. After both host builds had finished, the same probe on Android 17 measured type 2 at **10.105 / 87.753 ms** (memcpy / scalar), type 3 at **0.057 / 0.189 ms**, and type 5 at **16.917 / 133.391 ms**. The ordinary allocation took **0.069 / 0.191 ms**. The TSC option was disabled, and this executable contained no cached-allocation switch. The buffer size, access masks, GPU and six-batch workload matched the stock test. [Raw output from the second run](windows-mapped-writes-rebuilt-off.tsv) · [Source-built core and Android identity](whpx-tsc-sync.md#android-17-cold-boots-on-the-same-executable)

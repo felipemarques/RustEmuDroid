@@ -1,0 +1,215 @@
+diff --git a/src/main.cpp b/src/main.cpp
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -291,6 +291,10 @@
+ #include "utils/stk_process.hpp"
+ #include "utils/string_utils.hpp"
+ #include "utils/translation.hpp"
++
++#ifdef __ANDROID__
++namespace GE { void enableDrawMemoryProbe(); }
++#endif
+ #include "io/rich_presence.hpp"
+ 
+ #include <IrrlichtDevice.h>
+@@ -621,6 +625,9 @@
+     "       --profile-time=n   Enable automatic driven profile mode for n "
+                               "seconds.\n"
+     "       --benchmark        Start Benchmark Mode, save results and exit. \n"
++#ifdef __ANDROID__
++    "       --qa-draw-memory   Log Vulkan draw buffer allocations (QA only).\n"
++#endif
+     "       --unlock-all       Permanently unlock all karts and tracks for testing.\n"
+     "       --no-unlock-all    Disable unlock-all (i.e. base unlocking on player achievement).\n"
+     "       --xmas=n           Toggle Xmas/Christmas mode. n=0 Use current date, n=1, Always enable,\n"
+@@ -2244,6 +2251,14 @@
+ 
+         CommandLine::addArgsFromUserConfig();
+ 
++#ifdef __ANDROID__
++        if (CommandLine::has("--qa-draw-memory"))
++        {
++            GE::enableDrawMemoryProbe();
++            Log::info("main", "STK QA DRAW MEMORY V1 active");
++        }
++#endif
++
+         handleCmdLinePreliminary();
+ 
+         // ServerConfig will use stk_config for server version testing
+diff --git a/lib/graphics_engine/src/ge_vulkan_draw_call.cpp b/lib/graphics_engine/src/ge_vulkan_draw_call.cpp
+--- a/lib/graphics_engine/src/ge_vulkan_draw_call.cpp
++++ b/lib/graphics_engine/src/ge_vulkan_draw_call.cpp
+@@ -1616,14 +1616,15 @@
+         extra_size + getLightDataOffset() + sizeof(GEGlobalLightBuffer),
+         GEVulkanDriver::getMaxFrameInFlight() + 1,
+         GEVulkanDynamicBuffer::supportsHostTransfer() ? 0 :
+-        GEVulkanDriver::getMaxFrameInFlight() + 1);
++        GEVulkanDriver::getMaxFrameInFlight() + 1, true,
++        use_multidraw ? "draw_call.uniform_indirect" : "draw_call.uniform");
+ 
+     flags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+     // Using VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+     // will be a lot slower when there are many objects (like particles)
+     m_sbo_data = new GEVulkanDynamicBuffer(flags, getInitialSBOSize(),
+         GEVulkanDriver::getMaxFrameInFlight() + 1, 0,
+-        false/*enable_host_transfer*/);
++        false/*enable_host_transfer*/, "draw_call.storage");
+ }   // createVulkanData
+ 
+ // ----------------------------------------------------------------------------
+diff --git a/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.hpp b/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.hpp
+--- a/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.hpp
++++ b/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.hpp
+@@ -25,6 +25,8 @@
+ 
+     const bool m_enable_host_transfer;
+ 
++    const char* const m_qa_memory_role;
++
+     static int m_supports_host_transfer;
+     // ------------------------------------------------------------------------
+     void initHostBuffer(unsigned frame, bool with_transfer);
+@@ -37,7 +39,8 @@
+     GEVulkanDynamicBuffer(VkBufferUsageFlags usage, size_t initial_size,
+                           unsigned host_buffer_size,
+                           unsigned local_buffer_size,
+-                          bool enable_host_transfer = true);
++                          bool enable_host_transfer = true,
++                          const char* qa_memory_role = nullptr);
+     // ------------------------------------------------------------------------
+     ~GEVulkanDynamicBuffer();
+     // ------------------------------------------------------------------------
+diff --git a/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.cpp b/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.cpp
+--- a/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.cpp
++++ b/lib/graphics_engine/src/ge_vulkan_dynamic_buffer.cpp
+@@ -7,17 +7,84 @@
+ #include <vector>
+ #include <functional>
+ 
++#ifdef __ANDROID__
++#include <atomic>
++#include <cstdio>
++#include "../source/Irrlicht/os.h"
++#endif
++
+ namespace GE
+ {
++#ifdef __ANDROID__
++namespace
++{
++std::atomic<bool> memory_probe_enabled(false);
++std::atomic<unsigned> memory_probe_allocations(0);
++
++void logDrawMemory(GEVulkanDriver* vk, const char* role, const char* location,
++                   unsigned slot, VkBufferUsageFlags usage, VkDeviceSize bytes,
++                   const VmaAllocationCreateInfo& request, VkBuffer buffer,
++                   VmaAllocation allocation)
++{
++    if (!role || !memory_probe_enabled.load(std::memory_order_relaxed))
++        return;
++
++    VmaAllocator vma = vk->getVmaAllocator();
++    VmaAllocationInfo info = {};
++    vmaGetAllocationInfo(vma, allocation, &info);
++    const VkPhysicalDeviceMemoryProperties* properties = nullptr;
++    vmaGetMemoryProperties(vma, &properties);
++    VkMemoryRequirements requirements = {};
++    vkGetBufferMemoryRequirements(vk->getDevice(), buffer, &requirements);
++    if (info.memoryType >= properties->memoryTypeCount)
++    {
++        irr::os::Printer::log("STK QA DRAW MEMORY V1", "invalid_memory_type");
++        return;
++    }
++
++    const VkMemoryType type = properties->memoryTypes[info.memoryType];
++    char detail[544];
++    std::snprintf(detail, sizeof(detail),
++        "allocation=%u role=%s location=%s slot=%u usage=0x%08x requested_bytes=%llu "
++        "required_bytes=%llu required_alignment=%llu memory_type_bits=0x%08x "
++        "vma_allowed_bits=0x%08x vma_flags=0x%08x vma_usage=%u "
++        "vma_required_flags=0x%08x vma_preferred_flags=0x%08x "
++        "chosen_type=%u heap_index=%u heap_flags=0x%08x type_flags=0x%08x "
++        "allocated_bytes=%llu mapped=%u",
++        memory_probe_allocations.fetch_add(1, std::memory_order_relaxed),
++        role, location, slot, static_cast<unsigned>(usage),
++        static_cast<unsigned long long>(bytes),
++        static_cast<unsigned long long>(requirements.size),
++        static_cast<unsigned long long>(requirements.alignment),
++        static_cast<unsigned>(requirements.memoryTypeBits),
++        static_cast<unsigned>(request.memoryTypeBits),
++        static_cast<unsigned>(request.flags), static_cast<unsigned>(request.usage),
++        static_cast<unsigned>(request.requiredFlags), static_cast<unsigned>(request.preferredFlags),
++        static_cast<unsigned>(info.memoryType), static_cast<unsigned>(type.heapIndex),
++        static_cast<unsigned>(properties->memoryHeaps[type.heapIndex].flags),
++        static_cast<unsigned>(type.propertyFlags), static_cast<unsigned long long>(info.size),
++        info.pMappedData == nullptr ? 0u : 1u);
++    irr::os::Printer::log("STK QA DRAW MEMORY V1", detail);
++}
++}
++
++void enableDrawMemoryProbe()
++{
++    memory_probe_enabled.store(true, std::memory_order_relaxed);
++}
++#endif
++
+ int GEVulkanDynamicBuffer::m_supports_host_transfer = -1;
+ // ----------------------------------------------------------------------------
+ GEVulkanDynamicBuffer::GEVulkanDynamicBuffer(VkBufferUsageFlags usage,
+                                              size_t initial_size,
+                                              unsigned host_buffer_size,
+                                              unsigned local_buffer_size,
+-                                             bool enable_host_transfer)
++                                             bool enable_host_transfer,
++                                             const char* qa_memory_role)
+                      : m_usage(usage),
+-                       m_enable_host_transfer(enable_host_transfer)
++                       m_enable_host_transfer(enable_host_transfer),
++                       m_qa_memory_role(qa_memory_role)
+ {
+     m_size = m_real_size = initial_size;
+ 
+@@ -62,7 +129,8 @@
+         host_info.usage = VMA_MEMORY_USAGE_AUTO;
+     }
+ 
+-    if (!vk->createBuffer(m_size, m_usage | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
++    const VkBufferUsageFlags usage = m_usage | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
++    if (!vk->createBuffer(m_size, usage,
+         host_info, host_buffer, host_memory))
+     {
+         vmaDestroyBuffer(vk->getVmaAllocator(), host_buffer, host_memory);
+@@ -76,6 +144,10 @@
+             &prop);
+         if ((prop & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == 0)
+         {
++#ifdef __ANDROID__
++            logDrawMemory(vk, m_qa_memory_role, "host_probe_rejected", frame,
++                usage, m_size, host_info, host_buffer, host_memory);
++#endif
+             m_supports_host_transfer = 0;
+             vmaDestroyBuffer(vk->getVmaAllocator(), host_buffer, host_memory);
+             goto start;
+@@ -90,6 +162,10 @@
+     m_host_buffer[frame] = host_buffer;
+     m_host_memory[frame] = host_memory;
+     m_mapped_addr[frame] = info.pMappedData;
++#ifdef __ANDROID__
++    logDrawMemory(vk, m_qa_memory_role, with_transfer ? "host_direct" : "host_staging",
++        frame, usage, m_size, host_info, host_buffer, host_memory);
++#endif
+ }   // initHostBuffer
+ 
+ // ----------------------------------------------------------------------------
+@@ -112,6 +188,10 @@
+     }
+     m_local_buffer[frame] = local_buffer;
+     m_local_memory[frame] = local_memory;
++#ifdef __ANDROID__
++    logDrawMemory(vk, m_qa_memory_role, "local_device", frame,
++        flags, m_size, local_info, local_buffer, local_memory);
++#endif
+ }   // initLocalBuffer
+ 
+ // ----------------------------------------------------------------------------

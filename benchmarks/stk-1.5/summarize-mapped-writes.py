@@ -28,7 +28,7 @@ def summarize(raw):
             number, index, wall_ns, cpu_ns = map(int, (r, t, elapsed, cpu))
             key = (index, method, number)
             if (key in samples or index not in types or method not in ("memcpy", "scalar32") or
-                    not 0 <= number < rounds or min(wall_ns, cpu_ns) <= 0):
+                    not 0 <= number < rounds or wall_ns <= 0 or cpu_ns < 0):
                 raise ValueError("Duplicate or invalid timing sample")
             samples[key] = (wall_ns, cpu_ns)
         else:
@@ -43,7 +43,9 @@ def summarize(raw):
             elapsed, cpu = zip(*times, strict=True)
             target["methods"][method] = {
                 "elapsed_ns": elapsed, "thread_cpu_ns": cpu,
-                "median_elapsed_ms": median(elapsed) / 1e6, "median_thread_cpu_ms": median(cpu) / 1e6,
+                "median_elapsed_ms": median(elapsed) / 1e6,
+                "median_thread_cpu_ms": median(cpu) / 1e6 if all(cpu) else None,
+                "zero_thread_cpu_samples": cpu.count(0),
             }
         targets.append(target)
     return {"source_sha256": hashlib.sha256(raw).hexdigest(), "guest_renderer": renderer,
