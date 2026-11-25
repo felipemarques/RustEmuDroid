@@ -1,0 +1,40 @@
+meta	Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)	4318	0	65536	64	6	15	65536	16
+type	2	1	6
+type	3	1	14
+sample	0	-1	scalar32	307900	289823
+sample	0	-1	memcpy	113500	87200
+sample	0	2	memcpy	100600	52493
+sample	0	2	scalar32	299000	0
+sample	0	3	scalar32	320000	809463
+sample	0	3	memcpy	68900	57877
+sample	1	3	memcpy	87900	80438
+sample	1	3	scalar32	204000	200078
+sample	1	2	scalar32	281900	272922
+sample	1	2	memcpy	296700	84385
+sample	1	-1	memcpy	64500	58067
+sample	1	-1	scalar32	199600	190211
+sample	2	-1	scalar32	206900	198325
+sample	2	-1	memcpy	66000	57896
+sample	2	2	memcpy	63200	57766
+sample	2	2	scalar32	196300	190300
+sample	2	3	scalar32	204100	194338
+sample	2	3	memcpy	67000	58187
+sample	3	3	memcpy	63200	58287
+sample	3	3	scalar32	206200	192955
+sample	3	2	scalar32	328900	210688
+sample	3	2	memcpy	81100	65029
+sample	3	-1	memcpy	67500	58628
+sample	3	-1	scalar32	230600	221457
+sample	4	-1	scalar32	420900	409734
+sample	4	-1	memcpy	93900	87932
+sample	4	2	memcpy	89100	87060
+sample	4	2	scalar32	301500	285896
+sample	4	3	scalar32	272800	267092
+sample	4	3	memcpy	68600	58137
+sample	5	3	memcpy	72500	58097
+sample	5	3	scalar32	199600	190922
+sample	5	2	scalar32	274400	192013
+sample	5	2	memcpy	83100	78876
+sample	5	-1	memcpy	70300	58768
+sample	5	-1	scalar32	195300	194067
+complete
