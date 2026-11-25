@@ -4,6 +4,7 @@ import csv
 import io
 import json
 from pathlib import Path
+import re
 import subprocess
 import time
 import xml.etree.ElementTree as ET
@@ -17,6 +18,10 @@ QA_PACKAGE = "org.rustemudroid.qa.stkvulkan"
 QA_DIRECTORY = f"/sdcard/Android/data/{QA_PACKAGE}/files/stk-vulkan-qa/home/supertuxkart/config-0.10"
 FRAME_TOTALS_OPTION = "--qa-frame-totals-only"
 FRAME_TOTALS_MARKER = "STK_QA_FRAME_TOTALS_ONLY active"
+DRAW_ALL_OPTION = "--qa-draw-all"
+DRAW_ALL_MARKER = "STK_QA_DRAW_ALL_V1 active"
+DRAW_ALL_PHASES = ("update_cache", "find_camera", "on_animate", "camera_draw_call",
+                   "prepare", "on_register_scene_node", "generate")
 
 VIDEO = dict(width="1600", height="900", real_width="1600", real_height="900",
              fullscreen="true", render_driver="opengl", max_fps="60", scale_rtts_factor="1.000000",
@@ -62,11 +67,70 @@ def frame_totals_pending(timings, frames, duration):
     return None
 
 
+def draw_all_coverage(timings, measured, frames, duration_ms, terminal_rows):
+    if not timings.startswith(b"#") or not measured.endswith(b"\n"):
+        raise ValueError("Incomplete CPU or QA drawAll CSV")
+    profile = csv.reader(io.StringIO(timings[1:].decode("utf-8")), skipinitialspace=True)
+    header = [re.sub(r"\(\d+\)$", "", field.strip()) for field in next(profile, [])]
+    if header.count("Main loop") != 1 or header.count("drawAll() for kart 0") != 1:
+        raise ValueError("Expected Main loop and kart 0 drawAll scopes in the CPU CSV")
+    main, draw = header.index("Main loop"), header.index("drawAll() for kart 0")
+    probes = csv.DictReader(io.StringIO(measured.decode("utf-8")))
+    phases = [(f"{phase}_elapsed_ns", f"{phase}_cpu_ns") for phase in DRAW_ALL_PHASES]
+    expected = ["profiler_row", "slot", "status", "mask",
+                *(field for fields in phases for field in fields), "total_elapsed_ns", "total_cpu_ns"]
+    if probes.fieldnames != expected:
+        raise ValueError("Unexpected QA drawAll CSV heading")
+    complete_mask = (1 << len(phases)) - 1
+    counts = dict(complete=0, not_called=0, partial=0, clock_error=0)
+    profiled = scene_frames = rows = total_us = 0
+    for index, (cpu, probe) in enumerate(zip(profile, probes, strict=True)):
+        if len(cpu) != len(header) or None in probe:
+            raise ValueError("CPU or QA drawAll row differs from its heading")
+        if int(probe["profiler_row"]) != index or int(probe["slot"]) < 0:
+            raise ValueError("QA drawAll rows do not match the profiler order")
+        status, mask = probe["status"], int(probe["mask"])
+        if status not in counts or not 0 <= mask <= complete_mask:
+            raise ValueError("Unexpected QA drawAll sample status or bitmask")
+        if (status == "complete") != (mask == complete_mask) or (status == "not_called" and mask):
+            raise ValueError("QA drawAll status disagrees with its phase mask")
+        total = [0, 0]
+        for bit, fields in enumerate(phases):
+            values = [probe[field] for field in fields]
+            if mask & (1 << bit):
+                durations = [int(value) for value in values]
+                if min(durations) < 0:
+                    raise ValueError("Negative QA drawAll duration")
+                total = [a + b for a, b in zip(total, durations)]
+            elif values != ["", ""]:
+                raise ValueError("Unmeasured QA drawAll phase has a duration")
+        exported = [probe["total_elapsed_ns"], probe["total_cpu_ns"]]
+        if exported != ([str(value) for value in total] if status == "complete" else ["", ""]):
+            raise ValueError("QA drawAll totals disagree with their measured phases")
+        rows += 1
+        elapsed_us = int(cpu[main])
+        if elapsed_us > 0:
+            profiled += 1
+            total_us += elapsed_us
+            if int(cpu[draw]) > 0:
+                scene_frames += 1
+                counts[status] += 1
+    if rows != terminal_rows or profiled != frames or total_us // 1000 != duration_ms:
+        raise ValueError(f"QA drawAll rows disagree with terminal/report: "
+                         f"{rows}/{terminal_rows} rows, {profiled}/{frames} frames, {total_us // 1000}/{duration_ms} ms")
+    if not counts["complete"]:
+        raise ValueError("No complete QA drawAll sample overlaps a timed kart 0 draw")
+    return dict(rows=rows, positive_main_frames=profiled, positive_draw_frames=scene_frames, **counts)
+
+
 def replay(args, name, serial, preset, dest, *, fps_limit=None, game_vsync=True):
     standalone_qa = getattr(args, "standalone_vulkan_qa", False)
     frame_totals_only = getattr(args, "qa_frame_totals_only", False)
+    draw_all = getattr(args, "qa_draw_all", False)
     if frame_totals_only and not standalone_qa:
         raise ValueError(f"{FRAME_TOTALS_OPTION} requires --standalone-vulkan-qa")
+    if draw_all and (not standalone_qa or frame_totals_only or preset not in ("vulkan", "high-vulkan")):
+        raise ValueError(f"{DRAW_ALL_OPTION} requires standalone QA, Vulkan and the detailed CPU profiler")
     if name == "BlueStacks":
         if not run(args, serial, "shell", "getprop", "init.svc.bstsvcmgrtest").strip():
             raise RuntimeError(f"Expected BlueStacks on {serial}")
@@ -104,21 +168,25 @@ def replay(args, name, serial, preset, dest, *, fps_limit=None, game_vsync=True)
                            "shadows_resolution": "1024", "Degraded_IBL": "false"})
     if preset in ("vulkan", "high-vulkan"):
         video.set("render_driver", "vulkan")
-    benchmark = f"--benchmark {FRAME_TOTALS_OPTION}" if frame_totals_only else "--benchmark"
+    benchmark = "--benchmark"
+    if frame_totals_only or draw_all:
+        benchmark += " " + (FRAME_TOTALS_OPTION if frame_totals_only else DRAW_ALL_OPTION)
     tree.find("commandline").set("value", benchmark)
     config = dest / "benchmark.xml"
     tree.write(config, encoding="utf-8", xml_declaration=True)
     try:
         run(args, serial, "push", str(config), config_path)
-        if frame_totals_only or not game_vsync:
+        if frame_totals_only or draw_all or not game_vsync:
             if run(args, serial, "exec-out", "cat", config_path) != config.read_bytes():
-                mode = "QA frame-totals-only" if frame_totals_only else "VSync-off"
+                mode = "QA frame-totals-only" if frame_totals_only else "QA drawAll" if draw_all else "VSync-off"
                 raise RuntimeError(f"Could not verify the {mode} game configuration on {name}")
         def stamp(path):
             return run(args, serial, "shell", "stat", "-c", "%s:%Y", path, check=False).strip()
 
         before = stamp(report)
         before_timings = stamp(timings_path)
+        draw_path = f"{directory}/stdout.log.qa-draw-all-black_forest.csv"
+        before_draw = stamp(draw_path) if draw_all else b""
         last_read = "waiting for fresh profiler files"
         start = time.time()
         activity = f"{package}/.SuperTuxKartActivity"
@@ -161,12 +229,30 @@ def replay(args, name, serial, preset, dest, *, fps_limit=None, game_vsync=True)
                         last_read = pending
                         continue
                     (dest / "renderer.txt").write_text("\n".join([*driver, mode_marker]) + "\n", encoding="utf-8")
+                if draw_all:
+                    lines = log.splitlines()
+                    activation = [line for line in lines if line.rstrip().endswith(DRAW_ALL_MARKER)]
+                    if len(activation) != 1:
+                        raise ValueError(f"Expected one {DRAW_ALL_MARKER} on {name}")
+                    terminal = [line for line in lines if re.search(r"STK_QA_DRAW_ALL_V1 end rows=\d+\s*$", line)]
+                    draw_stamp = stamp(draw_path)
+                    if not terminal or not draw_stamp or draw_stamp == before_draw:
+                        last_read = "waiting for a fresh drawAll CSV and terminal marker"
+                        continue
+                    if len(terminal) != 1:
+                        raise ValueError("Expected one terminal QA drawAll marker")
+                    measured = run(args, serial, "exec-out", "cat", draw_path)
+                    (dest / "draw-all.csv").write_bytes(measured)
+                    (dest / "renderer.txt").write_text("\n".join([*driver, *activation, *terminal]) + "\n",
+                                                       encoding="utf-8")
                 (dest / "quadros.csv").write_bytes(timings)
                 (dest / "report.csv").write_bytes(data)
+                extra = {"draw_all_coverage": draw_all_coverage(timings, measured, frames, duration,
+                                                               int(terminal[0].rsplit("=", 1)[1]))} if draw_all else {}
                 return dict(engine=name, abi=abi, preset=preset, start=start, end=time.time(),
                             frames=frames, duration_ms=duration, fps=frames*1000/duration,
                             mostly_stable=int(rows[4][1]), settings=settings,
-                            configured_max_fps=int(video.get("max_fps")), game_vsync=game_vsync)
+                            configured_max_fps=int(video.get("max_fps")), game_vsync=game_vsync, **extra)
         raise TimeoutError(f"No new complete performance report on {name}: {last_read}")
     finally:
         run(args, serial, "shell", "am", "force-stop", package)
@@ -192,11 +278,16 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--standalone-vulkan-qa", action="store_true",
                    help="Use the separate STK Vulkan QA package and its own configuration")
-    p.add_argument(FRAME_TOTALS_OPTION, action="store_true",
-                   help="Measure only main-loop frame totals in the standalone QA package")
+    qa_modes = p.add_mutually_exclusive_group()
+    qa_modes.add_argument(FRAME_TOTALS_OPTION, action="store_true",
+                          help="Measure only main-loop frame totals in the standalone QA package")
+    qa_modes.add_argument(DRAW_ALL_OPTION, action="store_true",
+                          help="Collect elapsed and thread CPU time for Vulkan drawAll phases in the standalone QA package")
     args = p.parse_args()
     if args.qa_frame_totals_only and not args.standalone_vulkan_qa:
         p.error(f"{FRAME_TOTALS_OPTION} requires --standalone-vulkan-qa")
+    if args.qa_draw_all and (not args.standalone_vulkan_qa or not set(args.presets) <= {"vulkan", "high-vulkan"}):
+        p.error(f"{DRAW_ALL_OPTION} requires --standalone-vulkan-qa and Vulkan presets")
     engines = [(name, serial) for name, serial in
                [("Kemu", args.kemu), ("RustEmuDroid", args.rust), ("BlueStacks", args.bluestacks)]
                if serial]

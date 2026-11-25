@@ -1,0 +1,387 @@
+--- a/lib/graphics_engine/src/ge_vulkan_scene_manager.cpp
++++ b/lib/graphics_engine/src/ge_vulkan_scene_manager.cpp
+@@ -20,4 +20,7 @@
+ #include "ILightSceneNode.h"
+ #include <sstream>
++#ifdef __ANDROID__
++#include "../../../src/utils/qa_draw_all.hpp"
++#endif
+ 
+ namespace GE
+@@ -157,5 +160,12 @@
+ void GEVulkanSceneManager::drawAllInternal()
+ {
++#ifdef __ANDROID__
++    StkQaDrawAll::Measurement qa(StkQaDrawAll::enabled ? StkQaDrawAll::armed_slot : -1);
++#endif
+     static_cast<GEVulkanMeshCache*>(getMeshCache())->updateCache();
++#ifdef __ANDROID__
++    if (qa)
++        qa.endPhase(StkQaDrawAll::Phase::UpdateCache);
++#endif
+     GEVulkanCameraSceneNode* cam = NULL;
+     if (getActiveCamera())
+@@ -164,15 +174,39 @@
+             GEVulkanCameraSceneNode*>(getActiveCamera());
+     }
++#ifdef __ANDROID__
++    if (qa)
++        qa.endPhase(StkQaDrawAll::Phase::FindCamera);
++#endif
+     OnAnimate(os::Timer::getTime());
++#ifdef __ANDROID__
++    if (qa)
++        qa.endPhase(StkQaDrawAll::Phase::OnAnimate);
++#endif
+     if (cam)
+     {
+         cam->render();
+         auto it = m_draw_calls.find(cam);
++#ifdef __ANDROID__
++        if (qa)
++            qa.endPhase(StkQaDrawAll::Phase::RenderCameraAndFindDrawCall);
++#endif
+         if (it == m_draw_calls.end())
+             return;
+ 
+         it->second->prepare(cam);
++#ifdef __ANDROID__
++        if (qa)
++            qa.endPhase(StkQaDrawAll::Phase::Prepare);
++#endif
+         OnRegisterSceneNode();
++#ifdef __ANDROID__
++        if (qa)
++            qa.endPhase(StkQaDrawAll::Phase::OnRegisterSceneNode);
++#endif
+         it->second->generate(static_cast<GEVulkanDriver*>(getVideoDriver()));
++#ifdef __ANDROID__
++        if (qa)
++            qa.endPhase(StkQaDrawAll::Phase::Generate);
++#endif
+     }
+ }   // drawAllInternal
+--- a/src/graphics/fixed_pipeline_renderer.cpp
++++ b/src/graphics/fixed_pipeline_renderer.cpp
+@@ -25,4 +25,7 @@
+ #include "physics/physics.hpp"
+ #include "utils/profiler.hpp"
++#ifdef __ANDROID__
++#include "utils/qa_draw_all.hpp"
++#endif
+ 
+ #include <ISceneManager.h>
+@@ -64,5 +67,13 @@
+         rg->preRenderCallback(camera);   // adjusts start referee
+ 
++#ifdef __ANDROID__
++        {
++            const int slot = StkQaDrawAll::enabled && i == 0 ? profiler.qaDrawAllSlot() : -1;
++            const StkQaDrawAll::Call qa_call(slot);
++            irr_driver->getSceneManager()->drawAll();
++        }
++#else
+         irr_driver->getSceneManager()->drawAll();
++#endif
+ 
+         PROFILER_POP_CPU_MARKER();
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -289,4 +289,7 @@
+ #include "mini_glm.hpp"
+ #include "utils/profiler.hpp"
++#ifdef __ANDROID__
++#include "utils/qa_draw_all.hpp"
++#endif
+ #include "utils/stk_process.hpp"
+ #include "utils/string_utils.hpp"
+@@ -1752,4 +1755,11 @@
+         UserConfigParams::m_no_start_screen = true;
+         UserConfigParams::m_benchmark = true;
++#ifdef __ANDROID__
++        if (CommandLine::has("--qa-draw-all"))
++        {
++            StkQaDrawAll::enabled = true;
++            Log::info("Profiler", "STK_QA_DRAW_ALL_V1 active");
++        }
++#endif
+     }   // --benchmark
+     
+--- a/src/utils/profiler.cpp
++++ b/src/utils/profiler.cpp
+@@ -17,4 +17,7 @@
+ 
+ #include "profiler.hpp"
++#ifdef __ANDROID__
++#include "utils/qa_draw_all.hpp"
++#endif
+ 
+ #include "config/user_config.hpp"
+@@ -238,4 +241,8 @@
+         reset();
+ 
++#ifdef __ANDROID__
++    if (StkQaDrawAll::enabled && !UserConfigParams::m_profiler_enabled)
++        StkQaDrawAll::reset(m_max_frames);
++#endif
+     UserConfigParams::m_profiler_enabled = true;
+ 
+@@ -313,4 +320,8 @@
+     }   // is has wrapped around
+ 
++#ifdef __ANDROID__
++    if (StkQaDrawAll::enabled)
++        StkQaDrawAll::clearSlot(next_frame);
++#endif
+     m_current_frame = next_frame;
+ 
+@@ -689,4 +700,12 @@
+  *  stdout name (with -profile appended).
+  */
++#ifdef __ANDROID__
++int Profiler::qaDrawAllSlot() const
++{
++    return StkQaDrawAll::enabled && UserConfigParams::m_profiler_enabled &&
++           m_freeze_state == UNFROZEN ? m_current_frame : -1;
++}
++#endif
++
+ void Profiler::writeToFile()
+ {
+@@ -758,4 +777,16 @@
+     f.close();
+ 
++#ifdef __ANDROID__
++    std::ofstream draw_all_report;
++    if (StkQaDrawAll::enabled)
++    {
++        draw_all_report.open(FileUtils::getPortableWritingPath(base_name +
++            ".qa-draw-all-" + (Track::getCurrentTrack() != NULL ?
++                Track::getCurrentTrack()->getIdent() : "menu") + ".csv"));
++        StkQaDrawAll::writeHeader(draw_all_report);
++    }
++    std::size_t draw_all_row = 0;
++#endif
++
+     // 2: Save per-thread CPU data
+     for (int thread_id = 0; thread_id < m_threads_used; thread_id++)
+@@ -773,4 +804,8 @@
+         while (start != m_current_frame)
+         {
++#ifdef __ANDROID__
++            if (thread_id == 0 && draw_all_report.is_open())
++                StkQaDrawAll::writeRow(draw_all_report, draw_all_row++, start);
++#endif
+             for (unsigned int i = 0; i < td.m_ordered_headings.size(); i++)
+             {
+@@ -785,4 +820,15 @@
+ 
+ 
++#ifdef __ANDROID__
++    if (StkQaDrawAll::enabled)
++    {
++        draw_all_report.close();
++        if (draw_all_report && draw_all_row != 0)
++            Log::info("Profiler", "STK_QA_DRAW_ALL_V1 end rows=%zu", draw_all_row);
++        else
++            Log::warn("Profiler", "STK_QA_DRAW_ALL_V1 export failed");
++    }
++#endif
++
+     // 3: Save GPU data
+     std::ofstream f_gpu(FileUtils::getPortableWritingPath(base_name + ".profile-"
+--- a/src/utils/profiler.hpp
++++ b/src/utils/profiler.hpp
+@@ -325,4 +325,7 @@
+     void     startBenchmark();
+     void     writeToFile();
++#ifdef __ANDROID__
++    int      qaDrawAllSlot() const;
++#endif
+ 
+     // ------------------------------------------------------------------------
+--- /dev/null
++++ b/src/utils/qa_draw_all.hpp
+@@ -0,0 +1,55 @@
++#ifndef STK_QA_DRAW_ALL_HPP
++#define STK_QA_DRAW_ALL_HPP
++
++#include <cstddef>
++#include <cstdint>
++#include <iosfwd>
++
++namespace StkQaDrawAll
++{
++    extern bool enabled;
++    extern thread_local int armed_slot;
++    enum class Phase : unsigned
++    {
++        UpdateCache, FindCamera, OnAnimate, RenderCameraAndFindDrawCall,
++        Prepare, OnRegisterSceneNode, Generate, Count
++    };
++
++    struct Stamp { std::int64_t elapsed_ns, cpu_ns; };
++    struct Sample;
++
++    void reset(int capacity);
++    void clearSlot(int slot);
++    void writeHeader(std::ostream& out);
++    void writeRow(std::ostream& out, std::size_t row, int slot);
++
++    // Arms just the next drawAllInternal on the current thread.
++    class Call
++    {
++        const int m_slot;
++    public:
++        explicit Call(int slot) : m_slot(slot)
++        {
++            if (m_slot >= 0)
++                armed_slot = m_slot;
++        }
++        ~Call()
++        {
++            if (m_slot >= 0)
++                armed_slot = -1;
++        }
++        Call(const Call&) = delete;
++        Call& operator=(const Call&) = delete;
++    };
++
++    class Measurement
++    {
++        Sample* m_sample = nullptr;
++        Stamp m_previous{};
++    public:
++        explicit Measurement(int slot);
++        explicit operator bool() const { return m_sample != nullptr; }
++        void endPhase(Phase phase);
++    };
++}
++#endif
+--- /dev/null
++++ b/src/utils/qa_draw_all.cpp
+@@ -0,0 +1,124 @@
++#ifdef __ANDROID__
++#include "utils/qa_draw_all.hpp"
++
++#include <ostream>
++#include <time.h>
++#include <vector>
++
++namespace StkQaDrawAll
++{
++    constexpr unsigned PHASES = static_cast<unsigned>(Phase::Count);
++    constexpr unsigned COMPLETE = (1u << PHASES) - 1;
++
++    struct Sample
++    {
++        bool called = false;
++        bool clock_error = false;
++        unsigned mask = 0;
++        Stamp phase[PHASES]{};
++    };
++
++    bool enabled = false;
++    static std::vector<Sample> samples;
++    thread_local int armed_slot = -1;
++
++    static std::int64_t ns(const timespec& time)
++    {
++        return static_cast<std::int64_t>(time.tv_sec) * 1000000000 + time.tv_nsec;
++    }
++
++    static bool readClocks(Stamp& stamp)
++    {
++        timespec elapsed, cpu;
++        if (clock_gettime(CLOCK_MONOTONIC, &elapsed) != 0 ||
++            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu) != 0)
++            return false;
++        stamp = {ns(elapsed), ns(cpu)};
++        return true;
++    }
++
++    void reset(int capacity)
++    {
++        samples.assign(capacity, Sample{});
++    }
++
++    void clearSlot(int slot)
++    {
++        if (!samples.empty())
++            samples[slot] = Sample{};
++    }
++
++    Measurement::Measurement(int slot)
++    {
++        if (slot < 0)
++            return;
++        armed_slot = -1;
++        if (static_cast<std::size_t>(slot) >= samples.size())
++            return;
++        m_sample = &samples[slot];
++        m_sample->called = true;
++        if (!readClocks(m_previous))
++        {
++            m_sample->clock_error = true;
++            m_sample = nullptr;
++        }
++    }
++
++    void Measurement::endPhase(Phase phase)
++    {
++        if (!m_sample)
++            return;
++        Stamp next;
++        if (!readClocks(next) || next.elapsed_ns < m_previous.elapsed_ns ||
++            next.cpu_ns < m_previous.cpu_ns)
++        {
++            m_sample->clock_error = true;
++            m_sample = nullptr;
++            return;
++        }
++        const unsigned index = static_cast<unsigned>(phase);
++        m_sample->phase[index] = {next.elapsed_ns - m_previous.elapsed_ns,
++                                  next.cpu_ns - m_previous.cpu_ns};
++        m_sample->mask |= 1u << index;
++        m_previous = next;
++    }
++
++    void writeHeader(std::ostream& out)
++    {
++        out << "profiler_row,slot,status,mask,"
++            << "update_cache_elapsed_ns,update_cache_cpu_ns,find_camera_elapsed_ns,find_camera_cpu_ns,"
++            << "on_animate_elapsed_ns,on_animate_cpu_ns,camera_draw_call_elapsed_ns,camera_draw_call_cpu_ns,"
++            << "prepare_elapsed_ns,prepare_cpu_ns,on_register_scene_node_elapsed_ns,on_register_scene_node_cpu_ns,"
++            << "generate_elapsed_ns,generate_cpu_ns,total_elapsed_ns,total_cpu_ns\n";
++    }
++
++    void writeRow(std::ostream& out, std::size_t row, int slot)
++    {
++        const Sample empty{};
++        const Sample& data = static_cast<std::size_t>(slot) < samples.size()
++                           ? samples[slot] : empty;
++        out << row << ',' << slot << ','
++            << (!data.called ? "not_called" : data.clock_error ? "clock_error"
++                             : data.mask == COMPLETE ? "complete" : "partial")
++            << ',' << data.mask;
++        Stamp total{};
++        for (unsigned i = 0; i < PHASES; ++i)
++        {
++            if ((data.mask & (1u << i)) == 0)
++                out << ",,";
++            else
++            {
++                const Stamp p = data.phase[i];
++                out << ',' << p.elapsed_ns << ',' << p.cpu_ns;
++                total.elapsed_ns += p.elapsed_ns;
++                total.cpu_ns += p.cpu_ns;
++            }
++        }
++        if (data.mask == COMPLETE && !data.clock_error)
++            out << ',' << total.elapsed_ns << ',' << total.cpu_ns;
++        else
++            out << ",,";
++        out << '\n';
++    }
++}
++#endif
