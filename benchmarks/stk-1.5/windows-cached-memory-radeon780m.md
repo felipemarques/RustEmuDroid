@@ -13,10 +13,12 @@ Across the two runs per condition, the Android game surface went from **83.76 to
 
 ## Which GPU did the work?
 
-Every guest reported the Radeon 780M through gfxstream. On Windows, the QEMU process accumulated 3D engine time on the Radeon in every run and zero on the other adapter during each measurement. Both conditions used Vulkan FIFO and enabled the engine's shared-memory path with `-feature -VulkanAllocateDeviceMemoryOnly`. The WHPX clock correction was off in all four runs. The two controls therefore measure the effect of toggling the cache with this same shared-memory configuration.
+Every guest reported the Radeon 780M through gfxstream. Across each boot's probe, warm-up and replay, Windows recorded QEMU 3D engine time on the Radeon and zero on the other adapter. These counters identify the adapter over that whole period. Both conditions used Vulkan FIFO and enabled the engine's shared-memory path with `-feature -VulkanAllocateDeviceMemoryOnly`. The WHPX clock correction was off in all four runs.
 
 In a separate mapped-write probe within each boot, 4 MiB of scalar writes to guest type 1 (heap 1, property flags 0x6) took a median **105.43 and 121.68 ms** with the cache off and **0.258 and 0.281 ms** with it on. The probe exposed three eligible Vulkan memory types with caching off and six with it on. The run records include the complete probe output. Allocation tracing identified the kart's actual storage-buffer type on the RTX. The Radeon data here identify the synthetic probe's type only. [RTX allocation tracing](windows-vulkan-mapped-writes.md)
 
 ## How this fits the earlier comparison
+
+At the same 90 Hz target on this Radeon, original Kemu Qt reached **90.02 game FPS** and official BlueStacks Pie64 **89.72** with the same x86-64 APK, resolution, preset and Vulkan FIFO mode. Each completed two timed replays. The Android images, host viewports and sampling windows differed. [All three players on the Radeon 780M](windows-current-three-players-radeon780m.md)
 
 In the earlier **60 FPS, OpenGL ES** test on this Radeon, RustEmuDroid scored **55.49**, Kemu **59.87** and BlueStacks **59.99**. The 90 Hz Rust figures above use a different renderer, guest and target. The v0.22.0 Windows client can select the experimental engine per Android profile. The four measured replays used the v0.21.1 client. [Earlier three-player Radeon measurements](radeon-780m/README.md) · [Windows engine selection](../../docs/releases/v0.22.0.md)

@@ -1,0 +1,349 @@
+{
+  "experiment_date_utc": "2026-11-25",
+  "game": "SuperTuxKart 1.5",
+  "scene": "Black Forest native benchmark replay",
+  "apk_sha256": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e",
+  "apk_abi": "x86_64",
+  "preset": "High Vulkan",
+  "guest_resolution": [
+    1600,
+    900
+  ],
+  "guest_vcpus": 4,
+  "guest_hz": 90,
+  "vulkan_present_mode": "FIFO",
+  "configured_max_fps": 90,
+  "vsync": true,
+  "host_gpu": "AMD Radeon 780M Graphics",
+  "graphics_fields": {
+    "Resolution width": "1600",
+    "Resolution height": "900",
+    "Render resolution": "1",
+    "Dynamic lighting": "1",
+    "Particle effects": "2",
+    "Animated characters": "1",
+    "Geometry Detail": "4",
+    "Bloom": "1",
+    "Glow": "1",
+    "Light Shaft": "1",
+    "Anti-Aliasing (MLAA)": "0",
+    "SSAO": "1",
+    "Anisotropic Filtering": "16",
+    "Shadow Resolution": "1024",
+    "Light scattering": "0",
+    "Degraded IBL": "0",
+    "Motion Blur": "0",
+    "Depth of Field": "0",
+    "Texture compression": "1",
+    "HD Textures": "0",
+    "HQ Mipmap": "0"
+  },
+  "players": [
+    {
+      "player": "Kemu Qt",
+      "version": "0.7.1",
+      "android": "Android 16",
+      "guest_density_dpi": 320,
+      "host_renderer_pixels": [
+        1280,
+        720
+      ],
+      "host_output": {
+        "display_adapter": "AMD Radeon 780M Graphics",
+        "mode_pixels": [
+          1920,
+          1080
+        ],
+        "nominal_refresh_hz": 100
+      },
+      "sample_earliest_start_seconds": 12,
+      "wddm": {
+        "process_role": "qemu",
+        "adapter": "AMD Radeon 780M Graphics",
+        "vendor_id": "0x1002",
+        "device_id": "0x1900",
+        "radeon_3d_engine_running_time_100ns": 612167123,
+        "other_3d_engine_running_time_100ns": 0,
+        "observed_radeon_3d_engines": 1,
+        "observed_other_3d_engines": 2,
+        "scope": "Scoped process counter delta across warm-up and both laps, for adapter attribution"
+      },
+      "runs": [
+        {
+          "game": {
+            "frames": 3433,
+            "duration_ms": 38137,
+            "fps": 90.017568240816
+          },
+          "android_surfaceview": {
+            "duration_s": 20.0194291,
+            "presentations": 1803,
+            "presentations_per_second": 90.06250832597419,
+            "p99_interval_ms": 12.778357,
+            "max_interval_ms": 14.326957,
+            "intervals_over_250_ms": 0
+          },
+          "panel": null,
+          "vulkan_renderer": "Adreno (TM) 830",
+          "vulkan_version": "1.3.0",
+          "vulkan_driver": "512.849.1",
+          "source_hashes": {
+            "stk_report_csv_sha256": "7070b0383af7fdd14a7b4e5ca6f65aebd62499925755b140a6b16153a1e16aad",
+            "stk_frame_trace_sha256": "11ae9110b8d58724de574500f13833270aa31384aae671cbb7cade4ba1042107"
+          },
+          "lap": 1,
+          "graphics_fields": {
+            "Resolution width": "1600",
+            "Resolution height": "900",
+            "Render resolution": "1",
+            "Dynamic lighting": "1",
+            "Particle effects": "2",
+            "Animated characters": "1",
+            "Geometry Detail": "4",
+            "Bloom": "1",
+            "Glow": "1",
+            "Light Shaft": "1",
+            "Anti-Aliasing (MLAA)": "0",
+            "SSAO": "1",
+            "Anisotropic Filtering": "16",
+            "Shadow Resolution": "1024",
+            "Light scattering": "0",
+            "Degraded IBL": "0",
+            "Motion Blur": "0",
+            "Depth of Field": "0",
+            "Texture compression": "1",
+            "HD Textures": "0",
+            "HQ Mipmap": "0"
+          },
+          "game_frames_above_1_5_periods": 1,
+          "android_intervals": 1802,
+          "android_intervals_above_1_5_periods": 0
+        },
+        {
+          "game": {
+            "frames": 3433,
+            "duration_ms": 38136,
+            "fps": 90.01992867631634
+          },
+          "android_surfaceview": {
+            "duration_s": 20.0309294,
+            "presentations": 1805,
+            "presentations_per_second": 90.11064658837049,
+            "p99_interval_ms": 13.016368,
+            "max_interval_ms": 14.587179,
+            "intervals_over_250_ms": 0
+          },
+          "panel": null,
+          "vulkan_renderer": "Adreno (TM) 830",
+          "vulkan_version": "1.3.0",
+          "vulkan_driver": "512.849.1",
+          "source_hashes": {
+            "stk_report_csv_sha256": "871271d31c3e8f7bcb727a4a4423aa43a2ad6a0cdcd02836181acd69328fe024",
+            "stk_frame_trace_sha256": "77b332fbd38376f739d9ae0a5c430cdbe2c5e2fbf74853ea62a9591cd1693ac9"
+          },
+          "lap": 2,
+          "graphics_fields": {
+            "Resolution width": "1600",
+            "Resolution height": "900",
+            "Render resolution": "1",
+            "Dynamic lighting": "1",
+            "Particle effects": "2",
+            "Animated characters": "1",
+            "Geometry Detail": "4",
+            "Bloom": "1",
+            "Glow": "1",
+            "Light Shaft": "1",
+            "Anti-Aliasing (MLAA)": "0",
+            "SSAO": "1",
+            "Anisotropic Filtering": "16",
+            "Shadow Resolution": "1024",
+            "Light scattering": "0",
+            "Degraded IBL": "0",
+            "Motion Blur": "0",
+            "Depth of Field": "0",
+            "Texture compression": "1",
+            "HD Textures": "0",
+            "HQ Mipmap": "0"
+          },
+          "game_frames_above_1_5_periods": 1,
+          "android_intervals": 1804,
+          "android_intervals_above_1_5_periods": 0
+        }
+      ],
+      "pooled": {
+        "game_fps": 90.01874844309258,
+        "android_surfaceview_per_s": 90.08658436852693,
+        "android_surfaceview_replays": 2,
+        "rust_panel_processed_frames_per_s": null
+      },
+      "cleanup_verified": true,
+      "exe_sha256": "e5052772b1e1ec19e60d59d9d48588f62712a62f8f0c7ef08f4a189260cd978a",
+      "qemu_sha256": "9b6dd661855a65266fb8982cdea913fb189f9e967821cb621f51b85fd96ad3ea"
+    },
+    {
+      "player": "BlueStacks 5",
+      "version": "5.22.166.1003",
+      "android": "Android 9 Pie64 QA clone",
+      "guest_density_dpi": 240,
+      "host_renderer_pixels": [
+        1600,
+        900
+      ],
+      "host_output": {
+        "display_adapter": "AMD Radeon 780M Graphics",
+        "mode_pixels": [
+          1920,
+          1080
+        ],
+        "nominal_refresh_hz": 100
+      },
+      "sample_earliest_start_seconds": 26,
+      "wddm": {
+        "process_role": "HD-Player",
+        "adapter": "AMD Radeon 780M Graphics",
+        "vendor_id": "0x1002",
+        "device_id": "0x1900",
+        "radeon_3d_engine_running_time_100ns": 441040282,
+        "other_3d_engine_running_time_100ns": 0,
+        "observed_radeon_3d_engines": 1,
+        "observed_other_3d_engines": 2,
+        "scope": "Scoped process counter delta across warm-up and both laps, for adapter attribution"
+      },
+      "runs": [
+        {
+          "game": {
+            "frames": 3421,
+            "duration_ms": 38136,
+            "fps": 89.70526536605831
+          },
+          "android_surfaceview": {
+            "duration_s": 20.01943475,
+            "presentations": 1793,
+            "presentations_per_second": 89.56296830508664,
+            "p99_interval_ms": 11.111111,
+            "max_interval_ms": 22.222222,
+            "intervals_over_250_ms": 0
+          },
+          "panel": null,
+          "vulkan_renderer": "AMD Radeon 780M Graphics",
+          "vulkan_version": "1.3.0",
+          "vulkan_driver": "2.0.416",
+          "source_hashes": {
+            "stk_report_csv_sha256": "56fc17960cda724fc341da7baba8199ad397a3ca8abea0fb49fcc7c17ce336e0",
+            "stk_frame_trace_sha256": "5b45dcc695a2167564254af6150d1d4bd002578c78760c14809fb72bb55a3ce3"
+          },
+          "lap": 1,
+          "graphics_fields": {
+            "Resolution width": "1600",
+            "Resolution height": "900",
+            "Render resolution": "1",
+            "Dynamic lighting": "1",
+            "Particle effects": "2",
+            "Animated characters": "1",
+            "Geometry Detail": "4",
+            "Bloom": "1",
+            "Glow": "1",
+            "Light Shaft": "1",
+            "Anti-Aliasing (MLAA)": "0",
+            "SSAO": "1",
+            "Anisotropic Filtering": "16",
+            "Shadow Resolution": "1024",
+            "Light scattering": "0",
+            "Degraded IBL": "0",
+            "Motion Blur": "0",
+            "Depth of Field": "0",
+            "Texture compression": "1",
+            "HD Textures": "0",
+            "HQ Mipmap": "0"
+          },
+          "game_frames_above_1_5_periods": 2,
+          "android_intervals": 1792,
+          "android_intervals_above_1_5_periods": 9
+        },
+        {
+          "game": {
+            "frames": 3422,
+            "duration_ms": 38137,
+            "fps": 89.72913443637412
+          },
+          "android_surfaceview": {
+            "duration_s": 20.0178854,
+            "presentations": 1802,
+            "presentations_per_second": 90.01949826328809,
+            "p99_interval_ms": 11.111111,
+            "max_interval_ms": 11.111111,
+            "intervals_over_250_ms": 0
+          },
+          "panel": null,
+          "vulkan_renderer": "AMD Radeon 780M Graphics",
+          "vulkan_version": "1.3.0",
+          "vulkan_driver": "2.0.416",
+          "source_hashes": {
+            "stk_report_csv_sha256": "a233dda8646a563786b37c6000a792888d50d0028b20b8564f1e77b1972695fd",
+            "stk_frame_trace_sha256": "f7df5940b70ad495e140ee5de762ec1843f0f1ce16f30a9840f2bbb8620d8ac3"
+          },
+          "lap": 2,
+          "graphics_fields": {
+            "Resolution width": "1600",
+            "Resolution height": "900",
+            "Render resolution": "1",
+            "Dynamic lighting": "1",
+            "Particle effects": "2",
+            "Animated characters": "1",
+            "Geometry Detail": "4",
+            "Bloom": "1",
+            "Glow": "1",
+            "Light Shaft": "1",
+            "Anti-Aliasing (MLAA)": "0",
+            "SSAO": "1",
+            "Anisotropic Filtering": "16",
+            "Shadow Resolution": "1024",
+            "Light scattering": "0",
+            "Degraded IBL": "0",
+            "Motion Blur": "0",
+            "Depth of Field": "0",
+            "Texture compression": "1",
+            "HD Textures": "0",
+            "HQ Mipmap": "0"
+          },
+          "game_frames_above_1_5_periods": 1,
+          "android_intervals": 1801,
+          "android_intervals_above_1_5_periods": 0
+        }
+      ],
+      "pooled": {
+        "game_fps": 89.71720005768752,
+        "android_surfaceview_per_s": 89.79122445087025,
+        "android_surfaceview_replays": 2,
+        "rust_panel_processed_frames_per_s": null
+      },
+      "cleanup_verified": true
+    }
+  ],
+  "prior_completed_rust_experiment": {
+    "source": "windows-cached-memory-radeon780m.json",
+    "version": "0.21.1",
+    "engine": "prepared Android Emulator 37.3.10",
+    "qemu_sha256": "0698696ebcc59745f57ffc3c975382a399a83ebbe80e3f30ee0d982a9ea481cc",
+    "guest": "Android 17 Google Play",
+    "host_renderer_pixels": [
+      800,
+      450
+    ],
+    "pooled_by_mode": {
+      "off": {
+        "game_fps": 84.35886996151775,
+        "android_presentations_per_second": 83.76236080303015
+      },
+      "on": {
+        "game_fps": 90.16888608725344,
+        "android_presentations_per_second": 89.9529673967455
+      }
+    }
+  },
+  "archive": {
+    "file": "windows-current-three-players-radeon780m-traces.zip",
+    "sha256": "aa9d6c16a0661a37e30f965a8f1d389f1aed5a26c35f922c12a3332eb74458c2"
+  },
+  "habitual_home_verified_between_and_after_players": true
+}
