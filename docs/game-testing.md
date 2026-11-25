@@ -6,6 +6,7 @@ The RustEmuDroid runs used Android Emulator 37.3.10 with the Android 17 Google P
 
 | Scene and setting | GPU | RustEmuDroid | BlueStacks Pie64 | Measurement |
 |---|---|---:|---:|---|
+| SuperTuxKart Black Forest, High, 90 Hz | RTX 5070 Ti | 82.40 FPS | 84.07 FPS | Full game replay. Vulkan 16× on Android 17, OpenGL ES 8× on Pie64. [Replays and guest presentations](#bluestacks-and-rustemudroid-at-90-hz-on-the-rtx-5070-ti) |
 | PUBG Lobby and Inventory, Balanced/High | RTX 5070 Ti | 25.20 FPS | 29.58 FPS | Android presentations. The first Inventory close paused for 1.60–1.68 s on v0.18.0 and 0.17 s on Pie64. [Retest and chart](#pubg-inventory-retest-with-rustemudroid-v0180) |
 | PUBG Training Grounds, Smooth/High, camera pans | RTX 5070 Ti | 29.29 FPS | 29.98 FPS | Android presentations. The slowest 1% averaged 14.63 and 20.00 FPS, respectively. [Training route](#pubg-training-grounds-on-the-rtx-5070-ti) |
 | PUBG Lobby and Inventory, Balanced/High | Integrated Radeon 780M | 25.11 FPS | 29.36 FPS | Android presentations. Two 48-second routes per player, with 27 and 4 pauses above 250 ms. [Integrated graphics results](#inventory-on-the-radeon-780m) |
@@ -114,6 +115,18 @@ The private 0.18.0 client used a small framebuffer notification followed by a si
 | A2 | Inline | 82.88 | 82.20 | 78.33 | 521 |
 
 The full-replay game rate was **82.40 FPS inline and 82.31 with serialized shared memory**. The paired Android samples yielded 80.98 and 80.95 presentations/s. The panel processed 77.18 and 77.85 frames/s. The launcher used 535 and 355 CPU ms per wall second, a **33.6% reduction**. This experiment saved desktop CPU with essentially the same game FPS. It does not establish a shorter input-to-display latency. The game rate covers each full replay. Android, panel and CPU samples cover a roughly 20-second segment. The test restored the game's configuration and the normal 60 Hz Home session. [Per-replay counters](../benchmarks/stk-1.5/windows-serialized-mmap-replay.json) · [Screenshot latency and delayed-reader check](../benchmarks/desktop-texture-upload/README.md#serialized-full-frame-screenshots-with-a-small-change-notification)
+
+### BlueStacks and RustEmuDroid at 90 Hz on the RTX 5070 Ti
+
+We then ran the same Black Forest High replay in an installed BlueStacks 5.22.166.1003 Pie64 test instance. The player started at 60 Hz. For the 90 Hz passes we enabled High FPS on the test instance, raised its limit to 90 and turned off player VSync. SurfaceFlinger reported the requested period before, during and after each replay. The game's VSync and all 21 game-reported graphics settings matched across the four BlueStacks runs. Both players ran on the same Windows PC, one VM at a time.
+
+| Player and guest refresh | Game renderer / filtering | Game FPS, pooled | Android presentations/s, pooled |
+|---|---|---:|---:|
+| RustEmuDroid Android 17, inline video, 90 Hz | Vulkan / 16× | 82.40 | 80.98 |
+| BlueStacks Pie64, 90 Hz | OpenGL ES / 8× | 84.07 | 82.98 |
+| BlueStacks Pie64, 60 Hz | OpenGL ES / 8× | 59.89 | 59.82 |
+
+At 90 Hz the observed game-rate difference was **1.67 FPS**. These are comparisons of the runnable stacks. The Android 17 game used x86-64 and the Pie64 game used 32-bit ARM. In one additional Pie64 run the game identified Vulkan 1.3 on the RTX, then left the foreground before producing a complete report. The game configuration was restored. The lab instance finished with its original 60 FPS limit, High FPS off and player VSync on. [BlueStacks per-replay data](../benchmarks/stk-1.5/windows-pie64-90hz.json) · [RustEmuDroid per-replay data](../benchmarks/stk-1.5/windows-serialized-mmap-replay.json)
 
 ## PUBG MOBILE
 
@@ -265,6 +278,19 @@ Across 96 seconds per player, RustEmuDroid presented **25.20 FPS** and BlueStack
 The Android 17 guest used ANGLE/Vulkan at 320 dpi. The official Android 9 Pie64 instance used the host OpenGL renderer at 240 dpi. The existing accounts, inventory contents, language and time spent in the lobby could differ. Before the second BlueStacks run, we followed the lobby-switch hint and returned to the original PUBG tab. The route began about 44 seconds after the gesture. Run `python benchmarks/pubg-mobile/plot-inventory.py --rtx` to reproduce the chart.
 
 Two additional native attempts stopped before the fourth visit. The screenshot check expected the outfit tabs to have loaded two seconds into the third visit. The captured images showed the Inventory panel with its contents still loading. We retained the incomplete attempts in the private log. In later passes the visual check ran 3.7 seconds into that visit, with the same scheduled tap times. The averages include complete 48-second routes only.
+
+#### What the game thread did during the first Inventory close
+
+In a new v0.18.0 run on the same RTX 5070 Ti and Android 17 guest, the stationary lobby presented **29.30 FPS** over 5.73 seconds. The following 48-second Inventory route presented **25.40 FPS** and had 12 gaps over 250 ms. An ordinary Android shell sampled Linux process and thread counters about every 200 ms. We aligned complete samples to the time when each new game buffer became ready. The Android presentation and buffer-ready timestamps came from the same foreground SurfaceView throughout.
+
+| Inventory close | Gap between presentations (ms) | Gap between ready buffers (ms) | Ready gap covered by counters | Minor faults on the active game thread | Game-thread CPU in the covered interval (ms) |
+|---|---:|---:|---:|---:|---:|
+| First | 1,587.57 | 1,583.82 | 89% | 62,293 | 1,090 |
+| Second | 477.64 | 483.81 | 42% | 0 | 200 |
+| Third | 469.94 | 467.45 | 86% | 279 | 380 |
+| Fourth | 432.13 | 432.76 | 47% | 0 | 200 |
+
+During the measured 1.411 seconds inside the first close, that thread accounted for 62,293 of the process's 62,524 minor page faults and 1.09 of its 1.35 CPU seconds. Its CPU counters advanced by 910 ms in userspace and 180 ms in the guest kernel. It had recorded just three minor faults during 5.446 sampled seconds in the stationary lobby. The process recorded zero major faults in these intervals. A minor fault is one that the kernel resolves without reading the page from disk. These counters locate the activity on a thread and in time. They cannot identify the allocation, mapped file, or executing function. The later closes still paused for more than 400 ms and showed much less of that activity in the portions sampled. [Relative timings, counters and sampling coverage](../benchmarks/pubg-mobile/v0.18.0-android17-thread-counters.json) · [Reproduce the observer](../benchmarks/pubg-mobile/thread-counters/README.md) · [Linux process counter definitions](https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html)
 
 ### Why did BlueStacks present PUBG's Inventory more consistently?
 

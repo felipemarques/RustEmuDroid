@@ -1,0 +1,216 @@
+{
+  "workload": "SuperTuxKart 1.5, Black Forest High, 1600 x 900 at 100% render scale, RTX 5070 Ti, BlueStacks 5.22.166.1003 on restored Android 9 Pie64, Windows 11.",
+  "method": "Two OpenGL ES replays at 60 Hz followed by two at 90 Hz. Game FPS uses the full replay profiler. Surface rate uses new Android game presentations in a central 20-second interval. physical_period_ns refers to the guest display period reported by SurfaceFlinger.",
+  "vulkan_followup": "High/Vulkan identified Vulkan 1.3 and the NVIDIA RTX 5070 Ti in the game log but lost the foreground before a complete profiler report.",
+  "baseline": {
+    "configured_player_max_fps": 60,
+    "target_state": "complete",
+    "laps": [
+      {
+        "status": "passed_requested_rate_at_all_samples",
+        "frames": 2285,
+        "duration_ms": 38189,
+        "game_fps": 59.83398360784519,
+        "surface": {
+          "duration_s": 20.00617985,
+          "presentations": 1194,
+          "presentations_per_second": 59.6815588459283,
+          "p99_interval_ms": 16.666666
+        },
+        "physical_period_ns": 16666666,
+        "game_backend": "OpenGL ES",
+        "abi": "armeabi-v7a",
+        "filter": {
+          "label": "Anisotropic Filtering",
+          "reported": "8"
+        },
+        "settings": [
+          "1600",
+          "900",
+          "1",
+          "1",
+          "2",
+          "1",
+          "4",
+          "1",
+          "1",
+          "1",
+          "0",
+          "1",
+          "8",
+          "1024",
+          "0",
+          "0",
+          "0",
+          "0",
+          "1",
+          "0",
+          "0"
+        ],
+        "game_max_fps_xml": 90,
+        "xml_restored": true
+      },
+      {
+        "status": "passed_requested_rate_at_all_samples",
+        "frames": 2285,
+        "duration_ms": 38120,
+        "game_fps": 59.942287513116476,
+        "surface": {
+          "duration_s": 20.01656575,
+          "presentations": 1200,
+          "presentations_per_second": 59.95034387954387,
+          "p99_interval_ms": 16.666666
+        },
+        "physical_period_ns": 16666666,
+        "game_backend": "OpenGL ES",
+        "abi": "armeabi-v7a",
+        "filter": {
+          "label": "Anisotropic Filtering",
+          "reported": "8"
+        },
+        "settings": [
+          "1600",
+          "900",
+          "1",
+          "1",
+          "2",
+          "1",
+          "4",
+          "1",
+          "1",
+          "1",
+          "0",
+          "1",
+          "8",
+          "1024",
+          "0",
+          "0",
+          "0",
+          "0",
+          "1",
+          "0",
+          "0"
+        ],
+        "game_max_fps_xml": 90,
+        "xml_restored": true
+      }
+    ],
+    "pooled_game_fps": 59.888086595290204,
+    "pooled_surface_rate": 59.81598623758586
+  },
+  "trial": {
+    "configured_player_max_fps": 90,
+    "target_state": "complete",
+    "laps": [
+      {
+        "status": "passed_requested_rate_at_all_samples",
+        "frames": 3241,
+        "duration_ms": 38163,
+        "game_fps": 84.92518931949795,
+        "surface": {
+          "duration_s": 20.0035262,
+          "presentations": 1689,
+          "presentations_per_second": 84.43511324518374,
+          "p99_interval_ms": 22.222222
+        },
+        "physical_period_ns": 11111111,
+        "game_backend": "OpenGL ES",
+        "abi": "armeabi-v7a",
+        "filter": {
+          "label": "Anisotropic Filtering",
+          "reported": "8"
+        },
+        "settings": [
+          "1600",
+          "900",
+          "1",
+          "1",
+          "2",
+          "1",
+          "4",
+          "1",
+          "1",
+          "1",
+          "0",
+          "1",
+          "8",
+          "1024",
+          "0",
+          "0",
+          "0",
+          "0",
+          "1",
+          "0",
+          "0"
+        ],
+        "game_max_fps_xml": 90,
+        "xml_restored": true
+      },
+      {
+        "status": "passed_requested_rate_at_all_samples",
+        "frames": 3173,
+        "duration_ms": 38130,
+        "game_fps": 83.21531602412799,
+        "surface": {
+          "duration_s": 20.02011415,
+          "presentations": 1632,
+          "presentations_per_second": 81.51801671920038,
+          "p99_interval_ms": 22.222222
+        },
+        "physical_period_ns": 11111111,
+        "game_backend": "OpenGL ES",
+        "abi": "armeabi-v7a",
+        "filter": {
+          "label": "Anisotropic Filtering",
+          "reported": "8"
+        },
+        "settings": [
+          "1600",
+          "900",
+          "1",
+          "1",
+          "2",
+          "1",
+          "4",
+          "1",
+          "1",
+          "1",
+          "0",
+          "1",
+          "8",
+          "1024",
+          "0",
+          "0",
+          "0",
+          "0",
+          "1",
+          "0",
+          "0"
+        ],
+        "game_max_fps_xml": 90,
+        "xml_restored": true
+      }
+    ],
+    "pooled_game_fps": 84.07062246864064,
+    "pooled_surface_rate": 82.97596048131588,
+    "vulkan_status": "vulkan_attempt_failed",
+    "vulkan_error": "Vulkan attempt no longer had STK in guest foreground"
+  },
+  "game_graphics_equal_baseline_trial": true,
+  "rollback": {
+    "verified_lab_settings": {
+      "enable_high_fps": "0",
+      "max_fps": "60",
+      "enable_vsync": "1"
+    },
+    "expected_lab_settings": {
+      "enable_high_fps": "0",
+      "max_fps": "60",
+      "enable_vsync": "1"
+    },
+    "config_byte_identity": false,
+    "active_vm_count": 0,
+    "transfer_ready_no_vm": true,
+    "config_read_error": null
+  }
+}
