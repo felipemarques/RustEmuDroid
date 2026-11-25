@@ -29,13 +29,9 @@ def presentation_times(polls, layer):
             _, present, ready = map(int, cells)
             if not 0 < present < INVALID:
                 continue
-            frames.setdefault(present, None)
+            candidates = frames.setdefault(present, set())
             if 0 < ready < INVALID:
-                if frames[present] not in (None, ready):
-                    raise ValueError(
-                        "Conflicting ready timestamps for one presentation."
-                    )
-                frames[present] = ready
+                candidates.add(ready)
     return frames
 
 
@@ -202,17 +198,35 @@ def export(directory):
         window = origin + (12 * close + 7) * NS, origin + (12 * close + 12) * NS
         sequence = sorted(time for time in frames if window[0] <= time < window[1])
         present = max(zip(sequence, sequence[1:]), key=lambda pair: pair[1] - pair[0])
-        ready = frames[present[0]], frames[present[1]]
-        if ready[0] is None or ready[1] is None or ready[0] >= ready[1]:
-            raise ValueError("A selected pair has invalid buffer-ready timestamps.")
-        result["closes"].append(
+        entry = {
+            "visit": close + 1,
+            "nominal_window_relative_ns": [value - origin for value in window],
+            "present_gap": counters(present, samples, labels, origin, ticks),
+            "ready_gap": None,
+        }
+        candidates = [sorted(frames[timestamp]) for timestamp in present]
+        if (
+            all(len(values) == 1 for values in candidates)
+            and candidates[0][0] < candidates[1][0]
+        ):
+            ready = (candidates[0][0], candidates[1][0])
+            entry["ready_gap"] = counters(ready, samples, labels, origin, ticks)
+        else:
+            entry["ready_candidates_relative_ns"] = [
+                [value - origin for value in values] for values in candidates
+            ]
+        result["closes"].append(entry)
+    conflicts = sum(len(values) > 1 for values in frames.values())
+    if conflicts:
+        result["matching"]["presentations_with_multiple_ready_times"] = conflicts
+        result["matching"]["ambiguous_ready_times"] = [
             {
-                "visit": close + 1,
-                "nominal_window_relative_ns": [value - origin for value in window],
-                "present_gap": counters(present, samples, labels, origin, ticks),
-                "ready_gap": counters(ready, samples, labels, origin, ticks),
+                "presentation_relative_ns": timestamp - origin,
+                "ready_relative_ns": sorted(value - origin for value in values),
             }
-        )
+            for timestamp, values in sorted(frames.items())
+            if len(values) > 1
+        ]
     return result
 
 

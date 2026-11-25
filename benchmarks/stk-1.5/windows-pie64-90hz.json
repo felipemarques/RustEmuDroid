@@ -1,7 +1,7 @@
 {
   "workload": "SuperTuxKart 1.5, Black Forest High, 1600 x 900 at 100% render scale, RTX 5070 Ti, BlueStacks 5.22.166.1003 on restored Android 9 Pie64, Windows 11.",
   "method": "Two OpenGL ES replays at 60 Hz followed by two at 90 Hz. Game FPS uses the full replay profiler. Surface rate uses new Android game presentations in a central 20-second interval. physical_period_ns refers to the guest display period reported by SurfaceFlinger.",
-  "vulkan_followup": "High/Vulkan identified Vulkan 1.3 and the NVIDIA RTX 5070 Ti in the game log but lost the foreground before a complete profiler report.",
+  "vulkan_followup": "The game profiler report and per-frame CSV were recovered on the next boot. Their write times fell inside the Vulkan replay and both hashes differed from the preceding OpenGL ES reports. No SurfaceView presentation rate was captured in that Vulkan pass. The second full Vulkan replay captured both the game profiler and the active SurfaceView.",
   "baseline": {
     "configured_player_max_fps": 60,
     "target_state": "complete",
@@ -193,8 +193,126 @@
     ],
     "pooled_game_fps": 84.07062246864064,
     "pooled_surface_rate": 82.97596048131588,
-    "vulkan_status": "vulkan_attempt_failed",
-    "vulkan_error": "Vulkan attempt no longer had STK in guest foreground"
+    "vulkan_status": "verified_recovered_vulkan_report",
+    "vulkan_initial_collection_error": "Vulkan attempt no longer had STK in guest foreground",
+    "vulkan": {
+      "frames": 3432,
+      "duration_ms": 38116,
+      "game_fps": 90.04092769440655,
+      "surface_presentations": null,
+      "physical_period_ns_during": 11111111,
+      "renderer": "[info   ] [IrrDriver Logger]: Vulkan renderer: NVIDIA GeForce RTX 5070 Ti",
+      "abi_from_same_installed_package": "armeabi-v7a",
+      "settings": [
+        "1600",
+        "900",
+        "1",
+        "1",
+        "2",
+        "1",
+        "4",
+        "1",
+        "1",
+        "1",
+        "0",
+        "1",
+        "16",
+        "1024",
+        "0",
+        "0",
+        "0",
+        "0",
+        "1",
+        "0",
+        "0"
+      ],
+      "filter": "Anisotropic Filtering 16",
+      "artifact_freshness": {
+        "window_utc": [
+          "2026-11-25T05:00:36.681244+00:00",
+          "2026-11-25T05:01:38.932866+00:00"
+        ],
+        "metadata": {
+          "report.csv": {
+            "bytes": 24926,
+            "mtime_utc_epoch": 1795582896,
+            "mtime_utc": "2026-11-25T05:01:36+00:00",
+            "sha256": "983bf1aa44186f0f6ffa126acf96c81cd93b6a396589dc2707e965b4bc7736d4"
+          },
+          "quadros.csv": {
+            "bytes": 282700,
+            "mtime_utc_epoch": 1795582896,
+            "mtime_utc": "2026-11-25T05:01:36+00:00",
+            "sha256": "f3f5246839ab8cfbcd7aa1ffba6867a57623cf5af63d1ba5a05a2a30255d929c"
+          }
+        },
+        "previous_sha256": {
+          "report.csv": "845df7cdbc52c5162c3f5859096424df5fa2ddedf82daaecc4a4c2bec0a0965a",
+          "quadros.csv": "b87a9fa443f72ffef5c269d3c8bbe14c813f7901b6075fb368b24418c7b15b3a"
+        }
+      },
+      "android17_inline": {
+        "A1": {
+          "all_21_profiler_fields_equal": true,
+          "abi": "x86_64",
+          "game_fps": 81.92802731809824
+        },
+        "A2": {
+          "all_21_profiler_fields_equal": true,
+          "abi": "x86_64",
+          "game_fps": 82.8781512605042
+        }
+      }
+    },
+    "vulkan_second": {
+      "abi": "armeabi-v7a",
+      "archive_sha256": {
+        "report.csv": "f0a6036e01f5b9426b7e7e131d1b84114fb378367687435a0fee98c9c5349250",
+        "quadros.csv": "aadd5528fc5978e7c31ce8c11157713d14f86d6d3fb6476d10c2fe99de005975"
+      },
+      "duration_ms": 38117,
+      "filter": {
+        "label": "Anisotropic Filtering",
+        "reported": "16"
+      },
+      "frames": 3431,
+      "game_backend": "Vulkan",
+      "game_fps": 90.01233045622688,
+      "game_max_fps_xml": 90,
+      "physical_period_ns": 11111111,
+      "settings": [
+        "1600",
+        "900",
+        "1",
+        "1",
+        "2",
+        "1",
+        "4",
+        "1",
+        "1",
+        "1",
+        "0",
+        "1",
+        "16",
+        "1024",
+        "0",
+        "0",
+        "0",
+        "0",
+        "1",
+        "0",
+        "0"
+      ],
+      "status": "passed_requested_rate_at_all_samples",
+      "surface": {
+        "duration_s": 20.01759445,
+        "presentations": 1800,
+        "presentations_per_second": 89.92089456583031,
+        "p99_interval_ms": 11.111111
+      },
+      "xml_restored": true
+    },
+    "vulkan_pooled_game_fps": 90.02662888775203
   },
   "game_graphics_equal_baseline_trial": true,
   "rollback": {

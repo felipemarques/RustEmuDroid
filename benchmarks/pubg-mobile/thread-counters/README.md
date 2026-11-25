@@ -17,6 +17,8 @@ While the observer runs, poll `dumpsys SurfaceFlinger --latency <game-layer>` ab
 
 ## Analyze
 
+Each distinct presentation counts once. Where SurfaceFlinger reports multiple possible ready times for an endpoint, the exporter leaves that ready interval unmeasured and records all the candidates. It can still measure the presentation gap. [Pie64 measurements](../v0.18.0-pie64-thread-counters.json)
+
 For a specific pause, take the pair of Android buffer-ready timestamps from the records on either side of the gap. Divide the nanoseconds by one billion and save the interval in a JSON list, for example `[["first-close", 237.803, 239.477]]`. Run `python -B analyze.py proc-stat.txt windows.json`. The analyzer keeps only pairs of complete samples within the interval and reports the covered start and end. CPU counters advance in ticks, with the tick rate recorded in the observer's header. The process row already includes its threads.
 
 For a complete route from the project harness, run `python -B export-counts.py <raw-run-directory> --output <new-relative-report.json>` with the following inputs.

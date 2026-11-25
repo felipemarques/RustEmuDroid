@@ -1,0 +1,701 @@
+{
+  "schema": 1,
+  "sampling": {
+    "interval_ms": 25,
+    "clock_ticks_per_second": 100,
+    "complete_samples": 2520,
+    "median_interval_ms": 25.38489100001584
+  },
+  "matching": {
+    "raw_distinct_timestamps": 1623,
+    "route_timestamp_list_matches_raw": true,
+    "complete_route_metrics_match_raw": true,
+    "same_surface_for_lobby_and_route": true,
+    "presentations_with_multiple_ready_times": 1,
+    "ambiguous_ready_times": [
+      {
+        "presentation_relative_ns": 3364035478,
+        "ready_relative_ns": [
+          3336521088,
+          3377434494
+        ]
+      }
+    ]
+  },
+  "method": {
+    "time_zero": "First scheduled open, mapped approximately to guest monotonic time.",
+    "counter_coverage": "First and last complete stat samples wholly inside each guest window.",
+    "dominant_named_thread": "UEGameThread with highest CPU delta in the whole observation.",
+    "close_gap": "Longest full observed presentation gap inside each nominal five-second close window. The paired ready gap uses those same two SurfaceFlinger records."
+  },
+  "tap_schedule": [
+    {
+      "seconds": 0,
+      "action": "open"
+    },
+    {
+      "seconds": 7,
+      "action": "close"
+    },
+    {
+      "seconds": 12,
+      "action": "open"
+    },
+    {
+      "seconds": 19,
+      "action": "close"
+    },
+    {
+      "seconds": 24,
+      "action": "open"
+    },
+    {
+      "seconds": 31,
+      "action": "close"
+    },
+    {
+      "seconds": 36,
+      "action": "open"
+    },
+    {
+      "seconds": 43,
+      "action": "close"
+    }
+  ],
+  "stationary_lobby": {
+    "presentations": {
+      "seconds": 5.699999772,
+      "presentations": 171,
+      "hz": 30.00000120000005,
+      "p50_ms": 33.333332,
+      "p95_ms": 49.999998,
+      "p99_ms": 49.999998,
+      "max_ms": 49.999998,
+      "over_100_ms": 0,
+      "over_250_ms": 0
+    },
+    "procfs": {
+      "window_relative_ns": [
+        -9319297348,
+        -3619297576
+      ],
+      "window_duration_ns": 5699999772,
+      "samples": 225,
+      "coverage_relative_ns": [
+        -9309524315,
+        -3620256982
+      ],
+      "coverage_ns": 5689267333,
+      "coverage_fraction": 0.998117115889597,
+      "counters": {
+        "FAsyncLoading": {
+          "minor_faults": 0,
+          "major_faults": 0,
+          "user_ticks": 1,
+          "kernel_ticks": 0,
+          "cpu_ms": 10.0
+        },
+        "RHIThread": {
+          "minor_faults": 0,
+          "major_faults": 0,
+          "user_ticks": 27,
+          "kernel_ticks": 7,
+          "cpu_ms": 340.0
+        },
+        "RenderThread 1": {
+          "minor_faults": 0,
+          "major_faults": 0,
+          "user_ticks": 36,
+          "kernel_ticks": 1,
+          "cpu_ms": 370.0
+        },
+        "UEGameThread (highest CPU)": {
+          "minor_faults": 3,
+          "major_faults": 0,
+          "user_ticks": 136,
+          "kernel_ticks": 10,
+          "cpu_ms": 1460.0
+        },
+        "UEGameThread (other tasks combined)": {
+          "minor_faults": 1326,
+          "major_faults": 0,
+          "user_ticks": 13,
+          "kernel_ticks": 1,
+          "cpu_ms": 140.0
+        },
+        "process": {
+          "minor_faults": 3045,
+          "major_faults": 1,
+          "user_ticks": 266,
+          "kernel_ticks": 29,
+          "cpu_ms": 2950.0
+        }
+      }
+    }
+  },
+  "route": {
+    "presentations": {
+      "seconds": 48.0,
+      "presentations": 1417,
+      "hz": 29.520833333333332,
+      "p50_ms": 33.333332,
+      "p95_ms": 49.999998,
+      "p99_ms": 66.666664,
+      "max_ms": 333.33332,
+      "over_100_ms": 5,
+      "over_250_ms": 1
+    },
+    "procfs": {
+      "window_relative_ns": [
+        0,
+        48000000000
+      ],
+      "window_duration_ns": 48000000000,
+      "samples": 1890,
+      "coverage_relative_ns": [
+        9334998,
+        47998540800
+      ],
+      "coverage_ns": 47989205802,
+      "coverage_fraction": 0.999775120875,
+      "counters": {
+        "FAsyncLoading": {
+          "minor_faults": 7123,
+          "major_faults": 0,
+          "user_ticks": 47,
+          "kernel_ticks": 8,
+          "cpu_ms": 550.0
+        },
+        "RHIThread": {
+          "minor_faults": 7250,
+          "major_faults": 0,
+          "user_ticks": 203,
+          "kernel_ticks": 79,
+          "cpu_ms": 2820.0
+        },
+        "RenderThread 1": {
+          "minor_faults": 3642,
+          "major_faults": 0,
+          "user_ticks": 296,
+          "kernel_ticks": 22,
+          "cpu_ms": 3180.0
+        },
+        "UEGameThread (highest CPU)": {
+          "minor_faults": 9667,
+          "major_faults": 0,
+          "user_ticks": 1171,
+          "kernel_ticks": 50,
+          "cpu_ms": 12210.0
+        },
+        "UEGameThread (other tasks combined)": {
+          "minor_faults": 0,
+          "major_faults": 0,
+          "user_ticks": 9,
+          "kernel_ticks": 2,
+          "cpu_ms": 110.0
+        },
+        "process": {
+          "minor_faults": 52005,
+          "major_faults": 0,
+          "user_ticks": 2247,
+          "kernel_ticks": 206,
+          "cpu_ms": 24530.0
+        }
+      }
+    }
+  },
+  "closes": [
+    {
+      "visit": 1,
+      "nominal_window_relative_ns": [
+        7000000000,
+        12000000000
+      ],
+      "present_gap": {
+        "window_relative_ns": [
+          7164035326,
+          7347368652
+        ],
+        "window_duration_ns": 183333326,
+        "samples": 7,
+        "coverage_relative_ns": [
+          7170827195,
+          7322881116
+        ],
+        "coverage_ns": 152053921,
+        "coverage_fraction": 0.8293850568117659,
+        "counters": {
+          "FAsyncLoading": {
+            "minor_faults": 81,
+            "major_faults": 0,
+            "user_ticks": 1,
+            "kernel_ticks": 0,
+            "cpu_ms": 10.0
+          },
+          "RHIThread": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "RenderThread 1": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "UEGameThread (highest CPU)": {
+            "minor_faults": 133,
+            "major_faults": 0,
+            "user_ticks": 10,
+            "kernel_ticks": 0,
+            "cpu_ms": 100.0
+          },
+          "UEGameThread (other tasks combined)": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "process": {
+            "minor_faults": 2255,
+            "major_faults": 0,
+            "user_ticks": 16,
+            "kernel_ticks": 2,
+            "cpu_ms": 180.0
+          }
+        }
+      },
+      "ready_gap": {
+        "window_relative_ns": [
+          7161792998,
+          7335824867
+        ],
+        "window_duration_ns": 174031869,
+        "samples": 7,
+        "coverage_relative_ns": [
+          7170827195,
+          7322881116
+        ],
+        "coverage_ns": 152053921,
+        "coverage_fraction": 0.8737130841248393,
+        "counters": {
+          "FAsyncLoading": {
+            "minor_faults": 81,
+            "major_faults": 0,
+            "user_ticks": 1,
+            "kernel_ticks": 0,
+            "cpu_ms": 10.0
+          },
+          "RHIThread": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "RenderThread 1": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "UEGameThread (highest CPU)": {
+            "minor_faults": 133,
+            "major_faults": 0,
+            "user_ticks": 10,
+            "kernel_ticks": 0,
+            "cpu_ms": 100.0
+          },
+          "UEGameThread (other tasks combined)": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "process": {
+            "minor_faults": 2255,
+            "major_faults": 0,
+            "user_ticks": 16,
+            "kernel_ticks": 2,
+            "cpu_ms": 180.0
+          }
+        }
+      }
+    },
+    {
+      "visit": 2,
+      "nominal_window_relative_ns": [
+        19000000000,
+        24000000000
+      ],
+      "present_gap": {
+        "window_relative_ns": [
+          19164034846,
+          19247368176
+        ],
+        "window_duration_ns": 83333330,
+        "samples": 4,
+        "coverage_relative_ns": [
+          19165884027,
+          19242122328
+        ],
+        "coverage_ns": 76238301,
+        "coverage_fraction": 0.914859648594386,
+        "counters": {
+          "FAsyncLoading": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "RHIThread": {
+            "minor_faults": 65,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "RenderThread 1": {
+            "minor_faults": 64,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "UEGameThread (highest CPU)": {
+            "minor_faults": 23,
+            "major_faults": 0,
+            "user_ticks": 5,
+            "kernel_ticks": 0,
+            "cpu_ms": 50.0
+          },
+          "UEGameThread (other tasks combined)": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "process": {
+            "minor_faults": 237,
+            "major_faults": 0,
+            "user_ticks": 7,
+            "kernel_ticks": 0,
+            "cpu_ms": 70.0
+          }
+        }
+      },
+      "ready_gap": {
+        "window_relative_ns": [
+          19160814923,
+          19230997100
+        ],
+        "window_duration_ns": 70182177,
+        "samples": 3,
+        "coverage_relative_ns": [
+          19165884027,
+          19216749760
+        ],
+        "coverage_ns": 50865733,
+        "coverage_fraction": 0.7247671014821897,
+        "counters": {
+          "FAsyncLoading": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "RHIThread": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "RenderThread 1": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "UEGameThread (highest CPU)": {
+            "minor_faults": 17,
+            "major_faults": 0,
+            "user_ticks": 3,
+            "kernel_ticks": 0,
+            "cpu_ms": 30.0
+          },
+          "UEGameThread (other tasks combined)": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "process": {
+            "minor_faults": 22,
+            "major_faults": 0,
+            "user_ticks": 3,
+            "kernel_ticks": 0,
+            "cpu_ms": 30.0
+          }
+        }
+      }
+    },
+    {
+      "visit": 3,
+      "nominal_window_relative_ns": [
+        31000000000,
+        36000000000
+      ],
+      "present_gap": {
+        "window_relative_ns": [
+          31180701032,
+          31247367696
+        ],
+        "window_duration_ns": 66666664,
+        "samples": 3,
+        "coverage_relative_ns": [
+          31182261775,
+          31232980692
+        ],
+        "coverage_ns": 50718917,
+        "coverage_fraction": 0.7607837854313514,
+        "counters": {
+          "FAsyncLoading": {
+            "minor_faults": 134,
+            "major_faults": 0,
+            "user_ticks": 1,
+            "kernel_ticks": 1,
+            "cpu_ms": 20.0
+          },
+          "RHIThread": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "RenderThread 1": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "UEGameThread (highest CPU)": {
+            "minor_faults": 24,
+            "major_faults": 0,
+            "user_ticks": 4,
+            "kernel_ticks": 0,
+            "cpu_ms": 40.0
+          },
+          "UEGameThread (other tasks combined)": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "process": {
+            "minor_faults": 436,
+            "major_faults": 0,
+            "user_ticks": 7,
+            "kernel_ticks": 0,
+            "cpu_ms": 70.0
+          }
+        }
+      },
+      "ready_gap": {
+        "window_relative_ns": [
+          31169388235,
+          31237810681
+        ],
+        "window_duration_ns": 68422446,
+        "samples": 3,
+        "coverage_relative_ns": [
+          31182261775,
+          31232980692
+        ],
+        "coverage_ns": 50718917,
+        "coverage_fraction": 0.7412613837277902,
+        "counters": {
+          "FAsyncLoading": {
+            "minor_faults": 134,
+            "major_faults": 0,
+            "user_ticks": 1,
+            "kernel_ticks": 1,
+            "cpu_ms": 20.0
+          },
+          "RHIThread": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "RenderThread 1": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "UEGameThread (highest CPU)": {
+            "minor_faults": 24,
+            "major_faults": 0,
+            "user_ticks": 4,
+            "kernel_ticks": 0,
+            "cpu_ms": 40.0
+          },
+          "UEGameThread (other tasks combined)": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "process": {
+            "minor_faults": 436,
+            "major_faults": 0,
+            "user_ticks": 7,
+            "kernel_ticks": 0,
+            "cpu_ms": 70.0
+          }
+        }
+      }
+    },
+    {
+      "visit": 4,
+      "nominal_window_relative_ns": [
+        43000000000,
+        48000000000
+      ],
+      "present_gap": {
+        "window_relative_ns": [
+          43197367218,
+          43264033882
+        ],
+        "window_duration_ns": 66666664,
+        "samples": 3,
+        "coverage_relative_ns": [
+          43198114420,
+          43248979841
+        ],
+        "coverage_ns": 50865421,
+        "coverage_fraction": 0.7629813455192538,
+        "counters": {
+          "FAsyncLoading": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "RHIThread": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "RenderThread 1": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "UEGameThread (highest CPU)": {
+            "minor_faults": 26,
+            "major_faults": 0,
+            "user_ticks": 3,
+            "kernel_ticks": 0,
+            "cpu_ms": 30.0
+          },
+          "UEGameThread (other tasks combined)": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "process": {
+            "minor_faults": 336,
+            "major_faults": 0,
+            "user_ticks": 4,
+            "kernel_ticks": 1,
+            "cpu_ms": 50.0
+          }
+        }
+      },
+      "ready_gap": {
+        "window_relative_ns": [
+          43187851890,
+          43255632327
+        ],
+        "window_duration_ns": 67780437,
+        "samples": 3,
+        "coverage_relative_ns": [
+          43198114420,
+          43248979841
+        ],
+        "coverage_ns": 50865421,
+        "coverage_fraction": 0.7504439813511382,
+        "counters": {
+          "FAsyncLoading": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "RHIThread": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "RenderThread 1": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "UEGameThread (highest CPU)": {
+            "minor_faults": 26,
+            "major_faults": 0,
+            "user_ticks": 3,
+            "kernel_ticks": 0,
+            "cpu_ms": 30.0
+          },
+          "UEGameThread (other tasks combined)": {
+            "minor_faults": 0,
+            "major_faults": 0,
+            "user_ticks": 0,
+            "kernel_ticks": 0,
+            "cpu_ms": 0.0
+          },
+          "process": {
+            "minor_faults": 336,
+            "major_faults": 0,
+            "user_ticks": 4,
+            "kernel_ticks": 1,
+            "cpu_ms": 50.0
+          }
+        }
+      }
+    }
+  ]
+}
