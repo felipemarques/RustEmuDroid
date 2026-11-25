@@ -1,0 +1,211 @@
+{
+  "binary_version": "0.18.0",
+  "binary_sha256": "3838d06726de02fe9cfffa45d33c2cc20340178c865953e8396841cb8b83d334",
+  "workload": "SuperTuxKart 1.5 Black Forest High/Vulkan, x86_64, 1600x900 at 100% render scale",
+  "guest": "Android 17 Google Play, four vCPUs, 8192 MiB, RTX 5070 Ti, nominal 90 Hz",
+  "configuration": {
+    "configured_max_fps": 90,
+    "game_vsync": true,
+    "foreground_at_replay_boundaries": true,
+    "graphics": {
+      "Resolution width": 1600,
+      "Resolution height": 900,
+      "Render resolution": 1,
+      "Dynamic lighting": 1,
+      "Particle effects": 2,
+      "Animated characters": 1,
+      "Geometry Detail": 4,
+      "Bloom": 1,
+      "Glow": 1,
+      "Light Shaft": 1,
+      "Anti-Aliasing (MLAA)": 0,
+      "SSAO": 1,
+      "Anisotropic Filtering": 16,
+      "Shadow Resolution": 1024,
+      "Light scattering": 0,
+      "Degraded IBL": 0,
+      "Motion Blur": 0,
+      "Depth of Field": 0,
+      "Texture compression": 1,
+      "HD Textures": 0,
+      "HQ Mipmap": 0
+    }
+  },
+  "definitions": {
+    "game_fps": "Full replay profiler frames divided by its duration.",
+    "android_presentations": "Distinct new actual game SurfaceView presentations in a planned 20-second window, after a 12-second launch delay and scene/refresh readback.",
+    "panel": "Frames processed by the Rust app across complete reporting intervals in the Android presentation window.",
+    "cpu_ms_per_second": "User plus kernel time over all threads of each role, aligned to the midpoint of the first and last SurfaceFlinger polls.",
+    "transport": "Inline uses full RGBA streaming. Unary MMAP uses reduced inline notifications followed by a serial full-size MMAP RPC and private copy."
+  },
+  "replays": [
+    {
+      "lap": "A1",
+      "transport": "inline",
+      "game_frames": 3119,
+      "game_time_ms": 38070,
+      "game_fps": 81.92802731809824,
+      "game_main_loop_p95_ms": 17.453,
+      "android_elapsed_s": 20.02371235,
+      "android_presentations": 1597,
+      "android_presentations_per_s": 79.75544055395902,
+      "android_p99_ms": 23.6666,
+      "android_gaps_over_250ms": 0,
+      "panel_frames": 1459,
+      "panel_ms": 19189,
+      "panel_frames_per_s": 76.03314398874355,
+      "transport_counts": {
+        "notice_in": 1540,
+        "notice_gaps": 2,
+        "stale": 0,
+        "coalesced": 0,
+        "captured": 1540,
+        "latest_replaced": 81,
+        "repeated_capture_timestamp": 0,
+        "panel_processed": 1459,
+        "interval_ms": 19189,
+        "rpc_max_us": 0,
+        "owned_copy_max_us": 0
+      },
+      "cpu_ms": {
+        "qemu": 53351.5556,
+        "launcher": 10999.948400000001
+      },
+      "cpu_ms_per_second": {
+        "qemu": 2664.418798445234,
+        "launcher": 549.3461056435922
+      }
+    },
+    {
+      "lap": "B1",
+      "transport": "unary-mmap",
+      "game_frames": 3141,
+      "game_time_ms": 38068,
+      "game_fps": 82.51024482504991,
+      "game_main_loop_p95_ms": 16.978,
+      "android_elapsed_s": 20.02511555,
+      "android_presentations": 1630,
+      "android_presentations_per_s": 81.39778249619138,
+      "android_p99_ms": 23.6458,
+      "android_gaps_over_250ms": 0,
+      "panel_frames": 1492,
+      "panel_ms": 19169,
+      "panel_frames_per_s": 77.83400281704836,
+      "transport_counts": {
+        "notice_in": 1563,
+        "notice_gaps": 0,
+        "stale": 0,
+        "coalesced": 0,
+        "captured": 1562,
+        "latest_replaced": 70,
+        "repeated_capture_timestamp": 0,
+        "panel_processed": 1492,
+        "interval_ms": 19169,
+        "rpc_max_us": 8390,
+        "owned_copy_max_us": 2230
+      },
+      "cpu_ms": {
+        "qemu": 52976.5784,
+        "launcher": 6867.1497
+      },
+      "cpu_ms_per_second": {
+        "qemu": 2645.506752144559,
+        "launcher": 342.92684518367236
+      }
+    },
+    {
+      "lap": "B2",
+      "transport": "unary-mmap",
+      "game_frames": 3125,
+      "game_time_ms": 38060,
+      "game_fps": 82.10719915922228,
+      "game_main_loop_p95_ms": 17.364,
+      "android_elapsed_s": 20.0261823,
+      "android_presentations": 1612,
+      "android_presentations_per_s": 80.49462328124318,
+      "android_p99_ms": 23.1259,
+      "android_gaps_over_250ms": 0,
+      "panel_frames": 1488,
+      "panel_ms": 19112,
+      "panel_frames_per_s": 77.85684386772708,
+      "transport_counts": {
+        "notice_in": 1545,
+        "notice_gaps": 0,
+        "stale": 0,
+        "coalesced": 0,
+        "captured": 1545,
+        "latest_replaced": 57,
+        "repeated_capture_timestamp": 0,
+        "panel_processed": 1488,
+        "interval_ms": 19112,
+        "rpc_max_us": 8687,
+        "owned_copy_max_us": 3935
+      },
+      "cpu_ms": {
+        "qemu": 52726.5695,
+        "launcher": 7367.132599999999
+      },
+      "cpu_ms_per_second": {
+        "qemu": 2632.8817300339865,
+        "launcher": 367.87503926796865
+      }
+    },
+    {
+      "lap": "A2",
+      "transport": "inline",
+      "game_frames": 3156,
+      "game_time_ms": 38080,
+      "game_fps": 82.8781512605042,
+      "game_main_loop_p95_ms": 16.845,
+      "android_elapsed_s": 20.02487795,
+      "android_presentations": 1646,
+      "android_presentations_per_s": 82.19775441877287,
+      "android_p99_ms": 23.5638,
+      "android_gaps_over_250ms": 0,
+      "panel_frames": 1496,
+      "panel_ms": 19099,
+      "panel_frames_per_s": 78.32870830933557,
+      "transport_counts": {
+        "notice_in": 1578,
+        "notice_gaps": 0,
+        "stale": 0,
+        "coalesced": 0,
+        "captured": 1578,
+        "latest_replaced": 82,
+        "repeated_capture_timestamp": 0,
+        "panel_processed": 1496,
+        "interval_ms": 19099,
+        "rpc_max_us": 0,
+        "owned_copy_max_us": 0
+      },
+      "cpu_ms": {
+        "qemu": 55695.3239,
+        "launcher": 10429.767899999999
+      },
+      "cpu_ms_per_second": {
+        "qemu": 2781.306534754685,
+        "launcher": 520.8405227758203
+      }
+    }
+  ],
+  "aggregate": {
+    "inline": {
+      "game_fps": 82.40315167432699,
+      "android_presentations_per_s": 80.97663302770485,
+      "panel_frames_per_s": 77.17822816548266,
+      "cpu_ms_per_s": {
+        "qemu": 2722.86436758799,
+        "launcher": 535.0928993872726
+      }
+    },
+    "unary-mmap": {
+      "game_fps": 82.30874316939891,
+      "android_presentations_per_s": 80.94619086107843,
+      "panel_frames_per_s": 77.84540633734751,
+      "cpu_ms_per_s": {
+        "qemu": 2639.194072958113,
+        "launcher": 355.40127446831286
+      }
+    }
+  }
+}

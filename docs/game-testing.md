@@ -102,6 +102,19 @@ An experimental RustEmuDroid 0.17.0 client switched between inline RGBA frames a
 
 Pooling each pair by replay duration gives **84.20 FPS inline and 84.93 FPS with MMAP**. The larger difference was in the panel, which processed **76.95 and 82.37 frames/s**, respectively. Rust process CPU usage fell from 532 to 370 ms per second. Game FPS covers the full replay. Android presentations and host CPU cover an approximately 20-second segment, and the panel counts complete reporting intervals within that segment. Panel processing is distinct from monitor scanout. These four short replays on one PC establish the size of the observed difference. The [PUBG Inventory transport test](#does-shared-memory-video-improve-pubg-inventory-fps) used the same experimental client. [Per-replay results and counting rules](../benchmarks/stk-1.5/windows-mmap-replay.json) · [Transport integrity test and shared-buffer limitation](../benchmarks/desktop-texture-upload/README.md#windows-screenshot-transport-on-android-17)
 
+### Serialized shared memory in the Windows game panel at 90 Hz
+
+The private 0.18.0 client used a small framebuffer notification followed by a single full-resolution shared-memory screenshot. It copied each complete image before requesting the next. We tested this path on November 25, 2026, with the same launcher process and one managed Android 17 VM. SuperTuxKart 1.5 ran the Black Forest replay on the RTX 5070 Ti at High, native Vulkan and 1600 × 900. Android reported 90 Hz and the game's 21 reported graphics settings matched in every pass. We warmed up once and started the game afresh for each measured replay.
+
+| Run | Video transport | Game FPS | Android presentations/s | Panel frames/s | Launcher CPU (ms/s) |
+|---|---|---:|---:|---:|---:|
+| A1 | Inline | 81.93 | 79.76 | 76.03 | 549 |
+| B1 | Serialized shared memory | 82.51 | 81.40 | 77.83 | 343 |
+| B2 | Serialized shared memory | 82.11 | 80.49 | 77.86 | 368 |
+| A2 | Inline | 82.88 | 82.20 | 78.33 | 521 |
+
+The full-replay game rate was **82.40 FPS inline and 82.31 with serialized shared memory**. The paired Android samples yielded 80.98 and 80.95 presentations/s. The panel processed 77.18 and 77.85 frames/s. The launcher used 535 and 355 CPU ms per wall second, a **33.6% reduction**. This experiment saved desktop CPU with essentially the same game FPS. It does not establish a shorter input-to-display latency. The game rate covers each full replay. Android, panel and CPU samples cover a roughly 20-second segment. The test restored the game's configuration and the normal 60 Hz Home session. [Per-replay counters](../benchmarks/stk-1.5/windows-serialized-mmap-replay.json) · [Screenshot latency and delayed-reader check](../benchmarks/desktop-texture-upload/README.md#serialized-full-frame-screenshots-with-a-small-change-notification)
+
 ## PUBG MOBILE
 
 One Windows launch of PUBG MOBILE 4.7.0 (build 21718) on v0.15.0 exited before reaching the lobby. Android started the requested splash activity and the process initialized ANGLE over Vulkan on the RTX 5070 Ti. Android then recorded a native crash (SIGSEGV, SEGV_ACCERR) in that process. Three subsequent fresh processes on the same Android 17 installation reached the lobby and completed the Inventory route. The logs establish when the failure occurred. Its underlying cause remains unknown. [Inventory runs on this build](#does-lowering-the-android-display-resolution-help-pubg-inventory)
@@ -370,6 +383,8 @@ The fixture measures two warmed loops. It leaves first-use translation, renderin
 The follow-up fixture timed the first visit to groups of 1,024 functions and their immediate repeats on v0.18.0. With ARM64 code, a first visit took 1.464 ms on Android 17 and 0.345 ms on Pie64. Repeats took 0.033 and 0.113 ms, respectively. This gives us a reproducible example of slower first execution on Android 17 alongside faster repeated execution. The time attributable to code translation during the actual Inventory transition remains unknown. [Results, method and per-visit timings](../benchmarks/native-bridge/README.md#first-use-of-arm64-code-on-windows)
 
 ### PUBG startup on Kemu Android 16
+
+REA identified Berberis in the Android 17 Google Play build `16418371`. Its ARM64 translator defaults to `two-gear` and also recognizes the lightweight mode used on the Kemu Android 16 image. On the stock Google Play image, Android classifies the mode property as `default_prop`, which only `init` may set. The emulator's supported boot property option requires a QEMU-labeled property. The Windows launcher therefore has no verified setting for switching the translator in an installed PUBG process on this image. [Android property policy](https://android.googlesource.com/platform/system/sepolicy/+/refs/heads/main/private/property.te#800) · [Emulator boot options](https://developer.android.com/studio/run/emulator-commandline)
 
 We tested the existing Original profile in RustEmuDroid 0.13.3 on Windows with Kemu Android 16, the RTX 5070 Ti, 1600 × 900 and the same ARM64 PUBG build 4.7.0 (21718). Each test had its own VM boot. We verified the selected GPU, game version, AVD and Berberis translation mode on each launch.
 
