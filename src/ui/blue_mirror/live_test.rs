@@ -16,11 +16,13 @@ use std::{
 use winit::platform::windows::EventLoopBuilderExtWindows;
 
 const OPERATOR_WAIT: Duration = Duration::from_secs(90);
+const ROTATION_WAIT: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
     WaitingForMirror,
     TouchGate,
+    RotationPending { expected: [u32; 2], reported: bool },
     CancelDownPosted,
     CancelHidden,
     CancelRestoring,
@@ -67,12 +69,19 @@ fn placement(
     panel.preview.as_ref()?;
     let (_, fitted, _) = panel.layout?;
     let size = panel.size?;
-    if pid != expected_pid
-        || point[0] >= size[0]
-        || point[1] >= size[1]
-        || ppp <= 0.0
-        || !ppp.is_finite()
-    {
+    if pid != expected_pid {
+        return None;
+    }
+    map_placement(fitted, size, point, ppp)
+}
+
+fn map_placement(
+    fitted: PreviewRect,
+    size: [u32; 2],
+    point: [u32; 2],
+    ppp: f32,
+) -> Option<Placement> {
+    if point[0] >= size[0] || point[1] >= size[1] || ppp <= 0.0 || !ppp.is_finite() {
         return None;
     }
     let width = f64::from(fitted.right) - f64::from(fitted.left);
@@ -93,6 +102,21 @@ fn placement(
         position,
         pixels_per_point: ppp,
     })
+}
+
+#[test]
+fn rotated_layout_uses_a_point_from_the_new_display() {
+    let portrait = PreviewRect {
+        left: 140,
+        top: 72,
+        right: 410,
+        bottom: 552,
+    };
+    let size = [900, 1600];
+    assert!(map_placement(portrait, size, [1200, 240], 1.25).is_none());
+    let [width, height] = size;
+    let center = [width / 2, height / 2];
+    assert!(map_placement(portrait, size, center, 1.25).is_some());
 }
 
 fn marker(receipt: &Path, suffix: &str) -> PathBuf {
@@ -127,6 +151,7 @@ struct MirrorWindowTest {
     deadline: Instant,
     posted: Option<Placement>,
     tested_cancel: bool,
+    rotations_checked: u8,
     failure: Option<String>,
     finished: Rc<Cell<bool>>,
 }
@@ -144,7 +169,7 @@ impl MirrorWindowTest {
     fn fail(&mut self, reason: String) {
         self.write(
             "failed",
-            json!({"phase": format!("{:?}", self.phase), "reason": reason}),
+            json!({"phase": format!("{:?}", self.phase), "reason": reason, "mirror": self.geometry()}),
         );
         self.failure = Some(reason);
         self.advance(Phase::RequestClose);
@@ -157,6 +182,25 @@ impl MirrorWindowTest {
             ctx.pixels_per_point(),
             self.expected_pid,
         )
+    }
+
+    fn rotation_layout(&self, ctx: &egui::Context) -> Option<(Placement, [u32; 2])> {
+        let panel = &self.app.blue_mirror;
+        let [width, height] = panel.size?;
+        let center = [width / 2, height / 2];
+        placement(panel, center, ctx.pixels_per_point(), self.expected_pid)
+            .map(|layout| (layout, center))
+    }
+
+    fn geometry(&self) -> Value {
+        let panel = &self.app.blue_mirror;
+        json!({
+            "guest_size": panel.size,
+            "rotation_pending": panel.rotation_pending,
+            "dwm_fitted_rect": panel.layout.map(|(_, rect, _)| [rect.left, rect.top, rect.right, rect.bottom]),
+            "preview_error": panel.view_error,
+            "input_error": panel.input_error,
+        })
     }
 
     fn post(
@@ -219,6 +263,19 @@ impl App for MirrorWindowTest {
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut RawInput) {
         // This fixture drives only its own egui RawInput. It never sends native OS input.
         raw.events.clear();
+        if !matches!(
+            self.phase,
+            Phase::RequestClose | Phase::Closing | Phase::Finished
+        ) && marker(&self.path, ".close").is_file()
+        {
+            if matches!(self.phase, Phase::SecondBackOrClose | Phase::CloseGate) {
+                self.advance(Phase::RequestClose);
+            } else {
+                self.fail(
+                    "Operator requested shutdown before the input proof completed".to_owned(),
+                );
+            }
+        }
         match self.phase {
             Phase::TouchGate if !self.tested_cancel && marker(&self.path, ".cancel").is_file() => {
                 self.post(
@@ -266,11 +323,6 @@ impl App for MirrorWindowTest {
                     Phase::SecondBackPosted,
                 );
             }
-            Phase::SecondBackOrClose | Phase::CloseGate
-                if marker(&self.path, ".close").is_file() =>
-            {
-                self.advance(Phase::RequestClose);
-            }
             _ => {}
         }
         if self.phase == Phase::RequestClose {
@@ -306,6 +358,62 @@ impl App for MirrorWindowTest {
             Phase::WaitingForMirror => {
                 if let Some(layout) = self.layout(ctx) {
                     self.write("ready", layout.evidence(self.guest_point));
+                    self.advance(Phase::TouchGate);
+                }
+            }
+            Phase::TouchGate if self.rotations_checked < 2 => {
+                let marker_name = if self.rotations_checked == 0 {
+                    ".rotate"
+                } else {
+                    ".rotate2"
+                };
+                if marker(&self.path, marker_name).is_file()
+                    && let Some((layout, center)) = self.rotation_layout(ctx)
+                {
+                    let [width, height] = layout.size;
+                    if width == height {
+                        self.fail(
+                            "A square guest cannot prove the display axes were exchanged"
+                                .to_owned(),
+                        );
+                    } else {
+                        let expected = [height, width];
+                        self.app.blue_mirror.request_rotation(true);
+                        self.write(
+                            "rotation_requested",
+                            json!({"expected_size": expected, "before": layout.evidence(center)}),
+                        );
+                        self.phase = Phase::RotationPending {
+                            expected,
+                            reported: false,
+                        };
+                        self.deadline = Instant::now() + ROTATION_WAIT;
+                    }
+                }
+            }
+            Phase::RotationPending { expected, reported }
+                if !self.app.blue_mirror.rotation_pending =>
+            {
+                if !reported {
+                    self.write(
+                        "rotation_size_reported",
+                        json!({"expected_size": expected, "mirror": self.geometry()}),
+                    );
+                    self.phase = Phase::RotationPending {
+                        expected,
+                        reported: true,
+                    };
+                }
+                if let Some((layout, center)) = self.rotation_layout(ctx)
+                    && layout.size == expected
+                {
+                    self.rotations_checked += 1;
+                    let event = if self.rotations_checked == 1 {
+                        "rotated"
+                    } else {
+                        "rotation_restored"
+                    };
+                    self.write(event, layout.evidence(center));
                     self.advance(Phase::TouchGate);
                 }
             }
@@ -408,7 +516,9 @@ fn live_player_routes_raw_input_through_the_launcher() {
         "choose a path outside the worktree or inside its private .rustemudroid/qa directory"
     );
     let path = directory.join(given.file_name().unwrap());
-    for suffix in [".cancel", ".touch", ".back", ".back2", ".close"] {
+    for suffix in [
+        ".rotate", ".rotate2", ".cancel", ".touch", ".back", ".back2", ".close",
+    ] {
         assert!(
             !marker(&path, suffix).exists(),
             "test markers must begin absent"
@@ -455,6 +565,7 @@ fn live_player_routes_raw_input_through_the_launcher() {
                 deadline: started + OPERATOR_WAIT,
                 posted: None,
                 tested_cancel: false,
+                rotations_checked: 0,
                 failure: None,
                 finished: report,
             }))

@@ -21,6 +21,7 @@ const ADB_PORT: u16 = 5037;
 const SHORT_IO: Duration = Duration::from_secs(1);
 const SHORT_COMMAND: Duration = Duration::from_secs(3);
 const STARTUP: Duration = Duration::from_secs(12);
+const ROTATE_DEVICE: [u8; 1] = [11];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TouchAction {
@@ -530,6 +531,11 @@ impl MirrorControl {
         self.press(187)
     }
 
+    pub(crate) fn rotate(&mut self) -> io::Result<()> {
+        self.release_all()?;
+        self.send(&ROTATE_DEVICE)
+    }
+
     fn press(&mut self, code: u32) -> io::Result<()> {
         self.key(KeyAction::Down, code, 0, 0)?;
         self.key(KeyAction::Up, code, 0, 0)
@@ -710,6 +716,7 @@ mod tests {
         );
         let scroll = scroll_packet(position, -16.0, 16.0).unwrap();
         assert_eq!(scroll[13..17], [0x80, 0, 0x7f, 0xff]);
+        assert_eq!(ROTATE_DEVICE, [11]);
         assert!(scroll_packet(position, f32::NAN, 0.0).is_err());
         assert!(Position::new([1600, 8], [1600, 900]).is_err());
     }

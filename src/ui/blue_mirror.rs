@@ -27,6 +27,7 @@ pub(super) struct MirrorPanel {
     last_touch: Option<[u32; 2]>,
     input_geometry: Option<(PreviewRect, f32, [u32; 2])>,
     input_focused: bool,
+    rotation_pending: bool,
     refresh_at: Option<Instant>,
     retry_at: Option<Instant>,
     input_error: Option<String>,
@@ -86,37 +87,51 @@ impl MirrorPanel {
         {
             self.destination = handle.hwnd.get();
         }
-        let mut release = false;
-        if let Some(session) = &self.session {
-            for event in session.events.try_iter() {
-                match event {
-                    MirrorEvent::Player(pid, created) => self.player = Some((pid, created)),
-                    MirrorEvent::Ready(size) => {
-                        release |= self.size.is_some_and(|previous| previous != size);
-                        self.size = Some(size);
-                        self.input_error = None;
-                    }
-                    MirrorEvent::ViewOnly(error) => {
-                        eprintln!("BlueStacks mirror (input): {error}");
-                        self.size = None;
-                        self.input_error = Some(error);
-                        release = true;
-                    }
-                    MirrorEvent::Failed(error) => {
-                        eprintln!("BlueStacks mirror (player): {error}");
-                        self.size = None;
-                        self.player = None;
-                        self.preview = None;
-                        self.layout = None;
-                        self.view_error = Some(error);
-                        release = true;
-                    }
-                }
+        while let Some(event) = self
+            .session
+            .as_ref()
+            .and_then(|session| session.events.try_recv().ok())
+        {
+            self.apply_event(event);
+        }
+    }
+
+    fn apply_event(&mut self, event: MirrorEvent) {
+        match event {
+            MirrorEvent::Player(pid, created) => self.player = Some((pid, created)),
+            MirrorEvent::Ready(size) => self.set_display_size(size),
+            MirrorEvent::RotationChecked(size) => {
+                self.rotation_pending = false;
+                self.layout = None;
+                self.refresh_at = None;
+                self.set_display_size(size);
+            }
+            MirrorEvent::ViewOnly(error) => {
+                eprintln!("BlueStacks mirror (input): {error}");
+                self.size = None;
+                self.input_error = Some(error);
+                self.rotation_pending = false;
+                self.release();
+            }
+            MirrorEvent::Failed(error) => {
+                eprintln!("BlueStacks mirror (player): {error}");
+                self.size = None;
+                self.player = None;
+                self.preview = None;
+                self.layout = None;
+                self.view_error = Some(error);
+                self.rotation_pending = false;
+                self.release();
             }
         }
-        if release {
+    }
+
+    fn set_display_size(&mut self, size: [u32; 2]) {
+        if self.size.is_some_and(|previous| previous != size) {
             self.release();
         }
+        self.size = Some(size);
+        self.input_error = None;
     }
 
     fn send(&self, input: MirrorInput) {
@@ -139,6 +154,31 @@ impl MirrorPanel {
             self.release();
         }
         self.send(input);
+    }
+
+    fn request_rotation(&mut self, focused: bool) {
+        if focused && self.size.is_some() && !self.rotation_pending {
+            self.release();
+            self.rotation_pending = self
+                .session
+                .as_ref()
+                .is_some_and(|session| session.input.send(MirrorInput::Rotate).is_ok());
+        }
+    }
+
+    fn rotate_button(&mut self, ui: &mut egui::Ui, l: Locale) -> egui::Response {
+        let focused = ui.input(|input| input.focused);
+        ui.add_enabled_ui(
+            focused && self.size.is_some() && !self.rotation_pending,
+            |ui| {
+                let response = Tool::Rotate.icon_button(ui, Tool::Rotate.label(l));
+                if response.clicked() {
+                    self.request_rotation(focused);
+                }
+                response
+            },
+        )
+        .inner
     }
 
     fn hide(&mut self) {
@@ -170,6 +210,7 @@ impl MirrorPanel {
                             self.send(MirrorInput::Key(KeyAction::Up, key, 0, 0));
                         }
                     }
+                    self.rotate_button(ui, l);
                 });
                 if let Some(reason) = &self.input_error {
                     let tip = if reason.contains("ADB access is disabled") {
@@ -264,7 +305,9 @@ impl MirrorPanel {
                                     self.handle_input(ctx, rect, ppp, size, host_gesture);
                                 } else {
                                     self.release();
-                                    if self.refresh_at.is_none_or(|time| time <= now) {
+                                    if !self.rotation_pending
+                                        && self.refresh_at.is_none_or(|time| time <= now)
+                                    {
                                         self.refresh_size(shown, now);
                                     }
                                 }
@@ -317,7 +360,7 @@ impl MirrorPanel {
         size: [u32; 2],
         host_gesture: bool,
     ) {
-        if host_gesture || !ctx.input(|i| i.focused) {
+        if host_gesture || self.rotation_pending || !ctx.input(|i| i.focused) {
             self.release();
             return;
         }

@@ -34,11 +34,14 @@ const HOST_IO_TIMEOUT: Duration = Duration::from_secs(2);
 const WAIT_PLAYER: Duration = Duration::from_secs(48);
 const WAIT_DEVICE: Duration = Duration::from_secs(10);
 const ADB_VERSION_TIMEOUT: Duration = Duration::from_secs(3);
+const ROTATION_SETTLE: Duration = Duration::from_millis(600);
+const ROTATION_REFRESH_WINDOW: Duration = Duration::from_secs(3);
 
 #[derive(Debug)]
 pub(crate) enum MirrorEvent {
     Player(u32, u64),
     Ready([u32; 2]),
+    RotationChecked([u32; 2]),
     ViewOnly(String),
     Failed(String),
 }
@@ -51,6 +54,7 @@ pub(crate) enum MirrorInput {
     Back,
     Home,
     Recents,
+    Rotate,
     Release,
     Refresh([u32; 2]),
 }
@@ -506,7 +510,17 @@ impl Worker {
         if !self.emit(MirrorEvent::Ready(display)) {
             return Ok(());
         }
+        let mut rotation_check = None;
+        let mut rotation_refresh_until = None;
         while !self.cancelled.load(Ordering::Acquire) {
+            if rotation_check.is_some_and(|due| due <= Instant::now()) {
+                display = self.display(adb, mirrored, target, preview)?;
+                rotation_check = None;
+                rotation_refresh_until = Some(Instant::now() + ROTATION_REFRESH_WINDOW);
+                if !self.emit(MirrorEvent::RotationChecked(display)) {
+                    break;
+                }
+            }
             let command = match self.input.recv_timeout(Duration::from_millis(100)) {
                 Ok(command) => command,
                 Err(RecvTimeoutError::Timeout) => continue,
@@ -514,10 +528,14 @@ impl Worker {
             };
             self.check_cancelled()?;
             match command {
-                MirrorInput::Touch(action, point, size) if size == display => {
+                MirrorInput::Touch(action, point, size)
+                    if rotation_check.is_none() && size == display =>
+                {
                     control.touch(action, point, size)?
                 }
-                MirrorInput::Scroll(point, size, horizontal, vertical) if size == display => {
+                MirrorInput::Scroll(point, size, horizontal, vertical)
+                    if rotation_check.is_none() && size == display =>
+                {
                     control.scroll(point, size, horizontal, vertical)?
                 }
                 MirrorInput::Key(action, code, repeat, metastate) => {
@@ -526,8 +544,18 @@ impl Worker {
                 MirrorInput::Back => control.back()?,
                 MirrorInput::Home => control.home()?,
                 MirrorInput::Recents => control.recents()?,
+                MirrorInput::Rotate if rotation_check.is_none() => {
+                    control.rotate()?;
+                    rotation_check = Some(Instant::now() + ROTATION_SETTLE);
+                }
                 MirrorInput::Release => control.release_all()?,
-                MirrorInput::Refresh(size) if valid_dimensions(size) && Some(size) != preview => {
+                MirrorInput::Refresh(size)
+                    if rotation_check.is_none()
+                        && valid_dimensions(size)
+                        && (Some(size) != preview
+                            || rotation_refresh_until
+                                .is_some_and(|until| Instant::now() < until)) =>
+                {
                     control.release_all()?;
                     preview = Some(size);
                     let current = self.display(adb, mirrored, target, preview)?;

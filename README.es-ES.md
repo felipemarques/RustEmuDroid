@@ -101,9 +101,11 @@ En Windows, selecciona **Abrir BlueStacks → Usar esta ventana** para ver la in
 
 ![Selecciona la instancia y Usar esta ventana para abrir su vista previa](docs/screenshots/es-es/bluestacks.png)
 
-Para usar toques, arrastre, desplazamiento, teclado y los botones de navegación Android, activa **Android Debug Bridge (ADB)** en los ajustes avanzados de BlueStacks y vuelve a conectarte. RustEmuDroid usa un cliente ADB moderno del entorno administrado o de Android Platform Tools. Con ADB desactivado, el modo solo permite visualizar. Los perfiles de controles, la grabación y el contador de FPS del panel están disponibles en la sesión Android nativa de RustEmuDroid.
+Para usar toques, arrastre, desplazamiento, teclado y los botones de navegación Android, activa **Android Debug Bridge (ADB)** en los ajustes avanzados de BlueStacks y vuelve a conectarte. Pulsa **Girar pantalla** en la barra de la vista previa para cambiar entre vertical y horizontal en las aplicaciones que admiten rotación. RustEmuDroid usa un cliente ADB moderno del entorno administrado o de Android Platform Tools. Con ADB desactivado, el modo solo permite visualizar. Los perfiles de controles, la grabación y el contador de FPS del panel están disponibles en la sesión Android nativa de RustEmuDroid.
 
-**¿Puedo arrancar la copia de la imagen de BlueStacks de forma independiente?** El híbrido experimental Pie64 llegó al servicio de sistema de Android (`system_server`) y se detuvo antes del inicio. El arranque de 29,5 segundos se midió con la imagen de referencia de Android 9. [Resultados de Pie64, en inglés](docs/bluestacks-lab.md#r2-fstab-compatibility-test)
+**¿Puedo usar los juegos de mi copia de seguridad de BlueStacks?** En el PC de pruebas restauramos una copia del disco de datos en otra instancia Pie64 de la misma versión de BlueStacks. Arrancó Android 9 y mostró los cuatro juegos que comprobamos. Selecciona la instancia restaurada en **Abrir BlueStacks → Usar esta ventana**. [Prueba de restauración, en inglés](docs/bluestacks-lab.md#booting-an-archived-data-disk-with-the-installed-bluestacks-engine)
+
+**¿Puedo arrancar la copia de la imagen sin instalar BlueStacks?** El híbrido experimental Pie64 llegó al servicio de sistema de Android (`system_server`) y se detuvo antes del inicio. El arranque de 29,5 segundos se midió con la imagen de referencia de Android 9. [Resultados de Pie64, en inglés](docs/bluestacks-lab.md#r2-fstab-compatibility-test)
 
 **Si descargaste el ZIP de la versión publicada**, elige **Extraer todo** y abre en el Explorador de archivos la carpeta que contiene `rustemudroid.exe`. Haz clic en la barra de direcciones, escribe `powershell` y pulsa **Intro**. Indica en esa ventana la ruta del ejecutable.
 

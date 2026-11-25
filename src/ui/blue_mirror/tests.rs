@@ -223,6 +223,113 @@ fn native_resize_gesture_keeps_its_pointer_press_out_of_the_guest() {
     assert!(!panel.input_focused);
 }
 
+fn rotate_widget_frame(
+    panel: &mut MirrorPanel,
+    ctx: &egui::Context,
+    focused: bool,
+    events: Vec<Event>,
+) -> egui::Response {
+    let mut response = None;
+    let _ = ctx.run(
+        RawInput {
+            focused,
+            events,
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                response = Some(panel.rotate_button(ui, Locale::EnUs));
+            });
+        },
+    );
+    response.unwrap()
+}
+
+#[test]
+fn clicking_rotate_releases_held_input_and_waits_for_a_rotation_result() {
+    let (session, input) = MirrorSession::input_recorder();
+    let mut panel = MirrorPanel {
+        session: Some(session),
+        size: Some(GUEST),
+        layout: Some((SLOT, SLOT, Instant::now())),
+        last_touch: Some([100, 50]),
+        input_focused: true,
+        ..Default::default()
+    };
+    let ctx = egui::Context::default();
+    let center = rotate_widget_frame(&mut panel, &ctx, true, vec![])
+        .rect
+        .center();
+    rotate_widget_frame(
+        &mut panel,
+        &ctx,
+        true,
+        vec![Event::PointerMoved(center), primary(center, true)],
+    );
+    rotate_widget_frame(&mut panel, &ctx, true, vec![primary(center, false)]);
+    assert!(matches!(
+        input.try_iter().collect::<Vec<_>>().as_slice(),
+        [MirrorInput::Release, MirrorInput::Rotate]
+    ));
+    assert!(panel.rotation_pending);
+    assert!(!panel.input_focused);
+    assert_eq!(panel.size, Some(GUEST));
+    assert!(!rotate_widget_frame(&mut panel, &ctx, true, vec![]).enabled());
+
+    panel.apply_event(MirrorEvent::Ready(GUEST));
+    input_frame(&mut panel, &ctx, true, vec![primary(CENTER, true)]);
+    input_frame(&mut panel, &ctx, true, vec![primary(CENTER, false)]);
+    assert!(input.try_recv().is_err());
+    assert!(panel.rotation_pending);
+
+    // A game can keep its requested orientation. The acknowledged size still unlocks input.
+    panel.apply_event(MirrorEvent::RotationChecked(GUEST));
+    assert!(!panel.rotation_pending);
+    assert!(panel.layout.is_none());
+    assert!(rotate_widget_frame(&mut panel, &ctx, true, vec![]).enabled());
+    input_frame(&mut panel, &ctx, true, vec![primary(CENTER, true)]);
+    assert!(matches!(
+        input.try_recv().unwrap(),
+        MirrorInput::Touch(TouchAction::Down, [100, 50], GUEST)
+    ));
+}
+
+#[test]
+fn rotation_requires_focus_and_adopts_only_the_verified_android_dimensions() {
+    let (session, input) = MirrorSession::input_recorder();
+    let mut panel = MirrorPanel {
+        session: Some(session),
+        ..Default::default()
+    };
+    let ctx = egui::Context::default();
+    assert!(!rotate_widget_frame(&mut panel, &ctx, true, vec![]).enabled());
+    panel.apply_event(MirrorEvent::Ready(GUEST));
+    assert!(!rotate_widget_frame(&mut panel, &ctx, false, vec![]).enabled());
+    panel.request_rotation(false);
+    assert!(input.try_recv().is_err());
+
+    panel.request_rotation(true);
+    assert!(matches!(input.try_recv().unwrap(), MirrorInput::Rotate));
+    assert_eq!(panel.size, Some(GUEST));
+    panel.apply_event(MirrorEvent::RotationChecked([100, 200]));
+    assert_eq!(panel.size, Some([100, 200]));
+    assert!(!panel.rotation_pending);
+}
+
+#[test]
+fn rotation_cannot_stay_pending_when_the_worker_receiver_has_closed() {
+    let (session, input) = MirrorSession::input_recorder();
+    drop(input);
+    let mut panel = MirrorPanel {
+        session: Some(session),
+        size: Some(GUEST),
+        ..Default::default()
+    };
+    panel.request_rotation(true);
+    assert!(!panel.rotation_pending);
+    assert_eq!(panel.size, Some(GUEST));
+}
+
 #[test]
 fn obscured_preview_releases_input_without_discarding_the_connected_display_size() {
     let (session, input) = MirrorSession::input_recorder();

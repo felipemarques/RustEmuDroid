@@ -101,9 +101,11 @@ On Windows, choose **Open BlueStacks → Use this window** to display an install
 
 ![Select the instance and choose Use this window to open its preview](docs/screenshots/en-us/bluestacks.png)
 
-For touch, drag, scroll, keyboard input and the Android navigation buttons, enable **Android Debug Bridge (ADB)** in BlueStacks advanced settings and reconnect. RustEmuDroid uses a modern local ADB client from the managed runtime or Android Platform Tools. With ADB disabled the picture is view-only. The game profiles, recording and desktop FPS counter currently belong to the native RustEmuDroid session.
+For touch, drag, scroll, keyboard input and the Android navigation buttons, enable **Android Debug Bridge (ADB)** in BlueStacks advanced settings and reconnect. Click **Rotate screen** on the preview toolbar to switch between portrait and landscape in apps that allow rotation. RustEmuDroid uses a modern local ADB client from the managed runtime or Android Platform Tools. With ADB disabled the picture is view-only. The game profiles, recording and desktop FPS counter currently belong to the native RustEmuDroid session.
 
-**Can I boot the copied BlueStacks image independently?** The experimental Pie64 hybrid reached Android’s system service (`system_server`) and stopped before Home. The working 29.5-second boot was measured on a stock Android 9 reference image. [Pie64 boot results](docs/bluestacks-lab.md#r2-fstab-compatibility-test)
+**Can I use my backed-up BlueStacks games?** On the test PC we restored a copy of the data disk to a separate Pie64 instance on the same BlueStacks build. It booted Android 9 and listed all four tested games. Select the restored instance under **Open BlueStacks → Use this window**. [Restore test](docs/bluestacks-lab.md#booting-an-archived-data-disk-with-the-installed-bluestacks-engine)
+
+**Can I boot the copied image independently of BlueStacks?** The experimental Pie64 hybrid reached Android’s system service (`system_server`) and stopped before Home. The working 29.5-second boot was measured on a stock Android 9 reference image. [Pie64 boot results](docs/bluestacks-lab.md#r2-fstab-compatibility-test)
 
 **If you downloaded the release ZIP**, choose **Extract All** and open the folder containing `rustemudroid.exe` in File Explorer. Click the address bar, type `powershell` and press **Enter**. In that window, set the executable path.
 
