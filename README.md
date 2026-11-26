@@ -84,6 +84,8 @@ On Windows, open **Settings → Runtime, image, and profile → Vulkan memory ca
 
 </details>
 
+**Settings → Runtime, image, and profile → Performance engine (experimental)** selects a separately built Windows engine for the profile. Choose the folder that holds `rustemudroid-engine.json` and `sdk` with **Choose performance engine…**, turn on the options the engine offers, then save and restart Android. The desktop checks the engine's SHA-256 digests at every start and uses the default engine, with a message, if they differ. **Remove performance engine** switches back; the next start restores the profile's `config.ini`. A profile uses either this engine or the Vulkan memory cache. On an RTX 5070 Ti with the official Android 17 Google Play image, the engine and its settings measured 356 game FPS in uncapped SuperTuxKart Vulkan with the Windows Balanced power mode on an otherwise idle desktop, compared with 164–176 for the stock engine, 325 for Kemu and 376 for BlueStacks. On the integrated Radeon 780M, Cipó Livre held 59.9 presentations/s at 60 Hz instead of 57–59. [Build the engine](experiments/whpx-clock/README.md#4-build-the-performance-engine) · [Measurements and limits](docs/performance-history.md#performance-engine-in-uncapped-mailbox)
+
 ![Settings with profile selection, rendering mode, Vulkan adapter and webcam](docs/screenshots/en-us/settings.png)
 
 ## Use the desktop controls

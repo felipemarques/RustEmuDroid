@@ -223,6 +223,11 @@ fn boot_help(command: Command, l: Locale) -> Command {
                 "Prepared Windows Vulkan cache engine directory (the folder containing staging.json or its sdk subfolder).",
                 "Carpeta del motor Windows preparado con caché Vulkan (la carpeta con staging.json o su subcarpeta sdk).",
             )),
+            ("performance_engine", l.pick(
+                "Pasta do motor de desempenho para Windows (com rustemudroid-engine.json ou a subpasta sdk). Usa a predefinição padrão, sem parâmetros do kernel: grava hw.gltransport no config.ini do perfil, ocupa cerca de um núcleo do computador e faz o Android identificar o hipervisor como KVM.",
+                "Windows performance engine directory (containing rustemudroid-engine.json, or its sdk subfolder). Uses the default preset, without kernel parameters: it writes hw.gltransport to the profile’s config.ini, keeps about one host core busy and makes Android report its hypervisor as KVM.",
+                "Carpeta del motor de rendimiento para Windows (con rustemudroid-engine.json o su subcarpeta sdk). Usa el ajuste predefinido por defecto, sin parámetros del kernel: escribe hw.gltransport en el config.ini del perfil, mantiene ocupado aproximadamente un núcleo del equipo y hace que Android identifique el hipervisor como KVM.",
+            )),
             ("adapter", l.pick(
                 "Nome da placa Vulkan para os modos host e auto.",
                 "Vulkan adapter name for the host and auto modes.",

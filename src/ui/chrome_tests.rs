@@ -218,6 +218,8 @@ fn title_bar_layout_and_window_actions() {
             hardware: Default::default(),
             amd_uma_vulkan_by_profile: Default::default(),
             vulkan_cache_runtime_by_profile: Default::default(),
+            performance_engine_by_profile: Default::default(),
+            performance_power_by_profile: Default::default(),
             show_fps: true,
             android_fps: false,
             adaptive_video: false,
@@ -557,6 +559,173 @@ fn settings_restore_default_vulkan_runtime_for_the_running_profile() {
     }
 }
 
+#[cfg(windows)]
+#[test]
+fn settings_offer_performance_options_listed_by_the_engine_manifest() {
+    for locale in Locale::ALL {
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = dir.path().join("launcher.json");
+        let profile = dir.path().join("android-17");
+        let engine = dir.path().join("perf-engine");
+        std::fs::create_dir_all(&engine).unwrap();
+        let hash = "0".repeat(64);
+        std::fs::write(
+            engine.join("rustemudroid-engine.json"),
+            serde_json::json!({
+                "schema": 1,
+                "kind": "rustemudroid-performance-engine",
+                "engine_version": "37.3.10",
+                "build_id": "test",
+                "emulator_sha256": hash,
+                "qemu_sha256": hash,
+                "gfxstream_sha256": hash,
+                // No vcpu_placement: that option must not be offered.
+                "capabilities": ["tsc_sync", "vulkan_cached_host", "asg_spin",
+                    "vulkan_native_swapchain", "guest_kernel_parameters"],
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let mut config = LaunchConfig::load(None, profile.clone(), Some(Gpu::Host), &prefs);
+        config.locale = locale;
+        config.set_performance_engine(Some(engine.join("sdk")));
+        let brand = ctx.load_texture(
+            "brand",
+            egui::ColorImage::filled([2, 2], INK),
+            Default::default(),
+        );
+        let mut app = Launcher::new(brand, config.clone(), prefs.clone(), false);
+        app.settings = Some(config);
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1080., 1200.));
+        let mut tick = |events| {
+            ctx.run(
+                RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| app.show_settings(ctx, None),
+            )
+        };
+        let texts = |out: &FullOutput| {
+            out.shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    Shape::Text(text) => Some(text.galley.text().to_owned()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let locate = |out: &FullOutput, text: &str| {
+            let targets = labels(out, text);
+            assert_eq!(
+                targets.len(),
+                1,
+                "{text} for {}: {:?}",
+                locale.tag(),
+                texts(out)
+            );
+            let point = targets[0].center();
+            assert!(screen.contains(point), "{text} is outside the window");
+            point
+        };
+        for _ in 0..3 {
+            tick(vec![]);
+        }
+        let inside_scroll_area = locate(
+            &tick(vec![]),
+            locale.pick("Painel Rust", "Rust panel", "Panel Rust"),
+        );
+        let scroll_down = |point| {
+            vec![
+                Event::PointerMoved(point),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0., -650.),
+                    modifiers: Modifiers::NONE,
+                },
+            ]
+        };
+        tick(scroll_down(inside_scroll_area));
+        for _ in 0..15 {
+            tick(vec![]);
+        }
+        let section = locate(
+            &tick(vec![]),
+            locale.pick(
+                "Runtime, imagem e perfil",
+                "Runtime, image, and profile",
+                "Entorno, imagen y perfil",
+            ),
+        );
+        tick(vec![Event::PointerMoved(section), button(section, true)]);
+        tick(vec![button(section, false)]);
+        for _ in 0..3 {
+            for _ in 0..15 {
+                tick(vec![]);
+            }
+            tick(scroll_down(inside_scroll_area));
+        }
+        for _ in 0..15 {
+            tick(vec![]);
+        }
+        let opened = tick(vec![]);
+        let shown = texts(&opened);
+        assert!(
+            shown
+                .iter()
+                .all(|text| !text.contains("VulkanNativeSwapchain")
+                    && !text.contains("RUSTEMUDROID_QA_")),
+            "technical names stay in the hover text: {shown:?}"
+        );
+        assert!(
+            labels(
+                &opened,
+                locale.pick(
+                    "Núcleos dedicados para o Android",
+                    "Dedicated cores for Android",
+                    "Núcleos dedicados para Android",
+                )
+            )
+            .is_empty()
+        );
+        locate(
+            &opened,
+            locale.pick(
+                "Compor a tela com Vulkan",
+                "Compose the screen with Vulkan",
+                "Componer la pantalla con Vulkan",
+            ),
+        );
+        let kernel = locate(
+            &opened,
+            locale.pick(
+                "Reduzir proteções do kernel do Android",
+                "Reduce Android kernel protections",
+                "Reducir las protecciones del kernel de Android",
+            ),
+        );
+        assert!(shown.iter().any(|text| text.starts_with(locale.pick(
+            "Atenção:",
+            "Warning:",
+            "Atención:"
+        ))));
+        tick(vec![Event::PointerMoved(kernel), button(kernel, true)]);
+        tick(vec![button(kernel, false)]);
+        let save = locate(&tick(vec![]), locale.pick("Salvar", "Save", "Guardar"));
+        tick(vec![Event::PointerMoved(save), button(save, true)]);
+        tick(vec![button(save, false)]);
+        assert!(app.settings.is_none());
+        let saved = LaunchConfig::load(None, profile.clone(), None, &prefs);
+        let selected = saved.performance_engine().unwrap();
+        assert_eq!(selected.path, engine.join("sdk"));
+        assert!(selected.options.guest_kernel_parameters, "{}", locale.tag());
+        assert!(selected.options.clock_sync && selected.options.dedicated_vcpu_cores);
+    }
+}
+
 #[test]
 fn idle_panel_localizes_session_controls_and_keeps_diagnostics_collapsed() {
     for (locale, start, settings, status, details) in [
@@ -629,6 +798,66 @@ fn idle_panel_localizes_session_controls_and_keeps_diagnostics_collapsed() {
             );
         }
         assert!(labels(&out, "sys.boot_completed=1").is_empty());
+    }
+}
+
+#[test]
+fn idle_panel_shows_the_failure_reason_without_expanding_details() {
+    let reason = r"No permission to read D:\engines\stage (Access is denied. (os error 5)).";
+    let long = format!("{reason} {}", "More context. ".repeat(80));
+    for (locale, failed) in [
+        (Locale::PtBr, "A última operação falhou"),
+        (Locale::EnUs, "The last operation failed"),
+        (Locale::EsEs, "La última operación ha fallado"),
+    ] {
+        for text in [reason.to_owned(), long.clone()] {
+            let ctx = egui::Context::default();
+            theme::install(&ctx);
+            let dir = tempfile::tempdir().unwrap();
+            let prefs = dir.path().join("launcher.json");
+            let mut config = LaunchConfig::load(None, dir.path().into(), None, &prefs);
+            config.locale = locale;
+            let brand = ctx.load_texture(
+                "brand",
+                egui::ColorImage::filled([2, 2], INK),
+                Default::default(),
+            );
+            let mut app = Launcher::new(brand, config, prefs, false);
+            app.failed = true;
+            app.status = text.clone();
+            let mut frame = eframe::Frame::_new_kittest();
+            let screen = Rect::from_min_size(Pos2::ZERO, vec2(610., 510.));
+            let mut tick = || {
+                ctx.run(
+                    RawInput {
+                        screen_rect: Some(screen),
+                        ..Default::default()
+                    },
+                    |ctx| app.update(ctx, &mut frame),
+                )
+            };
+            tick();
+            let out = tick();
+            assert_eq!(labels(&out, failed).len(), 1, "{locale:?}");
+            // Shown once, on screen, while the details section stays collapsed.
+            let shown: Vec<_> = out
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    Shape::Text(shape) if shape.galley.text().starts_with(reason) => Some((
+                        shape.visual_bounding_rect(),
+                        shape.galley.rows.len(),
+                        shape.galley.elided,
+                    )),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(shown.len(), 1, "{locale:?}");
+            let (rect, rows, elided) = shown[0];
+            assert!(rows <= 6, "{locale:?}: {rows}");
+            assert_eq!(elided, text.len() > reason.len(), "{locale:?}");
+            assert!(screen.contains_rect(rect), "{locale:?}: {rect:?}");
+        }
     }
 }
 

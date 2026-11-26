@@ -11,7 +11,7 @@ use super::{
     Action, BootStage, Gpu, Launcher, Locale, Profile, Sdk, default_kemu_image, gpu_label,
     path_input, theme,
 };
-use crate::android::{Camera, Hardware, amd_uma_adapter, amd_uma_sdk_image};
+use crate::android::{Camera, Hardware, PerformanceEngine, amd_uma_adapter, amd_uma_sdk_image};
 use eframe::egui::{self, RichText};
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +26,21 @@ pub(super) struct LaunchConfig {
     pub amd_uma_vulkan_by_profile: BTreeMap<PathBuf, bool>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(super) vulkan_cache_runtime_by_profile: BTreeMap<PathBuf, PathBuf>,
+    /// Sibling of the cache runtime. A profile uses at most one of the two.
+    /// Read leniently: a bad entry is dropped instead of resetting the file.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "lenient_map"
+    )]
+    pub(super) performance_engine_by_profile: BTreeMap<PathBuf, PerformanceEngine>,
+    /// Windows power mode overlay while this profile's VM runs. Default off.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "lenient_map"
+    )]
+    pub(super) performance_power_by_profile: BTreeMap<PathBuf, bool>,
     pub show_fps: bool,
     #[serde(default)]
     pub android_fps: bool,
@@ -37,6 +52,27 @@ pub(super) struct LaunchConfig {
     pub locale: Locale,
 }
 
+/// A per-profile map whose entries that do not parse (malformed, or written by
+/// a newer client in another shape) are skipped, so one bad entry never makes
+/// the whole `launcher.json` fall back to defaults.
+fn lenient_map<'de, D, V>(deserializer: D) -> Result<BTreeMap<PathBuf, V>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    V: serde::de::DeserializeOwned,
+{
+    let serde_json::Value::Object(entries) = serde_json::Value::deserialize(deserializer)? else {
+        return Ok(BTreeMap::new());
+    };
+    Ok(entries
+        .into_iter()
+        .filter_map(|(key, value)| {
+            serde_json::from_value(value)
+                .ok()
+                .map(|value| (PathBuf::from(key), value))
+        })
+        .collect())
+}
+
 impl LaunchConfig {
     fn boot_changed(&self, other: &Self) -> bool {
         self.sdk != other.sdk
@@ -46,6 +82,8 @@ impl LaunchConfig {
             || self.hardware != other.hardware
             || self.amd_uma_vulkan() != other.amd_uma_vulkan()
             || self.vulkan_cache_runtime() != other.vulkan_cache_runtime()
+            || self.performance_engine() != other.performance_engine()
+            || self.performance_power() != other.performance_power()
     }
 
     fn profile_key(&self) -> Option<PathBuf> {
@@ -59,6 +97,23 @@ impl LaunchConfig {
         self.profile_key()
             .and_then(|key| self.amd_uma_vulkan_by_profile.get(&key).copied())
             .unwrap_or(false)
+    }
+
+    pub(super) fn performance_power(&self) -> bool {
+        self.profile_key()
+            .and_then(|key| self.performance_power_by_profile.get(&key).copied())
+            .unwrap_or(false)
+    }
+
+    #[cfg(any(windows, test))]
+    pub(super) fn set_performance_power(&mut self, enabled: bool) {
+        if let Some(key) = self.profile_key() {
+            if enabled {
+                self.performance_power_by_profile.insert(key, true);
+            } else {
+                self.performance_power_by_profile.remove(&key);
+            }
+        }
     }
 
     fn set_amd_uma_vulkan(&mut self, enabled: bool) {
@@ -81,11 +136,48 @@ impl LaunchConfig {
     pub(super) fn set_vulkan_cache_runtime(&mut self, path: Option<PathBuf>) {
         if let Some(key) = self.profile_key() {
             if let Some(path) = path {
+                self.performance_engine_by_profile.remove(&key);
                 self.vulkan_cache_runtime_by_profile.insert(key, path);
             } else {
                 self.vulkan_cache_runtime_by_profile.remove(&key);
             }
         }
+    }
+
+    pub(super) fn performance_engine(&self) -> Option<&PerformanceEngine> {
+        self.profile_key()
+            .and_then(|key| self.performance_engine_by_profile.get(&key))
+    }
+
+    /// Choosing another folder keeps the profile's switches.
+    #[cfg(any(windows, test))]
+    pub(super) fn set_performance_engine(&mut self, path: Option<PathBuf>) {
+        let Some(key) = self.profile_key() else {
+            return;
+        };
+        match path {
+            Some(path) => {
+                self.vulkan_cache_runtime_by_profile.remove(&key);
+                self.performance_engine_by_profile
+                    .entry(key)
+                    .and_modify(|engine| engine.path = path.clone())
+                    .or_insert_with(|| PerformanceEngine {
+                        path,
+                        options: Default::default(),
+                    });
+            }
+            None => {
+                self.performance_engine_by_profile.remove(&key);
+            }
+        }
+    }
+
+    #[cfg(any(windows, test))]
+    fn performance_options_mut(&mut self) -> Option<&mut crate::android::PerformanceOptions> {
+        let key = self.profile_key()?;
+        self.performance_engine_by_profile
+            .get_mut(&key)
+            .map(|engine| &mut engine.options)
     }
 
     pub fn load(sdk: Option<PathBuf>, state: PathBuf, gpu: Option<Gpu>, file: &Path) -> Self {
@@ -100,6 +192,8 @@ impl LaunchConfig {
                 hardware: Hardware::default(),
                 amd_uma_vulkan_by_profile: BTreeMap::new(),
                 vulkan_cache_runtime_by_profile: BTreeMap::new(),
+                performance_engine_by_profile: BTreeMap::new(),
+                performance_power_by_profile: BTreeMap::new(),
                 show_fps: true,
                 android_fps: false,
                 adaptive_video: false,
@@ -222,6 +316,46 @@ mod tests {
     }
 
     #[test]
+    fn bad_performance_entries_do_not_reset_the_preferences() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = dir.path().join("launcher.json");
+        let profile = dir.path().join("android-17");
+        let mut config = LaunchConfig::load(None, profile.clone(), None, &prefs);
+        config.locale = Locale::EsEs;
+        config.set_performance_engine(Some(dir.path().join("engine")));
+        let key = std::path::absolute(&profile).unwrap().display().to_string();
+        let mut json = serde_json::to_value(&config).unwrap();
+        json["performance_engine_by_profile"]["other-profile"] = serde_json::json!(42);
+        json["performance_engine_by_profile"]["future-profile"] =
+            serde_json::json!({"engine": {"path": 1}});
+        json["performance_power_by_profile"] = serde_json::json!({
+            (key.clone()): true, "broken-profile": "yes", "future-profile": {"on": true}
+        });
+        write_json(&prefs, &json).unwrap();
+        let loaded = LaunchConfig::load(None, dir.path().join("unused"), None, &prefs);
+        assert_eq!(loaded.locale, Locale::EsEs);
+        assert_eq!(loaded.state, config.state, "selected profile kept");
+        assert_eq!(loaded.performance_engine(), config.performance_engine());
+        assert_eq!(loaded.performance_engine_by_profile.len(), 1);
+        assert_eq!(
+            loaded
+                .performance_power_by_profile
+                .keys()
+                .collect::<Vec<_>>(),
+            [&PathBuf::from(&key)]
+        );
+        // A map replaced by another type is dropped as a whole, nothing else.
+        let mut json = serde_json::to_value(&config).unwrap();
+        json["performance_engine_by_profile"] = serde_json::json!("x");
+        json["performance_power_by_profile"] = serde_json::json!(null);
+        write_json(&prefs, &json).unwrap();
+        let loaded = LaunchConfig::load(None, dir.path().join("unused"), None, &prefs);
+        assert_eq!(loaded.locale, Locale::EsEs);
+        assert!(loaded.performance_engine_by_profile.is_empty());
+        assert!(loaded.performance_power_by_profile.is_empty());
+    }
+
+    #[test]
     fn vulkan_cache_runtime_migrates_and_restarts_only_the_selected_profile() {
         let dir = tempfile::tempdir().unwrap();
         let prefs = dir.path().join("launcher.json");
@@ -258,6 +392,125 @@ mod tests {
         assert!(!restored.boot_changed(&legacy));
         restored.state = other.state;
         assert_eq!(restored.vulkan_cache_runtime(), Some(second.as_path()));
+    }
+
+    #[test]
+    fn performance_power_defaults_off_and_is_scoped_to_the_selected_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = dir.path().join("launcher.json");
+        let legacy = LaunchConfig::load(None, dir.path().join("android-17"), None, &prefs);
+        assert!(!legacy.performance_power());
+        let json = serde_json::to_value(&legacy).unwrap();
+        assert!(json.get("performance_power_by_profile").is_none());
+
+        let mut configured = legacy.clone();
+        configured.set_performance_power(true);
+        assert!(configured.boot_changed(&legacy));
+        assert!(
+            configured.performance_engine().is_none(),
+            "independent of the engine"
+        );
+        write_json(&prefs, &configured).unwrap();
+        let mut restored = LaunchConfig::load(None, dir.path().join("android-17"), None, &prefs);
+        assert!(restored.performance_power());
+        let first = restored.state.clone();
+        restored.state = dir.path().join("other").display().to_string();
+        assert!(!restored.performance_power());
+        restored.state = first;
+        restored.set_performance_power(false);
+        assert!(!restored.boot_changed(&legacy));
+    }
+
+    #[test]
+    fn performance_engine_loads_old_preferences_and_replaces_the_cache_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = dir.path().join("launcher.json");
+        let profile = dir.path().join("android-17");
+        let cache = dir.path().join("cache-engine");
+        // A v0.22.0 file: no performance field, one cache runtime.
+        fs::write(
+            &prefs,
+            serde_json::json!({
+                "sdk": "",
+                "state": profile,
+                "image": "",
+                "gpu": "Host",
+                "hardware": {"adapter": "", "camera": "Profile", "webcam_index": 0},
+                "vulkan_cache_runtime_by_profile": {
+                    (std::path::absolute(&profile).unwrap().display().to_string()): cache
+                },
+                "show_fps": true
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let legacy = LaunchConfig::load(None, profile.clone(), None, &prefs);
+        assert_eq!(legacy.vulkan_cache_runtime(), Some(cache.as_path()));
+        assert!(legacy.performance_engine().is_none());
+        let json = serde_json::to_value(&legacy).unwrap();
+        assert!(json.get("performance_engine_by_profile").is_none());
+
+        let engine = dir.path().join("perf-engine");
+        let mut configured = legacy.clone();
+        configured.set_performance_engine(Some(engine.clone()));
+        assert!(configured.vulkan_cache_runtime().is_none());
+        assert_eq!(
+            configured.performance_engine(),
+            Some(&PerformanceEngine {
+                path: engine.clone(),
+                options: Default::default()
+            })
+        );
+        assert!(configured.boot_changed(&legacy));
+        let options = configured.performance_options_mut().unwrap();
+        assert!(!options.guest_kernel_parameters);
+        options.dedicated_vcpu_cores = false;
+        options.guest_kernel_parameters = true;
+        let tuned = configured.clone();
+
+        write_json(&prefs, &configured).unwrap();
+        let mut restored = LaunchConfig::load(None, profile.clone(), None, &prefs);
+        assert!(!restored.boot_changed(&tuned));
+        assert_eq!(restored.performance_engine(), tuned.performance_engine());
+        // Another folder keeps the switches; another profile sees nothing.
+        restored.set_performance_engine(Some(dir.path().join("rebuilt")));
+        let options = &restored.performance_engine().unwrap().options;
+        assert!(options.guest_kernel_parameters && !options.dedicated_vcpu_cores);
+        let first = restored.state.clone();
+        restored.state = dir.path().join("other").display().to_string();
+        assert!(restored.performance_engine().is_none());
+        assert!(restored.performance_options_mut().is_none());
+        restored.state = first;
+
+        // Missing or unknown option fields keep the conservative defaults.
+        let key = std::path::absolute(&profile).unwrap().display().to_string();
+        let mut partial = serde_json::to_value(&legacy).unwrap();
+        partial["performance_engine_by_profile"] = serde_json::json!({
+            (key.clone()): {"path": engine, "options": {"clock_sync": false, "future": 1}}
+        });
+        let partial: LaunchConfig = serde_json::from_value(partial).unwrap();
+        let options = &partial.performance_engine().unwrap().options;
+        assert!(!options.clock_sync && options.vulkan_memory_cache && options.asg_transport);
+        assert!(options.vulkan_composition && options.dedicated_vcpu_cores);
+        assert!(!options.guest_kernel_parameters);
+        let mut bare = serde_json::to_value(&legacy).unwrap();
+        bare["performance_engine_by_profile"] = serde_json::json!({ (key): {"path": engine} });
+        let bare: LaunchConfig = serde_json::from_value(bare).unwrap();
+        assert_eq!(
+            bare.performance_engine().unwrap().options,
+            crate::android::PerformanceOptions::default()
+        );
+
+        // Choosing the cache runtime again removes the performance engine.
+        restored.set_vulkan_cache_runtime(Some(cache.clone()));
+        assert!(restored.performance_engine().is_none());
+        assert!(!restored.boot_changed(&legacy));
+        restored.set_vulkan_cache_runtime(None);
+        restored.set_performance_engine(Some(engine));
+        restored.set_performance_engine(None);
+        assert!(
+            restored.performance_engine().is_none() && restored.vulkan_cache_runtime().is_none()
+        );
     }
 }
 
@@ -622,6 +875,331 @@ fn vulkan_cache_runtime_picker(
     });
 }
 
+/// Main label and hover text. Technical names stay in the hover text.
+#[cfg(windows)]
+fn tuning_text(tuning: crate::android::Tuning, locale: Locale) -> (&'static str, &'static str) {
+    use crate::android::Tuning;
+    match tuning {
+        // One switch for the three CPU virtualization gates.
+        Tuning::ClockSync | Tuning::LapicFastpath | Tuning::KvmPvEoi => (
+            locale.pick(
+                "Ajustes de virtualização do processador",
+                "CPU virtualization tuning",
+                "Ajustes de virtualización del procesador",
+            ),
+            locale.pick(
+                "Reduz as pausas da máquina virtual: o relógio do Android usa o contador do processador (RUSTEMUDROID_QA_WHPX_SYNC_TSC=1), os acessos ao APIC usam um caminho rápido (RUSTEMUDROID_QA_LAPIC_FASTPATH=1) e o fim de interrupção é paravirtualizado (RUSTEMUDROID_QA_KVM_PV_EOI=1). Com este último, o Android identifica o hipervisor como KVM. Cada item pode ser desligado no arquivo de preferências.",
+                "Reduces virtual machine exits: Android’s clock uses the processor’s counter (RUSTEMUDROID_QA_WHPX_SYNC_TSC=1), APIC accesses take a fast path (RUSTEMUDROID_QA_LAPIC_FASTPATH=1) and end of interrupt is paravirtualized (RUSTEMUDROID_QA_KVM_PV_EOI=1). With the last one, Android identifies its hypervisor as KVM. Each item can be turned off in the preferences file.",
+                "Reduce las salidas de la máquina virtual: el reloj de Android usa el contador del procesador (RUSTEMUDROID_QA_WHPX_SYNC_TSC=1), los accesos al APIC usan una ruta rápida (RUSTEMUDROID_QA_LAPIC_FASTPATH=1) y el fin de interrupción está paravirtualizado (RUSTEMUDROID_QA_KVM_PV_EOI=1). Con este último, Android identifica el hipervisor como KVM. Cada elemento se puede desactivar en el archivo de preferencias.",
+            ),
+        ),
+        Tuning::VulkanMemoryCache => (
+            locale.pick(
+                "Memória Vulkan com cache",
+                "Cached Vulkan memory",
+                "Memoria Vulkan con caché",
+            ),
+            locale.pick(
+                "Os jogos escrevem na memória gráfica por um caminho com cache, inclusive na memória da GPU quando o motor permite. Variáveis do motor: RUSTEMUDROID_QA_VULKAN_CACHED_HOST=1 e RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL=2.",
+                "Games write graphics memory through a cached path, including GPU memory when the engine supports it. Engine variables: RUSTEMUDROID_QA_VULKAN_CACHED_HOST=1 and RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL=2.",
+                "Los juegos escriben en la memoria gráfica por una ruta con caché, incluida la memoria de la GPU cuando el motor lo permite. Variables del motor: RUSTEMUDROID_QA_VULKAN_CACHED_HOST=1 y RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL=2.",
+            ),
+        ),
+        Tuning::AsgTransport => (
+            locale.pick(
+                "Comandos gráficos por memória compartilhada",
+                "Graphics commands through shared memory",
+                "Comandos gráficos por memoria compartida",
+            ),
+            locale.pick(
+                "Os comandos gráficos passam por um anel de memória compartilhada e o motor aguarda novos comandos por 3 ms (3000 µs) antes de pausar, o que ocupa cerca de um núcleo extra do processador enquanto um jogo roda. Grava hw.gltransport=asg no config.ini do perfil; ao desligar, o valor anterior é restaurado. Variável do motor: RUSTEMUDROID_QA_ASG_SPIN_US=3000.",
+                "Graphics commands go through a shared-memory ring, and the engine waits 3 ms (3000 µs) for new commands before pausing, which keeps about one extra processor core busy while a game runs. Writes hw.gltransport=asg to the profile’s config.ini; turning it off restores the previous value. Engine variable: RUSTEMUDROID_QA_ASG_SPIN_US=3000.",
+                "Los comandos gráficos pasan por un anillo de memoria compartida y el motor espera 3 ms (3000 µs) nuevos comandos antes de pausar, lo que ocupa aproximadamente un núcleo adicional del procesador mientras se ejecuta un juego. Escribe hw.gltransport=asg en el config.ini del perfil; al desactivarlo se restaura el valor anterior. Variable del motor: RUSTEMUDROID_QA_ASG_SPIN_US=3000.",
+            ),
+        ),
+        Tuning::VulkanComposition => (
+            locale.pick(
+                "Compor a tela com Vulkan",
+                "Compose the screen with Vulkan",
+                "Componer la pantalla con Vulkan",
+            ),
+            locale.pick(
+                "O computador compõe a tela do Android com Vulkan e o Android usa ANGLE para OpenGL ES. Recurso do emulador: VulkanNativeSwapchain.",
+                "The computer composes Android’s screen with Vulkan, and Android uses ANGLE for OpenGL ES. Emulator feature: VulkanNativeSwapchain.",
+                "El equipo compone la pantalla de Android con Vulkan y Android usa ANGLE para OpenGL ES. Función del emulador: VulkanNativeSwapchain.",
+            ),
+        ),
+        Tuning::DedicatedVcpuCores => (
+            locale.pick(
+                "Núcleos dedicados para o Android",
+                "Dedicated cores for Android",
+                "Núcleos dedicados para Android",
+            ),
+            locale.pick(
+                "Cada processador virtual do Android recebe um dos últimos núcleos físicos, nunca o núcleo 0, onde o Windows concentra interrupções. As demais tarefas do motor usam os outros núcleos. Variável do motor: RUSTEMUDROID_QA_VCPU_PLACEMENT=sets-high.",
+                "Each Android virtual processor gets one of the last physical cores, never core 0, where Windows concentrates interrupts. The engine’s other tasks use the remaining cores. Engine variable: RUSTEMUDROID_QA_VCPU_PLACEMENT=sets-high.",
+                "Cada procesador virtual de Android recibe uno de los últimos núcleos físicos, nunca el núcleo 0, donde Windows concentra las interrupciones. Las demás tareas del motor usan los otros núcleos. Variable del motor: RUSTEMUDROID_QA_VCPU_PLACEMENT=sets-high.",
+            ),
+        ),
+        Tuning::GuestKernelParameters => (
+            locale.pick(
+                "Reduzir proteções do kernel do Android",
+                "Reduce Android kernel protections",
+                "Reducir las protecciones del kernel de Android",
+            ),
+            locale.pick(
+                "Grava kernel.parameters=mitigations=off init_on_alloc=0 transparent_hugepage=always no config.ini do perfil. Se o perfil já tiver kernel.parameters próprio, os valores dele são mantidos e estes são acrescentados. Ao desligar, a linha original é restaurada.",
+                "Writes kernel.parameters=mitigations=off init_on_alloc=0 transparent_hugepage=always to the profile’s config.ini. If the profile already has its own kernel.parameters, its values are kept and these are appended. Turning it off restores the original line.",
+                "Escribe kernel.parameters=mitigations=off init_on_alloc=0 transparent_hugepage=always en el config.ini del perfil. Si el perfil ya tiene su propio kernel.parameters, se conservan sus valores y se añaden estos. Al desactivarlo se restaura la línea original.",
+            ),
+        ),
+    }
+}
+
+/// Host setting, independent of the engine manifest.
+#[cfg(windows)]
+fn performance_power_toggle(ui: &mut egui::Ui, draft: &mut LaunchConfig, locale: Locale) {
+    let mut enabled = draft.performance_power();
+    ui.add_space(4.);
+    let changed = ui
+        .add_enabled(
+            draft.profile_key().is_some(),
+            egui::Checkbox::new(
+                &mut enabled,
+                locale.pick(
+                    "Modo de energia de melhor desempenho do Windows enquanto o Android estiver aberto",
+                    "Windows best performance power mode while Android runs",
+                    "Modo de energía de máximo rendimiento de Windows mientras Android esté abierto",
+                ),
+            ),
+        )
+        .on_hover_text(locale.pick(
+            "Ativa o modo de energia \"Melhor desempenho\" do Windows ao iniciar o Android e restaura o anterior ao fechar. O plano de energia não muda. Não é usado na bateria.",
+            "Turns on the Windows \"Best performance\" power mode when Android starts and restores the previous mode when it closes. The power plan is not changed. Not used on battery power.",
+            "Activa el modo de energía \"Máximo rendimiento\" de Windows al iniciar Android y restaura el anterior al cerrarlo. El plan de energía no cambia. No se usa con batería.",
+        ))
+        .changed();
+    if changed {
+        draft.set_performance_power(enabled);
+    }
+    theme::label(
+        ui,
+        locale.pick(
+            "Aumenta o consumo de energia e o ruído dos ventiladores enquanto o Android estiver aberto.",
+            "Raises power use and fan noise while Android runs.",
+            "Aumenta el consumo de energía y el ruido de los ventiladores mientras Android esté abierto.",
+        ),
+    );
+}
+
+#[cfg(windows)]
+fn performance_engine_picker(
+    ui: &mut egui::Ui,
+    frame: Option<&eframe::Frame>,
+    draft: &mut LaunchConfig,
+    locale: Locale,
+) {
+    use crate::android::{
+        Capability, Tuning, avd_vcpus, manifest_capabilities, manifest_modified, physical_cores,
+        placement_fits,
+    };
+    ui.add_space(7.);
+    ui.label(
+        RichText::new(locale.pick(
+            "Motor de desempenho (experimental)",
+            "Performance engine (experimental)",
+            "Motor de rendimiento (experimental)",
+        ))
+        .strong(),
+    );
+    theme::label(
+        ui,
+        locale.pick(
+            "Selecione a pasta do motor com rustemudroid-engine.json ou a subpasta sdk. Os arquivos do motor são conferidos a cada início e, se algo não conferir, o Android inicia com o motor padrão. A escolha vale só para este perfil e mantém a imagem Android e os dados.",
+            "Select the engine folder containing rustemudroid-engine.json or its sdk subfolder. The engine files are checked at every start, and Android starts with the default engine if anything does not match. The choice applies to this profile and keeps its Android image and data.",
+            "Selecciona la carpeta del motor con rustemudroid-engine.json o su subcarpeta sdk. Los archivos del motor se comprueban en cada inicio y, si algo no coincide, Android se inicia con el motor predeterminado. El cambio se aplica a este perfil y conserva la imagen y los datos de Android.",
+        ),
+    );
+    let selected = draft.performance_engine().map(|engine| engine.path.clone());
+    if let Some(path) = &selected {
+        let path = path.to_string_lossy();
+        ui.add(egui::Label::new(path.as_ref()).truncate())
+            .on_hover_text(path.as_ref());
+    } else {
+        ui.weak(locale.pick(
+            "Nenhum motor de desempenho",
+            "No performance engine",
+            "Ningún motor de rendimiento",
+        ));
+    }
+    ui.add_enabled_ui(draft.profile_key().is_some(), |ui| {
+        ui.horizontal_wrapped(|ui| {
+            let choose = locale.pick(
+                "Escolher motor de desempenho…",
+                "Choose performance engine…",
+                "Elegir motor de rendimiento…",
+            );
+            if ui.add(theme::button(choose)).clicked() {
+                let mut dialog = rfd::FileDialog::new().set_title(choose);
+                if let Some(frame) = frame {
+                    dialog = dialog.set_parent(frame);
+                }
+                if let Some(path) = &selected {
+                    dialog = dialog.set_directory(path);
+                }
+                if let Some(path) = dialog.pick_folder() {
+                    draft.set_performance_engine(Some(path));
+                }
+            }
+            if ui
+                .add_enabled(
+                    selected.is_some(),
+                    theme::button(locale.pick(
+                        "Remover motor de desempenho",
+                        "Remove performance engine",
+                        "Quitar el motor de rendimiento",
+                    )),
+                )
+                .clicked()
+            {
+                draft.set_performance_engine(None);
+            }
+        });
+    });
+    let Some(path) = draft.performance_engine().map(|engine| engine.path.clone()) else {
+        return;
+    };
+    // Read the manifest and the host's cores once per folder, profile and change.
+    #[derive(Clone)]
+    struct Cached {
+        path: PathBuf,
+        state: String,
+        modified: Option<std::time::SystemTime>,
+        capabilities: Option<Vec<Capability>>,
+        cores: Option<usize>,
+        vcpus: usize,
+    }
+    let id = egui::Id::new("performance-engine-capabilities");
+    let modified = manifest_modified(&path);
+    let cached = match ui.data_mut(|data| data.get_temp::<Cached>(id)) {
+        Some(cached)
+            if cached.path == path
+                && cached.state == draft.state
+                && cached.modified == modified =>
+        {
+            cached
+        }
+        _ => {
+            let cached = Cached {
+                capabilities: manifest_capabilities(&path),
+                path,
+                state: draft.state.clone(),
+                modified,
+                cores: physical_cores(),
+                vcpus: avd_vcpus(&Path::new(draft.state.trim()).join("avd/RustEmuDroid.avd")),
+            };
+            ui.data_mut(|data| data.insert_temp(id, cached.clone()));
+            cached
+        }
+    };
+    let fits = placement_fits(cached.cores, cached.vcpus);
+    let capabilities = cached.capabilities;
+    let warning = ui.visuals().warn_fg_color;
+    let Some(capabilities) = capabilities else {
+        ui.colored_label(
+            warning,
+            locale.pick(
+                "O manifesto do motor não foi encontrado ou é inválido. O Android vai iniciar com o motor padrão.",
+                "The engine manifest is missing or invalid. Android will start with the default engine.",
+                "No se ha encontrado el manifiesto del motor o no es válido. Android se iniciará con el motor predeterminado.",
+            ),
+        );
+        return;
+    };
+    let Some(options) = draft.performance_options_mut() else {
+        return;
+    };
+    let mut offered = false;
+    let listed = |tuning: Tuning| capabilities.contains(&tuning.capability());
+    for tuning in Tuning::ALL {
+        if matches!(tuning, Tuning::LapicFastpath | Tuning::KvmPvEoi) {
+            continue; // shown with ClockSync
+        }
+        if tuning == Tuning::ClockSync {
+            let group: Vec<_> = Tuning::CPU_VIRTUALIZATION
+                .into_iter()
+                .filter(|tuning| listed(*tuning))
+                .collect();
+            if group.is_empty() {
+                continue;
+            }
+            offered = true;
+            let (label, help) = tuning_text(tuning, locale);
+            let mut enabled = group.iter().all(|tuning| tuning.enabled(options));
+            if ui
+                .checkbox(&mut enabled, label)
+                .on_hover_text(help)
+                .changed()
+            {
+                for tuning in Tuning::CPU_VIRTUALIZATION {
+                    *tuning.enabled_mut(options) = enabled;
+                }
+            }
+            continue;
+        }
+        if !listed(tuning) {
+            continue;
+        }
+        offered = true;
+        let (label, help) = tuning_text(tuning, locale);
+        if tuning == Tuning::DedicatedVcpuCores && !fits {
+            ui.add_enabled(false, egui::Checkbox::new(&mut false, label))
+                .on_disabled_hover_text(help);
+            ui.weak(format!(
+                "{} {} · {}",
+                locale.pick(
+                    "Exige mais núcleos físicos que os processadores virtuais do perfil mais dois:",
+                    "Needs more physical cores than the profile’s virtual processors plus two:",
+                    "Requiere más núcleos físicos que los procesadores virtuales del perfil más dos:",
+                ),
+                cached
+                    .cores
+                    .map_or("?".to_owned(), |cores| cores.to_string()),
+                cached.vcpus,
+            ));
+            continue;
+        }
+        ui.checkbox(tuning.enabled_mut(options), label)
+            .on_hover_text(help);
+        if tuning == Tuning::GuestKernelParameters {
+            ui.colored_label(
+                warning,
+                locale.pick(
+                    "Atenção: desliga as proteções contra falhas do processador e a limpeza de memória dentro do Android. Um app malicioso no Android fica mais perigoso. Use só em um perfil dedicado a jogos.",
+                    "Warning: turns off processor vulnerability mitigations and memory clearing inside Android. A malicious Android app becomes more dangerous. Use it only on a profile dedicated to games.",
+                    "Atención: desactiva las mitigaciones de vulnerabilidades del procesador y la limpieza de memoria dentro de Android. Una aplicación maliciosa de Android resulta más peligrosa. Úsalo solo en un perfil dedicado a juegos.",
+                ),
+            );
+        }
+    }
+    if offered {
+        theme::label(
+            ui,
+            locale.pick(
+                "Depois do boot, a saída do launcher informa quais ajustes o motor confirmou.",
+                "After startup, the launcher output lists the settings the engine confirmed.",
+                "Tras el arranque, la salida del iniciador indica qué ajustes ha confirmado el motor.",
+            ),
+        );
+    } else {
+        ui.weak(locale.pick(
+            "Este motor não oferece ajustes de desempenho.",
+            "This engine offers no performance settings.",
+            "Este motor no ofrece ajustes de rendimiento.",
+        ));
+    }
+}
+
 impl Launcher {
     pub(super) fn open_settings(&mut self) {
         self.adapters.request();
@@ -810,6 +1388,10 @@ impl Launcher {
                         path_input(ui, locale.pick("Diretório do perfil", "Profile folder", "Carpeta del perfil"), &mut draft.state);
                         #[cfg(windows)]
                         vulkan_cache_runtime_picker(ui, frame, draft, locale);
+                        #[cfg(windows)]
+                        performance_engine_picker(ui, frame, draft, locale);
+                        #[cfg(windows)]
+                        performance_power_toggle(ui, draft, locale);
                     });
                     if !self.output.is_empty() {
                         egui::CollapsingHeader::new(locale.pick("Saída do launcher", "Launcher output", "Salida del iniciador")).id_salt("launcher-output").show(ui, |ui| {

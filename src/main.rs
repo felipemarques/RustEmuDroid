@@ -112,6 +112,10 @@ enum Action {
         #[arg(long, value_name = "DIR")]
         vulkan_cache_runtime: Option<PathBuf>,
 
+        /// Motor de desempenho para Windows com rustemudroid-engine.json (predefinição padrão).
+        #[arg(long, value_name = "DIR", conflicts_with = "vulkan_cache_runtime")]
+        performance_engine: Option<PathBuf>,
+
         /// Tempo máximo de espera pelo Android.
         #[arg(long, default_value_t = 180, value_parser = clap::value_parser!(u64).range(1..))]
         timeout: u64,
@@ -262,6 +266,7 @@ fn run(cli: Cli) -> Result<()> {
             gpu,
             engine,
             vulkan_cache_runtime,
+            performance_engine,
             timeout,
         } => android::boot(
             &sdk,
@@ -271,6 +276,11 @@ fn run(cli: Cli) -> Result<()> {
                 hardware,
                 amd_uma_vulkan: false,
                 vulkan_cache_runtime,
+                performance_engine: performance_engine.map(|path| android::PerformanceEngine {
+                    path,
+                    options: Default::default(),
+                }),
+                performance_power: false,
                 engine,
                 headless,
                 check,

@@ -3,7 +3,10 @@ use std::{fs, io, path::Path};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::{Gpu, KEMU_EMULATOR, Locale, Result, RuntimeKind, Sdk};
+use super::{
+    Gpu, KEMU_EMULATOR, Locale, Result, RuntimeKind, Sdk,
+    engine_folder::{StageError, find_stage, probe, read_error},
+};
 
 const ENGINE_LAYOUT: &str = include_str!("../../experiments/whpx-clock/overlay-manifest.json");
 
@@ -18,28 +21,27 @@ pub(super) fn select(path: &Path, sdk_image: bool, gpu: Gpu, locale: Locale) -> 
             "El motor con caché Vulkan requiere Windows x64, una imagen del SDK de Android y GPU del equipo o automática.",
         ).into());
     }
-    let stage = stage_directory(path).ok_or_else(|| {
-        locale.pick(
-            "Escolha a pasta preparada que contém staging.json ou a subpasta sdk.",
-            "Choose the prepared folder containing staging.json or its sdk subfolder.",
-            "Elige la carpeta preparada que contiene staging.json o su subcarpeta sdk.",
-        )
+    let stage = stage_directory(path).map_err(|error| match error {
+        StageError::Missing => locale
+            .pick(
+                "Escolha a pasta preparada que contém staging.json ou a subpasta sdk.",
+                "Choose the prepared folder containing staging.json or its sdk subfolder.",
+                "Elige la carpeta preparada que contiene staging.json o su subcarpeta sdk.",
+            )
+            .to_owned(),
+        StageError::Unreadable(folder, error) => read_error(folder, &error, locale),
     })?;
     let root = stage.join("sdk");
-    let receipt: Value = serde_json::from_reader(fs::File::open(stage.join("staging.json"))?)?;
+    let receipt_path = stage.join("staging.json");
+    let receipt =
+        fs::File::open(&receipt_path).map_err(|error| read_error(&receipt_path, &error, locale))?;
+    let receipt: Value = serde_json::from_reader(io::BufReader::new(receipt))?;
     verify(&root, &receipt, locale)?;
     Sdk::from_root(root, RuntimeKind::Sdk, locale)
 }
 
-fn stage_directory(path: &Path) -> Option<&Path> {
-    if path.join("staging.json").is_file() {
-        Some(path)
-    } else {
-        path.parent().filter(|parent| {
-            path.file_name().is_some_and(|name| name == "sdk")
-                && parent.join("staging.json").is_file()
-        })
-    }
+fn stage_directory(path: &Path) -> std::result::Result<&Path, StageError<'_>> {
+    find_stage(path, "staging.json", probe)
 }
 
 fn verify(root: &Path, receipt: &Value, locale: Locale) -> Result<()> {
@@ -68,9 +70,10 @@ fn verify(root: &Path, receipt: &Value, locale: Locale) -> Result<()> {
         let expected = expected.as_str().ok_or(invalid)?;
         let mut hash = Sha256::new();
         io::copy(
-            &mut fs::File::open(path).map_err(|e| format!("{} ({e})", path.display()))?,
+            &mut fs::File::open(path).map_err(|error| read_error(path, &error, locale))?,
             &mut hash,
-        )?;
+        )
+        .map_err(|error| read_error(path, &error, locale))?;
         if format!("{:x}", hash.finalize()) != expected {
             return Err(format!("SHA-256: {}", path.display()).into());
         }
@@ -107,11 +110,42 @@ mod tests {
         let stage = tempfile::tempdir().unwrap();
         let sdk = stage.path().join("sdk");
         fs::create_dir(&sdk).unwrap();
-        assert_eq!(stage_directory(&sdk), None);
+        assert!(matches!(stage_directory(&sdk), Err(StageError::Missing)));
         fs::write(stage.path().join("staging.json"), "{}").unwrap();
-        assert_eq!(stage_directory(stage.path()), Some(stage.path()));
-        assert_eq!(stage_directory(&sdk), Some(stage.path()));
-        assert_eq!(stage_directory(&stage.path().join("other")), None);
+        assert_eq!(stage_directory(stage.path()).unwrap(), stage.path());
+        assert_eq!(stage_directory(&sdk).unwrap(), stage.path());
+        assert!(matches!(
+            stage_directory(&stage.path().join("other")),
+            Err(StageError::Missing)
+        ));
+    }
+
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[test]
+    fn an_unreadable_stage_is_reported_as_a_permission_problem() {
+        use super::super::engine_folder::DenyRead;
+        for deny_folder in [false, true] {
+            let stage = tempfile::tempdir().unwrap();
+            fs::create_dir(stage.path().join("sdk")).unwrap();
+            fs::write(stage.path().join("staging.json"), "{}").unwrap();
+            let error = {
+                let _deny = DenyRead::new(&if deny_folder {
+                    stage.path().to_owned()
+                } else {
+                    stage.path().join("staging.json")
+                });
+                match select(stage.path(), true, Gpu::Host, Locale::EnUs) {
+                    Ok(_) => panic!("an unreadable stage was accepted"),
+                    Err(error) => error.to_string(),
+                }
+            };
+            assert!(error.starts_with("No permission to read"), "{error}");
+            assert!(
+                error.contains(&stage.path().display().to_string()),
+                "{error}"
+            );
+            assert!(!error.contains("staging.json or its sdk"), "{error}");
+        }
     }
 
     #[test]

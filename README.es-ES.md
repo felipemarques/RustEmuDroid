@@ -86,6 +86,8 @@ En Windows, abre **Ajustes → Entorno, imagen y perfil → Caché de memoria Vu
 
 </details>
 
+**Ajustes → Entorno, imagen y perfil → Motor de rendimiento (experimental)** selecciona para el perfil un motor de Windows compilado aparte. Usa **Elegir motor de rendimiento…** para seleccionar la carpeta que contiene `rustemudroid-engine.json` y `sdk`, activa las opciones que ofrece el motor, guarda y reinicia Android. En cada inicio, RustEmuDroid comprueba los SHA-256 del motor; si alguno cambia, lo avisa y usa el motor predeterminado. **Quitar el motor de rendimiento** vuelve al motor habitual, y el siguiente inicio restaura el `config.ini` del perfil. Cada perfil usa este motor o la caché de memoria Vulkan, no ambos. En una RTX 5070 Ti con la imagen oficial Android 17 Google Play, el motor y sus ajustes registraron 356 FPS en SuperTuxKart con Vulkan sin límite y el modo de energía Equilibrado de Windows, con el escritorio sin otra carga, frente a 164–176 con el motor original, 325 en Kemu y 376 en BlueStacks. En la Radeon 780M integrada, Cipó Livre mantuvo 59,9 presentaciones/s a 60 Hz en lugar de 57–59. [Preparar el motor, instrucciones en inglés](experiments/whpx-clock/README.md#4-build-the-performance-engine) · [Mediciones y límites, en inglés](docs/performance-history.md#performance-engine-in-uncapped-mailbox)
+
 ![Ajustes de idioma, perfil, renderizado, GPU y cámara](docs/screenshots/es-es/settings.png)
 
 ## Utilizar los controles de escritorio

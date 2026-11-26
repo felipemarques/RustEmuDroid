@@ -108,6 +108,8 @@ pub fn run(
     gpu: Option<Gpu>,
     locale: Option<Locale>,
 ) -> Result<()> {
+    #[cfg(windows)]
+    android::recover_power_overlay();
     let (options, brand) = branded_window()?;
     eframe::run_native(
         "RustEmuDroid",
@@ -263,6 +265,12 @@ impl Launcher {
         } else {
             None
         };
+        let performance_engine = if cfg!(windows) {
+            self.config.performance_engine().cloned()
+        } else {
+            None
+        };
+        let performance_power = cfg!(windows) && self.config.performance_power();
         let language = self.config.locale;
         let (events, receiver) = mpsc::channel();
         self.failed = false;
@@ -314,6 +322,8 @@ impl Launcher {
                         hardware,
                         amd_uma_vulkan,
                         vulkan_cache_runtime,
+                        performance_engine,
+                        performance_power,
                         engine: Engine::Auto,
                         headless: check,
                         check,

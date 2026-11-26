@@ -215,6 +215,10 @@ impl Launcher {
                                             .size(28.),
                                         );
                                         ui.label(RichText::new(status).size(15.).color(color));
+                                        if self.failed && !self.status.is_empty() {
+                                            ui.add_space(6.);
+                                            failure_reason(ui, &self.status);
+                                        }
                                         ui.add_space(18.);
                                         theme::form(ui);
                                         if self.task.is_some() {
@@ -292,5 +296,27 @@ impl Launcher {
                     );
                 });
             });
+    }
+}
+
+/// Rows of the failure reason shown on the idle screen; the rest is elided and
+/// stays available on hover and under "Technical details".
+const FAILURE_ROWS: usize = 6;
+
+/// The error behind "The last operation failed", wrapped and selectable so
+/// the user sees why without opening the details.
+fn failure_reason(ui: &mut egui::Ui, reason: &str) {
+    let reason = reason.trim();
+    let mut job = egui::text::LayoutJob::default();
+    RichText::new(reason).size(13.).color(ERROR).append_to(
+        &mut job,
+        ui.style(),
+        egui::FontSelection::Default,
+        egui::Align::Center,
+    );
+    job.wrap.max_rows = FAILURE_ROWS;
+    let response = ui.add(egui::Label::new(job).wrap().selectable(true));
+    if reason.lines().count() > FAILURE_ROWS || reason.chars().count() > 360 {
+        response.on_hover_text(reason);
     }
 }

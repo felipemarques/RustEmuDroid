@@ -1,5 +1,27 @@
 mod cached_runtime;
+mod engine_folder;
+mod performance;
+mod power;
 mod refresh;
+
+pub use performance::PerformanceEngine;
+
+/// Desktop start: undo a power mode overlay left by a session that crashed.
+#[cfg(all(windows, feature = "ui"))]
+pub(crate) fn recover_power_overlay() {
+    if let Some(dir) = power::default_dir()
+        && let Err(error) = power::recover(&power::System, &dir)
+    {
+        eprintln!("power overlay: {error}");
+    }
+}
+#[cfg(feature = "ui")]
+pub use performance::PerformanceOptions;
+#[cfg(all(windows, feature = "ui"))]
+pub(crate) use performance::{
+    Capability, Tuning, avd_vcpus, manifest_capabilities, manifest_modified, physical_cores,
+    placement_fits,
+};
 
 use std::{
     env,
@@ -755,6 +777,11 @@ pub struct BootOptions {
     pub hardware: Hardware,
     pub amd_uma_vulkan: bool,
     pub vulkan_cache_runtime: Option<PathBuf>,
+    /// Takes precedence over `vulkan_cache_runtime`. Falls back to the normal
+    /// engine when its manifest or hashes do not match.
+    pub performance_engine: Option<PerformanceEngine>,
+    /// Windows: Best performance power mode overlay while this VM runs.
+    pub performance_power: bool,
     pub engine: Engine,
     pub headless: bool,
     pub check: bool,
@@ -818,17 +845,35 @@ pub(crate) fn amd_uma_sdk_image(sdk: &Sdk, image: &Path) -> bool {
             .is_ok_and(|meta| property(&meta, "VulkanAllocateDeviceMemoryOnly").is_some())
 }
 
-fn apply_amd_uma_vulkan(
-    command: &mut Command,
+fn amd_uma_vulkan_applies(
     enabled: bool,
     windows_sdk: bool,
     gpu: Gpu,
     adapter: &str,
     sdk: &Sdk,
     image: &Path,
-) {
-    if enabled && windows_sdk && amd_uma_adapter(gpu, adapter) && amd_uma_sdk_image(sdk, image) {
-        command.args(["-feature", "-VulkanAllocateDeviceMemoryOnly"]);
+) -> bool {
+    enabled && windows_sdk && amd_uma_adapter(gpu, adapter) && amd_uma_sdk_image(sdk, image)
+}
+
+/// The SDK launch's emulator features as ONE `-feature` argument with a
+/// comma-separated list (as on the Kemu path), or nothing.
+fn feature_args(compat_egl: bool, plan: Option<&performance::Plan>, amd_uma: bool) -> Vec<String> {
+    let mut features = Vec::new();
+    if compat_egl {
+        // The stock SDK renderer boots this image through its bundled GLES driver.
+        features.push("-GuestAngle,-Vulkan,-MultiDisplay");
+    }
+    if let Some(plan) = plan {
+        features.extend(plan.features());
+    }
+    if amd_uma {
+        features.push("-VulkanAllocateDeviceMemoryOnly");
+    }
+    if features.is_empty() {
+        Vec::new()
+    } else {
+        vec!["-feature".into(), features.join(",")]
     }
 }
 
@@ -879,6 +924,8 @@ pub fn boot(
         hardware,
         amd_uma_vulkan,
         vulkan_cache_runtime,
+        performance_engine,
+        performance_power,
         engine,
         headless,
         check,
@@ -899,18 +946,44 @@ pub fn boot(
         cfg!(windows).then(kemu_install_root).flatten(),
     )?;
     let runtime = installed.as_deref();
+    let sdk_image = runtime.is_none() && !is_kemu_image(&system_dir);
+    // Posted once this session owns the profile.
+    let mut verified = None;
+    let performance = performance_engine.as_ref().and_then(|choice| {
+        match performance::select(&choice.path, sdk_image, gpu, sdk.locale) {
+            Ok(selected) => {
+                verified = Some(performance::verified_message(
+                    &selected.manifest,
+                    sdk.locale,
+                ));
+                let capabilities = &selected.manifest.capabilities;
+                let fits = performance::placement_fits(
+                    performance::physical_cores(),
+                    performance::avd_vcpus(&profile.avd_home.join(format!("{AVD}.avd"))),
+                );
+                let plan = performance::Plan::new(&choice.options, capabilities, fits);
+                Some((selected.sdk, plan))
+            }
+            Err(error) => {
+                notify(BootEvent::Message(performance::fallback_message(
+                    sdk.locale,
+                    &error.to_string(),
+                )));
+                None
+            }
+        }
+    });
     let cache_sdk = vulkan_cache_runtime
         .as_deref()
-        .map(|path| {
-            cached_runtime::select(
-                path,
-                runtime.is_none() && !is_kemu_image(&system_dir),
-                gpu,
-                sdk.locale,
-            )
-        })
+        .filter(|_| performance_engine.is_none())
+        .map(|path| cached_runtime::select(path, sdk_image, gpu, sdk.locale))
         .transpose()?;
-    let engine_sdk = cache_sdk.as_ref().unwrap_or(sdk);
+    let plan = performance.as_ref().map(|(_, plan)| plan);
+    let engine_sdk = performance
+        .as_ref()
+        .map(|(engine, _)| engine)
+        .or(cache_sdk.as_ref())
+        .unwrap_or(sdk);
     let gaming;
     let profile = if runtime.is_some() {
         gaming = Profile::localized(profile.root.join("gaming"), sdk.locale);
@@ -944,6 +1017,67 @@ pub fn boot(
         }
         Err(fs::TryLockError::Error(error)) => return Err(error.into()),
     }
+    if let Some(verified) = verified {
+        notify(BootEvent::Message(verified));
+    }
+    // Apply or restore the preset's config.ini keys while this session owns the profile.
+    // Profiles that never used the preset are left untouched.
+    if let Err(error) = performance::sync_avd_config(
+        &profile.avd_home.join(format!("{AVD}.avd")),
+        &performance::avd_settings(plan),
+        sdk.locale,
+    ) {
+        if plan.is_some() {
+            return Err(error);
+        }
+        notify(BootEvent::Message(format!(
+            "{}: {error}",
+            sdk.locale.pick(
+                "Não foi possível restaurar as chaves do motor de desempenho no config.ini",
+                "Could not restore the performance engine keys in config.ini",
+                "No se han podido restaurar las claves del motor de rendimiento en config.ini",
+            )
+        )));
+    }
+    // Held until boot() returns, which also covers every error path.
+    #[cfg(windows)]
+    let power_api = power::System;
+    #[cfg(windows)]
+    let _power = match power::default_dir().filter(|_| performance_power) {
+        Some(dir) => match power::acquire(&power_api, &dir) {
+            Ok(Some(lease)) => {
+                // A later session only adds a lease: say so only if the mode is on now.
+                if lease.overlay_active() {
+                    notify(BootEvent::Message(
+                    sdk.locale
+                        .pick(
+                            "Modo de energia de melhor desempenho do Windows ativado enquanto o Android estiver aberto.",
+                            "Windows best performance power mode is on while Android runs.",
+                            "Modo de energía de máximo rendimiento de Windows activado mientras Android esté abierto.",
+                        )
+                        .into(),
+                    ));
+                }
+                Some(lease)
+            }
+            // On battery power the overlay is skipped without a message.
+            Ok(None) => None,
+            Err(error) => {
+                notify(BootEvent::Message(format!(
+                    "{}: {error}",
+                    sdk.locale.pick(
+                        "Não foi possível ativar o modo de energia de melhor desempenho",
+                        "Could not turn on the best performance power mode",
+                        "No se ha podido activar el modo de energía de máximo rendimiento",
+                    )
+                )));
+                None
+            }
+        },
+        None => None,
+    };
+    #[cfg(not(windows))]
+    let _ = performance_power;
     // The WHPX user APIC and guest XSAVE workaround were needed on AMD hosts here.
     let amd_whpx = runtime.is_some()
         && env::var("PROCESSOR_IDENTIFIER").is_ok_and(|id| id.contains("AuthenticAMD"));
@@ -991,7 +1125,9 @@ pub fn boot(
         cmd
     } else {
         let mut cmd = Command::new(&engine_sdk.emulator);
-        if cache_sdk.is_some() {
+        if let Some(plan) = plan {
+            plan.apply(&mut cmd);
+        } else if cache_sdk.is_some() {
             cmd.env("RUSTEMUDROID_QA_VULKAN_CACHED_HOST", "1")
                 .env_remove("RUSTEMUDROID_QA_WHPX_SYNC_TSC");
         }
@@ -1027,12 +1163,7 @@ pub fn boot(
         .stdin(Stdio::null())
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log));
-    if compat_egl {
-        // The stock SDK renderer boots this image through its bundled GLES driver.
-        command.args(["-feature", "-GuestAngle,-Vulkan,-MultiDisplay"]);
-    }
-    apply_amd_uma_vulkan(
-        &mut command,
+    let amd_uma = amd_uma_vulkan_applies(
         amd_uma_vulkan,
         cfg!(windows) && runtime.is_none() && !compat_egl,
         gpu,
@@ -1040,10 +1171,11 @@ pub fn boot(
         sdk,
         &system_dir,
     );
+    command.args(feature_args(compat_egl, plan, amd_uma));
     if headless {
         // -no-window selects the stock headless QEMU. The staged cache build
         // supplies the Qt core, which also supports running with a hidden window.
-        let window_flag = if cache_sdk.is_some() {
+        let window_flag = if cache_sdk.is_some() || plan.is_some() {
             "-qt-hide-window"
         } else {
             "-no-window"
@@ -1226,6 +1358,31 @@ pub fn boot(
                         .into(),
                 ));
             }
+            // Checked once now; if a proof line is still missing (some gates print
+            // on first use, and older engines buffer stderr), the session loop
+            // keeps looking for a bounded time. Boot is never held back for it.
+            let mut confirmation = plan.map(|_| performance::Confirmation::new(Instant::now()));
+            // Returns whether the result is still open.
+            let mut confirm = |last: bool, notify: &mut dyn FnMut(BootEvent)| {
+                let (Some(plan), Some(pending)) = (plan, confirmation.as_mut()) else {
+                    return false;
+                };
+                let contents = fs::read(&log_path)
+                    .map(|log| String::from_utf8_lossy(&log).into_owned())
+                    .unwrap_or_default();
+                let mut cmdline = || adb_output(sdk, &serial, ["shell", "cat", "/proc/cmdline"]);
+                if let Some(inactive) =
+                    pending.check(plan, Instant::now(), &contents, &mut cmdline, last)
+                {
+                    notify(BootEvent::Message(
+                        plan.status(&inactive, &contents, sdk.locale, &log_path),
+                    ));
+                    confirmation = None;
+                    return false;
+                }
+                true
+            };
+            confirm(false, &mut notify);
             let version = adb_output(
                 sdk,
                 &serial,
@@ -1334,9 +1491,17 @@ pub fn boot(
                 )));
             }
 
-            if !check {
+            if check {
+                // Headless check: finish the bounded confirmation before shutting down.
+                while confirm(stop.load(Ordering::Acquire), &mut notify) {
+                    sleep(POLL_INTERVAL);
+                }
+            } else {
                 loop {
+                    confirm(false, &mut notify);
                     if let Some(status) = vm.0.try_wait()? {
+                        // Everything the engine buffered is in the log now.
+                        confirm(true, &mut notify);
                         if status.success() {
                             return Ok(());
                         }
@@ -1354,6 +1519,7 @@ pub fn boot(
                     sleep(POLL_INTERVAL);
                 }
             }
+            confirm(true, &mut notify);
             refresh::shutdown(refresh, sdk, &serial, &expected_avd, &mut notify);
             if !stop_owned_vm(sdk, &serial, &expected_avd) {
                 return Err(sdk
@@ -1874,7 +2040,7 @@ mod tests {
     #[cfg(feature = "ui")]
     #[test]
     fn amd_uma_vulkan_flag_requires_explicit_opt_in_and_the_tested_sdk_profile() {
-        use super::{Gpu, Locale, Sdk, apply_amd_uma_vulkan, fs};
+        use super::{Gpu, Locale, Sdk, amd_uma_vulkan_applies, feature_args, fs};
         use std::process::Command;
 
         let dir = tempfile::tempdir().unwrap();
@@ -1902,15 +2068,11 @@ mod tests {
         let adapter = "AMD Radeon 780M Graphics";
         let args = |enabled, windows_sdk, gpu, adapter, image: &std::path::Path| {
             let mut command = Command::new(&sdk.emulator);
-            apply_amd_uma_vulkan(
-                &mut command,
-                enabled,
-                windows_sdk,
-                gpu,
-                adapter,
-                &sdk,
-                image,
-            );
+            command.args(feature_args(
+                false,
+                None,
+                amd_uma_vulkan_applies(enabled, windows_sdk, gpu, adapter, &sdk, image),
+            ));
             command
                 .get_args()
                 .map(|arg| arg.to_string_lossy().into_owned())
@@ -1938,6 +2100,41 @@ mod tests {
         fs::remove_file(image.join("build.prop")).unwrap();
         fs::write(&features, "# VulkanAllocateDeviceMemoryOnly = off\n").unwrap();
         assert!(args(true, true, Gpu::Host, adapter, &image).is_empty());
+    }
+
+    #[test]
+    fn emulator_features_share_one_argument() {
+        use super::{feature_args, performance};
+        let mut options = performance::PerformanceOptions::default();
+        let swapchain = performance::Plan::new(&options, &performance::Capability::ALL, true);
+        options.vulkan_composition = false;
+        let without = performance::Plan::new(&options, &performance::Capability::ALL, true);
+        for (plan, amd, expected) in [
+            (None, false, None),
+            (Some(&without), false, None),
+            (None, true, Some("-VulkanAllocateDeviceMemoryOnly")),
+            (
+                Some(&without),
+                true,
+                Some("-VulkanAllocateDeviceMemoryOnly"),
+            ),
+            (Some(&swapchain), false, Some("VulkanNativeSwapchain")),
+            (
+                Some(&swapchain),
+                true,
+                Some("VulkanNativeSwapchain,-VulkanAllocateDeviceMemoryOnly"),
+            ),
+        ] {
+            let args = feature_args(false, plan, amd);
+            match expected {
+                None => assert!(args.is_empty()),
+                Some(list) => assert_eq!(args, ["-feature", list]),
+            }
+        }
+        assert_eq!(
+            feature_args(true, None, false),
+            ["-feature", "-GuestAngle,-Vulkan,-MultiDisplay"]
+        );
     }
 
     #[cfg(windows)]
