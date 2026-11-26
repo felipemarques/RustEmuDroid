@@ -244,6 +244,9 @@ fn run(cli: Cli) -> Result<()> {
             println!("ADB: {}", sdk.adb.display());
             let label = language.pick("Dados", "Data", "Datos");
             println!("{label}: {}", profile.root.display());
+            if let Some(advice) = android::amd_linux_advice(language) {
+                println!("{advice}");
+            }
             sdk.check_acceleration()?;
         }
         Action::Init { image, system_dir } => {

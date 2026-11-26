@@ -1,4 +1,6 @@
+mod amd_linux;
 mod cached_runtime;
+mod engine_faults;
 mod engine_folder;
 mod performance;
 mod power;
@@ -14,6 +16,11 @@ pub(crate) fn recover_power_overlay() {
     {
         eprintln!("power overlay: {error}");
     }
+}
+/// `doctor`: what a Linux computer with AMD graphics should know, when its
+/// card and kernel can freeze Android in some games.
+pub(crate) fn amd_linux_advice(locale: Locale) -> Option<String> {
+    amd_linux::doctor_advice(locale)
 }
 #[cfg(feature = "ui")]
 pub use performance::PerformanceOptions;
@@ -858,7 +865,16 @@ fn amd_uma_vulkan_applies(
 
 /// The SDK launch's emulator features as ONE `-feature` argument with a
 /// comma-separated list (as on the Kemu path), or nothing.
-fn feature_args(compat_egl: bool, plan: Option<&performance::Plan>, amd_uma: bool) -> Vec<String> {
+///
+/// `all_vulkan_memory` turns off the emulator's `VulkanAllocateDeviceMemoryOnly`,
+/// so Android also sees the Vulkan memory types outside the card's own memory:
+/// the Radeon 780M option on Windows and the "all types" mode for AMD cards on
+/// Linux (see `amd_linux`).
+fn feature_args(
+    compat_egl: bool,
+    plan: Option<&performance::Plan>,
+    all_vulkan_memory: bool,
+) -> Vec<String> {
     let mut features = Vec::new();
     if compat_egl {
         // The stock SDK renderer boots this image through its bundled GLES driver.
@@ -867,7 +883,7 @@ fn feature_args(compat_egl: bool, plan: Option<&performance::Plan>, amd_uma: boo
     if let Some(plan) = plan {
         features.extend(plan.features());
     }
-    if amd_uma {
+    if all_vulkan_memory {
         features.push("-VulkanAllocateDeviceMemoryOnly");
     }
     if features.is_empty() {
@@ -1171,7 +1187,24 @@ pub fn boot(
         sdk,
         &system_dir,
     );
-    command.args(feature_args(compat_egl, plan, amd_uma));
+    // Linux with AMD graphics: keep the engine's user-pointer buffers out of
+    // fork() and choose how much of the card's memory Android sees.
+    let amd_decision = runtime
+        .is_none()
+        .then(|| amd_linux::Decision::detect(gpu, &hardware.adapter))
+        .flatten();
+    let amd_applied = amd_decision
+        .as_ref()
+        .map(|decision| decision.apply(&mut command, !compat_egl, sdk.locale));
+    let amd_host = amd_decision.as_ref().map(amd_linux::Decision::host);
+    command.args(feature_args(
+        compat_egl,
+        plan,
+        amd_uma
+            || amd_applied
+                .as_ref()
+                .is_some_and(|applied| applied.all_memory_types),
+    ));
     if headless {
         // -no-window selects the stock headless QEMU. The staged cache build
         // supplies the Qt core, which also supports running with a hidden window.
@@ -1285,24 +1318,38 @@ pub fn boot(
             adb: sdk.adb.clone(),
         });
     }
+    if let Some(applied) = amd_applied {
+        notify(BootEvent::Message(applied.note));
+    }
     let start = Instant::now();
     let mut guest_graphics_ready = !compat_egl;
     let expected_avd = profile.avd_home.join(format!("{AVD}.avd"));
+    // Linux: the engine explains a lost graphics device or a KVM error only in
+    // its log. Each poll reads what was appended since the previous one.
+    let mut faults = engine_faults::LogWatch::new(cfg!(target_os = "linux"));
     while start.elapsed() < timeout {
         if stop.load(Ordering::Acquire) {
             break;
         }
         if let Some(status) = vm.0.try_wait()? {
-            return Err(format!(
-                "{} ({status}): {}",
-                sdk.locale.pick(
-                    "Emulador encerrou antes do boot",
-                    "Emulator exited before boot",
-                    "El emulador se cerró antes del arranque"
-                ),
-                log_path.display()
-            )
-            .into());
+            return Err(faults
+                .exit_error(
+                    &log_path,
+                    status,
+                    sdk.locale.pick(
+                        "Emulador encerrou antes do boot",
+                        "Emulator exited before boot",
+                        "El emulador se cerró antes del arranque",
+                    ),
+                    amd_host,
+                    sdk.locale,
+                )
+                .into());
+        }
+        faults.poll(&log_path);
+        if let Some(error) = faults.frozen_error(&log_path, amd_host, sdk.locale) {
+            stop_frozen_vm(sdk, &serial, &expected_avd, &mut vm);
+            return Err(error.into());
         }
         if !owns_console(sdk, &serial, &expected_avd) {
             sleep(POLL_INTERVAL);
@@ -1505,16 +1552,29 @@ pub fn boot(
                         if status.success() {
                             return Ok(());
                         }
-                        return Err(format!(
-                            "{} ({status}): {}",
-                            sdk.locale
-                                .pick("Motor encerrou", "Engine exited", "El motor se cerró"),
-                            log_path.display()
-                        )
-                        .into());
+                        return Err(faults
+                            .exit_error(
+                                &log_path,
+                                status,
+                                sdk.locale.pick(
+                                    "Motor encerrou",
+                                    "Engine exited",
+                                    "El motor se cerró",
+                                ),
+                                amd_host,
+                                sdk.locale,
+                            )
+                            .into());
                     }
                     if stop.load(Ordering::Acquire) {
                         break;
+                    }
+                    faults.poll(&log_path);
+                    if let Some(error) = faults.frozen_error(&log_path, amd_host, sdk.locale) {
+                        // Android no longer runs although the engine process is alive.
+                        confirm(true, &mut notify);
+                        stop_frozen_vm(sdk, &serial, &expected_avd, &mut vm);
+                        return Err(error.into());
                     }
                     sleep(POLL_INTERVAL);
                 }
@@ -1577,6 +1637,15 @@ fn stop_owned_vm(sdk: &Sdk, serial: &str, expected: &Path) -> bool {
     // During early boot the shell may still be unavailable. adb_output bounds that wait.
     let _ = adb_output(sdk, serial, ["shell", "sync"]);
     owns_console(sdk, serial, expected) && adb_output(sdk, serial, ["emu", "kill"]).is_some()
+}
+
+/// Ends a VM whose engine reported a KVM error: its process is alive but
+/// Android no longer runs. The normal request comes first; an engine that does
+/// not answer it is ended when its `RunningProcess` is dropped.
+fn stop_frozen_vm(sdk: &Sdk, serial: &str, expected: &Path, vm: &mut RunningProcess) {
+    if stop_owned_vm(sdk, serial, expected) {
+        let _ = wait_for_exit(&mut vm.0, Duration::from_secs(15));
+    }
 }
 
 fn adb_output(

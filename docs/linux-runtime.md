@@ -68,6 +68,95 @@ Use the `adb`, `serial` and AVD path check in **Repeat the boot** below. Read th
 
 On an idle test profile, write each resulting list using `"$adb" -s "$serial" shell settings put global KEY VALUE` and read both back before reopening BombSquad. Force-stop only BombSquad from its Android app info, reopen it and check the `net.froemling.bombsquad` entry in `"$adb" -s "$serial" shell dumpsys gpu --gpustats --app` after gameplay. To finish the trial, restore both original values, using `settings delete global KEY` for any originally absent key, verify them and restart the game. Both original settings in the table were restored after this test.
 
+## AMD graphics on bare-metal Linux
+
+Starting in v0.24.1, the Linux client handles two memory features that the stock Android Emulator turns on by itself when the host Vulkan device is from AMD (the amdgpu driver with RADV). It prepares this for the Host GPU and Automatic modes, when `/sys/class/drm` lists an AMD card and the selected Vulkan adapter does not name another vendor.
+
+On Linux the Automatic GPU mode currently ends in the emulator's software renderer, because the client starts the engine with `-no-window` (the engine log shows `emuglConfig_init: vulkan_mode_selected:lavapipe`). The AMD handling matters with the Host GPU mode.
+
+| Emulator feature | Effect on an AMD card | What the client does |
+|---|---|---|
+| `VulkanAllocateHostMemory` | The driver receives ordinary process memory. When the engine starts a helper program (adb, `chattr`), the driver can not get that memory back within one second, rejects the next commands (`The CS has been rejected … (-16)`) and the engine aborts with `Encountered device lost.` The same rejection was seen once with no helper program involved. | Leaves the feature on and adds a small library to the engine's `LD_PRELOAD` with the two defences below. [Library source](../native/linux/userptr_guard.c) |
+| `VulkanAllocateDeviceMemoryOnly` | Android sees only the video memory the processor can reach. With "Above 4G Decoding" / "Resizable BAR" off in the firmware that window is 256 MB, and Unity games stop with `Vulkan - Out of memory!`. | Chooses a memory mode, below. |
+
+The library defends the memory the driver received in two ways:
+
+1. It keeps that memory out of the start of the engine's helper programs, so starting one no longer takes it away from the driver.
+2. When the driver still rejects a submission of drawing commands because it could not get that memory within its one-second limit, the library makes the memory present and writable again, which has no time limit outside the driver, and sends the same submission again with a short, growing pause, for at most 30 seconds. A rejected submission was not submitted at all, so sending it again repeats nothing. The graphics stack already resends a submission this way when the driver answers EAGAIN.
+
+If the driver keeps rejecting for 30 seconds, the engine still ends as before, and the client then says that the graphics driver lost the device.
+
+| Memory mode | When the client uses it | What it does |
+|---|---|---|
+| Full size | The window is smaller than the video memory (`mem_info_vis_vram_total` below `mem_info_vram_total`), whatever the kernel | Leaves the emulator's options alone and starts the library with `RUSTEMUDROID_AMD_VISIBLE_VRAM=all`. The driver's memory query then reports the whole video memory as processor visible, so the memory Android can map has its real size. |
+| Stock | The window covers the video memory, or the sizes can not be read | Leaves the emulator's options alone. |
+| All types | Only with `RUSTEMUDROID_AMD_LINUX=all-types` | Passes `-feature -VulkanAllocateDeviceMemoryOnly`, which also gives Android the memory types outside the card. |
+
+The library is added in all three modes. A default only uses a mode that was measured, and all types froze Android on the one kernel it was measured on.
+
+### Measured on a Radeon RX 580 with Linux 6.8
+
+Everything below comes from one PC and one kernel: a Radeon RX 580 8 GB with a 256 MB window, RADV / Mesa 25.2.8, Linux 6.8, Android Emulator 37.3.10 and the official Android 17 Google Play image.
+
+The first two tables come from a disposable profile, with the library and the options applied by hand around the stock engine. Without the library, Xtreme Rally gave these results:
+
+| `VulkanAllocateDeviceMemoryOnly` | `VulkanAllocateHostMemory` | Result |
+|---|---|---|
+| on (emulator's choice) | on (emulator's choice) | Game out of memory, 5 of 5 |
+| on | off | Game out of memory |
+| off (all types) | on | Graphics device lost and engine abort 13–14 s into the race, 2 of 2 |
+| off | off | `error: kvm run failed Bad address`, Android frozen |
+
+With the library loaded, when it had only its first defence:
+
+| Game | Stock | All types | Full size |
+|---|---|---|---|
+| Xtreme Rally (Unity 6 URP) | Out of memory | Works, 10 minute race | Works, 10 minute race, peak video memory 3980 MB |
+| FPS WW2 (Unity URP) | Out of memory | Works | Works |
+| Godot third-person demo | Works | Works | Works |
+| Godot 4.7 game | Menu for 150 s without a freeze, not played further | Android frozen after 5 s, `kvm run failed Bad address` | Android frozen after 20 s |
+| Unreal Engine 5 game | The game closes itself (engine assertion), Android keeps running | Android frozen after 18 s | The game closes itself, Android keeps running |
+
+None of these hand-applied runs lost the graphics device. In full size, the sequence that first showed the fault (the Unreal Engine game twice, then a 240 s race) and a 600 s race both ran without a graphics error.
+
+### One lost device through the client, and the second defence
+
+The first run through the client lost the graphics device once: 87 s into a race, in full size with the Host GPU mode, with the library active and only its first defence (`radv/amdgpu: The CS has been rejected (-16)`, then `Encountered device lost`). The client showed its "graphics driver lost the device" message.
+
+The cause of that one event was not identified. On this path (`-no-window`, the headless engine binary) the engine starts its helper programs only during boot, before the driver has received any of that memory, so it was not a helper program. The engine had only 5 to 7 such buffers of 16 MiB each. The PC was under heavy memory activity at the time: another program on it was being restarted every 22 s and the kernel was compacting memory, moving up to 340 thousand pages per second. The event came about one second after that program exited. That is a coincidence in time, not a proof. Two later runs on the same path, of 420 s and 900 s, did not repeat it.
+
+What the Linux 6.8 driver does, going by its source: for each submission it must get the pages of every such buffer again, and when it can not within about one second it answers the submission with EBUSY. RADV then prints `The CS has been rejected (-16)` and reports the device as lost. Nothing was submitted at that point, which is what makes sending the submission again safe. The second defence was added after this event.
+
+With the final library:
+
+| Run | Result |
+|---|---|
+| Rejections provoked on purpose: stock engine started with `-qt-hide-window`, all types, the test switch below | The driver rejected 8 submissions in a 150 s race. Every one was accepted when sent again: six after one more attempt in 9–33 ms, two after two more attempts in about 1050 ms. No device lost. |
+| The same configuration without the library | Device lost 13–14 s into the race, 2 of 2 |
+| Final client, `boot --headless --gpu host`, lab profile | 300 s race without a graphics error. Library installed under the user data folder, the preload and the variable present in the engine process, nothing had to be sent again. <!-- soak: result of the 30 minute race through the final client --> |
+| Final client, all types forced, Godot 4.7 game | `kvm run failed Bad address` 9 s after the game started. The client stopped the VM and showed its explanation with "256 MB of 8192 MB, kernel 6.8". |
+| Linux build of the final tree | `cargo fmt` clean, release build with `--features ui`, 157 tests passed, 12 ignored |
+
+### Expected, not measured
+
+On Linux 6.8, KVM can not map the driver's system-memory pages into the guest. A game that needs them freezes Android with `error: kvm run failed Bad address`, as the Godot 4.7 game still does in full size. The client stops that VM and reports the cause.
+
+Going by the kernel and driver sources, two things should remove these freezes: enabling **Above 4G Decoding** and **Resizable BAR** in the firmware (BIOS/UEFI), which should make the window as large as the video memory, and Linux 6.13 or newer, whose KVM should map those pages. All types should then also work on Linux 6.13 or newer. Nobody has run any of this. The client's failure message and `doctor` suggest both remedies as something that should help, and the client does not choose all types by itself on any kernel.
+
+Other AMD cards, integrated AMD graphics and computers with two AMD cards were not tested.
+
+### What you see
+
+**Technical details** on the start screen shows what the client prepared before the engine started, for example `AMD graphics on Linux: video memory protection prepared; with the host GPU, Android sees the whole 8192 MB instead of the 256 MB window.` It does not say which renderer the engine then chose. With the Host GPU mode the engine log has these lines from the library:
+
+- `RustEmuDroid: userptr guard active`, once the driver registers its first buffer.
+- `RustEmuDroid: userptr guard reports all 8192 MiB of video memory as CPU visible (the window is 256 MiB)`, in full size.
+- `RustEmuDroid: userptr guard: the driver rejected a submission (busy pages); accepted after N more attempts in M ms (K so far)`, when a submission had to be sent again. The first eight are printed and then every power of two. `still rejected` in place of `accepted` means the 30 seconds ran out; the engine then ends and the client reports the lost device.
+
+The library is written to `${XDG_DATA_HOME:-$HOME/.local/share}/RustEmuDroid/lib/`. An existing `LD_PRELOAD` is kept.
+
+To diagnose, set `RUSTEMUDROID_AMD_LINUX` before starting the client. `off` starts the engine as before. `stock`, `full-size` and `all-types` add the library and force that memory mode. For testing only, `RUSTEMUDROID_USERPTR_GUARD_TEST=allow-fork` makes the library leave the driver's buffers visible to the start of helper programs, which brings back the original rejection on purpose so the second defence can be watched in the engine log. Do not use it for playing.
+
 ## Boot with a runtime beside the executable
 
 The packaged v0.9.0 Linux client found Android Emulator, ADB and the Android 15 x86-64 AOSP image in a `runtime/` directory beside the executable. The hosted Ubuntu 24.04 test started from an empty profile with the SDK environment variables unset, observed `sys.boot_completed=1` under KVM with SwiftShader, then verified the serial disappeared from ADB after shutdown. [Boot job and logs](https://github.com/felipemarques/RustEmuDroid/actions/runs/45401096585/job/138472366178) · [Portable directory layout](../README.md#prepare-the-android-runtime)
