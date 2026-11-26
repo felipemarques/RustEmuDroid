@@ -42,6 +42,8 @@ Com o ZIP dos módulos de referência em mãos, você pode preparar o motor no W
 python .\experiments\whpx-clock\stage.py stage --overlay-zip 'D:\Downloads\whpx-cache-windows-x86_64.zip' --stock-sdk "$env:LOCALAPPDATA\Android\Sdk" --out 'D:\Android\CacheEngine' --smoke
 ```
 
+A pasta preparada herda as permissões da pasta onde ela fica, então um motor preparado num terminal com privilégios de administrador continua legível pelo RustEmuDroid aberto normalmente. Pastas preparadas antes dessa correção, com Python 3.12.4 ou superior e privilégios de administrador, ficaram com permissões privadas; corrija com `icacls <pasta> /reset /T` num terminal de administrador.
+
 Se o próprio RustEmuDroid instalou essas versões das ferramentas, use `--stock-sdk "$env:LOCALAPPDATA\RustEmuDroid\runtime"`. Após as três verificações, abra o RustEmuDroid v0.22.0 ou superior e escolha a pasta de destino em **Configurações → Runtime, imagem e perfil → Cache de memória Vulkan**. Os jogos ficam no perfil Android que você já usava. [Tela em português](../../docs/screenshots/pt-br/vulkan-cache-settings.png)
 
 O ZIP do motor Windows recompilado com FFmpeg 4.4.2 e libvpx 1.12.0 tem SHA-256 `a67d12ec5abbb220cce81ecf623174d278fab08dd5d0a08441be51c642395146`. Para conferir o download e seus módulos antes de escolher o destino, troque o comando `stage` após `stage.py` por `check` e remova `--out` e `--smoke`. Ao concluir, ele mostra o hash do ZIP e os **20** caminhos de instalação esperados. A preparação grava o hash em `staging.json`. Para voltar ao motor anterior, escolha **Voltar ao motor padrão** no mesmo perfil, salve e reinicie o Android.
@@ -54,3 +56,20 @@ python $teste check @opcoes
 python $teste on @opcoes --hz 90
 python $teste off @opcoes --hz 90
 ```
+
+## Motor de desempenho
+
+A variante `performance` recompila o núcleo QEMU e o renderizador gfxstream com as mudanças usadas nas medições de 26 de novembro em Mailbox sem limite. Na RTX 5070 Ti, a receita marcou 356 FPS no modo de energia Equilibrado do Windows e 375 em Melhor desempenho, contra 164–176 com o motor original. [Medições, receita e limites](../../docs/performance-history.pt-BR.md#motor-de-desempenho-em-mailbox-sem-limite)
+
+As fontes são o commit `538bcdea5479b3857cd8885cbb9306bfec9c7247` do `external/qemu` com três patches em ordem (`whpx-tsc-sync.patch`, `gfxstream-cached-host-qa.patch`, `performance-engine-qemu.patch`) e o commit `501867e6a3b1a3be7b935cc977d291150846edab` do `hardware/google/gfxstream` com `performance-engine-gfxstream.patch`, todos em `benchmarks/stk-1.5/`. O arquivo [performance-engine.json](performance-engine.json) registra os hashes dos patches, os arquivos resultantes e as variáveis de cada opção. Cada opção fica desligada enquanto a sua variável não estiver definida, exceto a P0, que grava na hora as linhas de confirmação do QEMU (sem ela, o Windows só gravava algumas linhas no log ao fechar o motor). As fontes publicadas geram a compilação QEMU `1c7a05e3…a0c6` e gfxstream `7d01cde7…85fe` do PC de testes. Todas as medições publicadas até agora usaram a compilação anterior, QEMU `a55d48c6…37f5` e gfxstream `d92f6060…60d0`, que é a mesma fonte sem P0, L2 (`RUSTEMUDROID_QA_RAM_SECTION`), P (`RUSTEMUDROID_QA_ASG_SPIN_RENDERING`), Q (`RUSTEMUDROID_QA_MMIO_FASTPATH`) e as estatísticas A3. P e Q não foram validadas e o cliente não as oferece. Os comandos abaixo usam as variáveis `$Stage`, `$Source`, `$Build`, `$Stock` e `$Perf` do [guia em inglês](README.md#4-build-the-performance-engine):
+
+```powershell
+python -B $Stage build --variant performance --source $Source --out $Build
+python -B $Stage stage --stock-sdk $Stock --artifacts $Build --out $Perf --smoke
+python -B .\experiments\whpx-clock\engine_manifest.py evidence --engine $Perf
+python -B .\experiments\whpx-clock\engine_manifest.py write --engine $Perf --capability tsc_sync --capability asg_spin
+```
+
+O `write` grava `rustemudroid-engine.json` ao lado de `sdk`, com os SHA-256 do launcher, do QEMU e do gfxstream. Ele só aceita uma capacidade quando encontra a variável ou a mensagem de confirmação correspondente no binário. Repita `--capability` para cada opção que o motor oferece (lista completa no guia em inglês). Depois, no RustEmuDroid v0.23.0, abra **Configurações → Runtime, imagem e perfil → Motor de desempenho (experimental)**, escolha a pasta e reinicie o Android.
+
+Licenças: o QEMU é GPL-2.0, e os patches do QEMU seguem a mesma licença. A fonte correspondente de um QEMU recompilado é o commit fixado acima mais os três patches, nessa ordem. Quem distribuir o binário precisa oferecer essa fonte nos termos da GPL. O gfxstream e o seu patch são Apache-2.0. O repositório publica só fontes e patches, sem binários do motor.

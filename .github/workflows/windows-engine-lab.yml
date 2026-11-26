@@ -10,6 +10,8 @@ on:
       - benchmarks/stk-1.5/whpx-windows-build-manifest.xml
       - benchmarks/stk-1.5/whpx-tsc-sync.patch
       - benchmarks/stk-1.5/gfxstream-cached-host-qa.patch
+      - benchmarks/stk-1.5/performance-engine-qemu.patch
+      - benchmarks/stk-1.5/performance-engine-gfxstream.patch
   pull_request:
     paths:
       - .github/workflows/windows-engine-lab.yml
@@ -17,6 +19,8 @@ on:
       - benchmarks/stk-1.5/whpx-windows-build-manifest.xml
       - benchmarks/stk-1.5/whpx-tsc-sync.patch
       - benchmarks/stk-1.5/gfxstream-cached-host-qa.patch
+      - benchmarks/stk-1.5/performance-engine-qemu.patch
+      - benchmarks/stk-1.5/performance-engine-gfxstream.patch
 
 permissions:
   contents: read
@@ -48,4 +52,4 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then exit 0; fi
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false \
             --title "Windows Android engine lab ${GITHUB_REF_NAME#windows-engine-lab-}" \
-            --notes "Source kit for the Windows WHPX clock and Vulkan memory experiments. Download the source archive below and follow the [build guide]($base/experiments/whpx-clock/README.md) or the [Portuguese launcher guide]($base/experiments/whpx-clock/README.pt-BR.md). The game measurements are available in the [performance report]($base/docs/performance-history.md)."
+            --notes "Source kit for the Windows WHPX clock, Vulkan memory and performance engine experiments. Download the source archive below and follow the [build guide]($base/experiments/whpx-clock/README.md) or the [Portuguese launcher guide]($base/experiments/whpx-clock/README.pt-BR.md). The game measurements are available in the [performance report]($base/docs/performance-history.md)."

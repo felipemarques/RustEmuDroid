@@ -1,0 +1,2378 @@
+diff --git a/android/android-emu/android/opengl/OpenglEsPipe.cpp b/android/android-emu/android/opengl/OpenglEsPipe.cpp
+index 4ead9e79..9b8bc2d1 100644
+--- a/android/android-emu/android/opengl/OpenglEsPipe.cpp
++++ b/android/android-emu/android/opengl/OpenglEsPipe.cpp
+@@ -30,6 +30,14 @@
+ #include "android/emulation/control/ScreenCapturer.h"
+ 
+ #include <atomic>
++#include <chrono>
++#include <thread>
++#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
++#include <immintrin.h>
++#define RUSTEMUDROID_QA_CPU_RELAX() _mm_pause()
++#else
++#define RUSTEMUDROID_QA_CPU_RELAX() std::this_thread::yield()
++#endif
+ 
+ #include <assert.h>
+ #include <stdlib.h>
+@@ -79,6 +87,28 @@ static RecvMode recvMode = RecvMode::Android;
+ 
+ namespace {
+ 
++// RustEmuDroid QA (RUSTEMUDROID_QA_PIPE_RECV_WAIT_US=<n>, 1..1000): in the
++// Android recv mode, poll for the host reply for up to n microseconds instead
++// of the fixed 20 tryRead() attempts before returning PIPE_ERROR_AGAIN.
++// readBefore() is not reused: on Windows its timedWait() rounds the timeout
++// down to whole milliseconds, so waits below 1000 us would not wait at all.
++// Read once; 0 (default) keeps the stock path.
++int64_t rustEmuDroidQaPipeRecvWaitUs() {
++    static const int64_t sWaitUs = [] {
++        const char* env = getenv("RUSTEMUDROID_QA_PIPE_RECV_WAIT_US");
++        long long us = env ? atoll(env) : 0;
++        if (us <= 0) {
++            return (int64_t)0;
++        }
++        if (us > 1000) {
++            us = 1000;
++        }
++        dinfo("RustEmuDroid QA: opengles pipe recv wait active, wait_us=%lld", us);
++        return (int64_t)us;
++    }();
++    return sWaitUs;
++}
++
+ class EmuglPipe : public AndroidPipe {
+ public:
+ 
+@@ -352,6 +382,30 @@ public:
+                 if (android::opengl::recvMode == android::opengl::RecvMode::Android) {
+                     // No data left, read a new chunk from the channel.
+                     int spinCount = 20;
++                    const int64_t qaWaitUs = rustEmuDroidQaPipeRecvWaitUs();
++                    if (qaWaitUs > 0 && len == 0) {
++                        // Nothing returned to the guest yet in this call: it is
++                        // waiting for a reply. Same exits as the loop below.
++                        const auto deadline = std::chrono::steady_clock::now() +
++                                              std::chrono::microseconds(qaWaitUs);
++                        for (int attempts = 1;; ++attempts) {
++                            auto result = mChannel->tryRead(&mDataForReading);
++                            if (result == IoResult::Ok) {
++                                mDataForReadingLeft = mDataForReading.size();
++                                break;
++                            }
++                            if (result == IoResult::Error) {
++                                return PIPE_ERROR_IO;
++                            }
++                            if (attempts >= spinCount &&
++                                std::chrono::steady_clock::now() >= deadline) {
++                                return PIPE_ERROR_AGAIN;
++                            }
++                            for (int i = 0; i < 16; ++i) {
++                                RUSTEMUDROID_QA_CPU_RELAX();
++                            }
++                        }
++                    } else
+                     for (;;) {
+ 
+                         auto result = mChannel->tryRead(&mDataForReading);
+diff --git a/android/emu/hardware/src/android/emulation/AndroidPipe.cpp b/android/emu/hardware/src/android/emulation/AndroidPipe.cpp
+index 539ff123..a632480e 100644
+--- a/android/emu/hardware/src/android/emulation/AndroidPipe.cpp
++++ b/android/emu/hardware/src/android/emulation/AndroidPipe.cpp
+@@ -38,6 +38,7 @@
+ #include <vector>
+ 
+ #include <assert.h>
++#include <string.h>
+ 
+ #define DEBUG 0
+ 
+@@ -835,6 +836,14 @@ void android_pipe_wait_guest_send(void* internalPipe) {
+     VmLock::get()->lock();
+ }
+ 
++// RustEmuDroid QA (RUSTEMUDROID_QA_PIPE_LOCKLESS=1): used by goldfish_pipe.c
++// to run READ/WRITE/CALL without the VM lock only for "opengles" pipes, whose
++// onGuestSend()/onGuestRecv() touch nothing but their own RenderChannel.
++extern "C" int android_pipe_qa_is_opengles(void* internalPipe) {
++    auto pipe = static_cast<AndroidPipe*>(internalPipe);
++    return pipe && strcmp(pipe->name(), "opengles") == 0;
++}
++
+ void android_pipe_guest_wake_on(void* internalPipe, unsigned wakes) {
+     CHECK_VM_STATE_LOCK();
+     auto pipe = static_cast<AndroidPipe*>(internalPipe);
+diff --git a/exec.c b/exec.c
+index d4d9ff9d..1980f134 100644
+--- a/exec.c
++++ b/exec.c
+@@ -1794,6 +1794,26 @@ static void *file_ram_alloc(RAMBlock *block,
+ {
+     void *area;
+ 
++#ifdef _WIN32
++    /* RustEmuDroid QA L/L2: those gates only act on anonymous guest RAM. */
++    if (memory >= (1ULL << 30)) {
++        const char *qa_section = getenv("RUSTEMUDROID_QA_RAM_SECTION");
++        const char *qa_large = getenv("RUSTEMUDROID_QA_RAM_LARGE_PAGES");
++        if (qa_section && *qa_section) {
++            qa_info_report("RustEmuDroid QA: guest RAM section %s unavailable (RAM"
++                        " is file-backed by QuickbootFileBacked; start with"
++                        " -feature -QuickbootFileBacked), using stock"
++                        " allocation", qa_section);
++        }
++        if (qa_large && !strcmp(qa_large, "1")) {
++            qa_info_report("RustEmuDroid QA: guest RAM large pages unavailable (RAM"
++                        " is file-backed by QuickbootFileBacked; start with"
++                        " -feature -QuickbootFileBacked), using stock"
++                        " allocation");
++        }
++    }
++#endif
++
+     block->page_size = qemu_fd_getpagesize(fd);
+     if (block->mr->align % block->page_size) {
+         error_setg(errp, "alignment 0x%" PRIx64
+diff --git a/hw/misc/goldfish_pipe.c b/hw/misc/goldfish_pipe.c
+index 0d501db7..fdd80478 100644
+--- a/hw/misc/goldfish_pipe.c
++++ b/hw/misc/goldfish_pipe.c
+@@ -40,6 +40,8 @@
+ #include "qemu/log.h"
+ #include "qemu/timer.h"
+ #include "qemu/error-report.h"
++#include "qemu/main-loop.h"
++#include "qemu/thread.h"
+ 
+ #include <assert.h>
+ #include <glib.h>
+@@ -377,8 +379,17 @@ struct PipeDevice {
+     uint64_t wake_us;
+     uint64_t read_start_us;
+     uint64_t read_end_us;
++
++    // RustEmuDroid QA (RUSTEMUDROID_QA_PIPE_LOCKLESS=1): device lock that
++    // replaces the BQL for the MMIO region. Only initialized when active.
++    QemuMutex qa_lock;
+ };
+ 
++// RustEmuDroid QA: set once at realize, before any vCPU runs.
++static bool s_qa_pipe_lockless = false;
++// Implemented in android/emu/hardware/.../AndroidPipe.cpp.
++extern int android_pipe_qa_is_opengles(void* internal_pipe);
++
+ 
+ // RW params getter functions for |ptrs| and |sizes| arrays.
+ static uint64_t* hwpipe_get_command_rw_ptrs(HwPipe* pipe) {
+@@ -894,12 +905,11 @@ static void pipeDevice_doOpenClose_v2(PipeDevice* dev, uint32_t id) {
+     commandBuffer->status = 0;
+ }
+ 
+-static void pipeDevice_doCommand_v2(HwPipe* pipe) {
++static void pipeDevice_doCommandWith_v2(HwPipe* pipe, PipeCmd command) {
+     assert(pipe);
+     assert(pipe->command_buffer->cmd != PIPE_CMD_OPEN);
+ 
+     PipeDevice* dev = pipe->dev;
+-    PipeCmd command = pipe->command_buffer->cmd;
+ 
+     /* If the pipe is closed by the host, return an error */
+     if (pipe->closed && command != PIPE_CMD_CLOSE) {
+@@ -1064,6 +1074,10 @@ unmap_all:  for (unsigned i = 0; i < buffers_count; ++i) {
+     }
+ }
+ 
++static void pipeDevice_doCommand_v2(HwPipe* pipe) {
++    pipeDevice_doCommandWith_v2(pipe, pipe->command_buffer->cmd);
++}
++
+ static void pipe_dev_write(void* opaque,
+                            hwaddr offset,
+                            uint64_t value,
+@@ -1379,6 +1393,70 @@ static const MemoryRegionOps goldfish_pipe_iomem_ops = {
+         .endianness = DEVICE_NATIVE_ENDIAN
+ };
+ 
++// RustEmuDroid QA (RUSTEMUDROID_QA_PIPE_LOCKLESS=1): the region is registered
++// without the BQL. READ/WRITE/CALL on an "opengles" pipe run under qa_lock
++// only; everything else takes qa_lock and then the BQL and runs the stock
++// handler. Lock order is qa_lock -> BQL. See HANDOVER.txt for the argument.
++static void qa_pipe_dev_write(void* opaque,
++                              hwaddr offset,
++                              uint64_t value,
++                              unsigned size) {
++    GoldfishPipeState* state = opaque;
++    PipeDevice* dev = state->dev;
++    const bool had_bql = qemu_mutex_iothread_locked();
++
++    qemu_mutex_lock(&dev->qa_lock);
++    if (!had_bql && offset == PIPE_REG_CMD && dev->ops == &pipe_ops_v2) {
++        const unsigned id = value;
++        HwPipe* pipe = id < dev->pipes_capacity ? dev->pipes[id] : NULL;
++        if (pipe && !pipe->closed && pipe->host_pipe &&
++            pipe->command_buffer) {
++            // Read the guest-owned command once and pass it on, so that the
++            // guest cannot turn it into CLOSE etc. after the check.
++            const PipeCmd cmd = atomic_read(&pipe->command_buffer->cmd);
++            if ((cmd == PIPE_CMD_READ || cmd == PIPE_CMD_WRITE ||
++                 cmd == PIPE_CMD_CALL) &&
++                android_pipe_qa_is_opengles(pipe->host_pipe)) {
++                pipeDevice_doCommandWith_v2(pipe, cmd);
++                qemu_mutex_unlock(&dev->qa_lock);
++                return;
++            }
++        }
++    }
++    if (!had_bql) {
++        qemu_mutex_lock_iothread();
++    }
++    pipe_dev_write(opaque, offset, value, size);
++    if (!had_bql) {
++        qemu_mutex_unlock_iothread();
++    }
++    qemu_mutex_unlock(&dev->qa_lock);
++}
++
++static uint64_t qa_pipe_dev_read(void* opaque, hwaddr offset, unsigned size) {
++    GoldfishPipeState* state = opaque;
++    PipeDevice* dev = state->dev;
++    const bool had_bql = qemu_mutex_iothread_locked();
++    uint64_t res;
++
++    qemu_mutex_lock(&dev->qa_lock);
++    if (!had_bql) {
++        qemu_mutex_lock_iothread();
++    }
++    res = pipe_dev_read(opaque, offset, size);
++    if (!had_bql) {
++        qemu_mutex_unlock_iothread();
++    }
++    qemu_mutex_unlock(&dev->qa_lock);
++    return res;
++}
++
++static const MemoryRegionOps goldfish_pipe_iomem_qa_ops = {
++        .read = qa_pipe_dev_read,
++        .write = qa_pipe_dev_write,
++        .endianness = DEVICE_NATIVE_ENDIAN
++};
++
+ // Don't change this version unless you want to break forward compatibility.
+ // Instead, use the different device version as a first saved field.
+ enum {
+@@ -1834,8 +1912,20 @@ static void goldfish_pipe_realize(DeviceState* dev, Error** errp) {
+         APANIC("%s: failed to initialize pipes hash\n", __func__);
+     }
+ 
+-    memory_region_init_io(&s->iomem, OBJECT(s), &goldfish_pipe_iomem_ops, s,
+-                          "goldfish_pipe", 0x2000 /*TODO: ?how big?*/);
++    {
++        const char* qa = getenv("RUSTEMUDROID_QA_PIPE_LOCKLESS");
++        s_qa_pipe_lockless = qa && !strcmp(qa, "1");
++    }
++    memory_region_init_io(&s->iomem, OBJECT(s),
++                          s_qa_pipe_lockless ? &goldfish_pipe_iomem_qa_ops
++                                             : &goldfish_pipe_iomem_ops,
++                          s, "goldfish_pipe", 0x2000 /*TODO: ?how big?*/);
++    if (s_qa_pipe_lockless) {
++        qemu_mutex_init(&s->dev->qa_lock);
++        memory_region_clear_global_locking(&s->iomem);
++        qa_info_report("RustEmuDroid QA: goldfish pipe lockless opengles"
++                    " READ/WRITE/CALL active");
++    }
+     sysbus_init_mmio(sbdev, &s->iomem);
+     sysbus_init_irq(sbdev, &s->irq);
+ 
+diff --git a/include/qemu/error-report.h b/include/qemu/error-report.h
+index 7dbdc43a..cef375e8 100644
+--- a/include/qemu/error-report.h
++++ b/include/qemu/error-report.h
+@@ -43,6 +43,17 @@ void info_vreport(const char *fmt, va_list ap) GCC_FMT_ATTR(1, 0);
+ void error_report(const char *fmt, ...) GCC_FMT_ATTR(1, 2);
+ void warn_report(const char *fmt, ...) GCC_FMT_ATTR(1, 2);
+ void info_report(const char *fmt, ...) GCC_FMT_ATTR(1, 2);
++/*
++ * RustEmuDroid QA proof lines (P0): the same text error_report/warn_report/
++ * info_report would print, but formatted first and written with ONE fputs,
++ * then stderr is flushed. On Windows stderr is fully buffered (4 KiB) after
++ * os_set_line_buffering(), so plain reports made after that point only
++ * appear when the buffer fills or the process exits. Only for one-time
++ * messages; never call these in a hot path.
++ */
++void qa_error_report(const char *fmt, ...) GCC_FMT_ATTR(1, 2);
++void qa_warn_report(const char *fmt, ...) GCC_FMT_ATTR(1, 2);
++void qa_info_report(const char *fmt, ...) GCC_FMT_ATTR(1, 2);
+ 
+ const char *error_get_progname(void);
+ extern bool enable_timestamp_msg;
+diff --git a/target/i386/whpx-all.c b/target/i386/whpx-all.c
+index 42f2b179..61069753 100644
+--- a/target/i386/whpx-all.c
++++ b/target/i386/whpx-all.c
+@@ -27,6 +27,10 @@
+ #include "qemu/abort.h"
+ #include "qemu/main-loop.h"
+ #include "hw/boards.h"
++#include "hw/i386/apic_internal.h"
++#include "qemu/host-utils.h"
++#include "qemu/rcu.h"
++#include "qemu/thread.h"
+ #include "qemu/error-report.h"
+ #include "qemu/queue.h"
+ #include "qapi/error.h"
+@@ -167,6 +171,11 @@ struct whpx_vcpu {
+     uint64_t apic_base;
+     bool interruption_pending;
+ 
++    /* RustEmuDroid QA O (KVM PV EOI); only used by the vCPU thread. */
++    uint64_t qa_pv_eoi_msr;   /* MSR_KVM_PV_EOI_EN as written by the guest */
++    bool qa_pv_eoi_pending;   /* guest flag set by us for the current entry */
++    bool qa_pv_eoi_check;     /* an injected vector may still be in service */
++
+     /* Must be the last field as it may have a tail */
+     WHV_RUN_VP_EXIT_CONTEXT exit_ctx;
+ };
+@@ -181,6 +190,673 @@ static WHV_PROCESSOR_XSAVE_FEATURES whpx_xsave_cap;
+ struct whpx_state whpx_global;
+ struct WHPDispatch whp_dispatch;
+ 
++/*
++ * RustEmuDroid QA: WHPX exit statistics, RUSTEMUDROID_QA_WHPX_EXIT_STATS=<ms>.
++ * Idea and layout follow the KEMU_WHPX_EXIT_STATS instrumentation of Kemu
++ * (kuloPo, commit 21a3456b69, GPL-2.0-or-later); reimplemented here.
++ * Counters are per vCPU and only written by the owning vCPU thread; the
++ * printer thread reads them word by word and prints deltas.
++ */
++enum {
++    WHPX_QA_EXIT_MMIO_HPET,
++    WHPX_QA_EXIT_MMIO_LAPIC,
++    WHPX_QA_EXIT_MMIO_IOAPIC,
++    WHPX_QA_EXIT_MMIO_PIPE,
++    WHPX_QA_EXIT_MMIO_ASG,
++    WHPX_QA_EXIT_MMIO_OTHER,
++    WHPX_QA_EXIT_IO,
++    WHPX_QA_EXIT_HLT,
++    WHPX_QA_EXIT_CANCELED,
++    WHPX_QA_EXIT_IRQ_WINDOW,
++    WHPX_QA_EXIT_MSR,
++    WHPX_QA_EXIT_CPUID,
++    WHPX_QA_EXIT_OTHER,
++    WHPX_QA_EXIT_NR,
++};
++
++static const char *const whpx_qa_exit_names[WHPX_QA_EXIT_NR] = {
++    "mmio-hpet", "mmio-lapic", "mmio-ioapic", "mmio-pipe", "mmio-asg",
++    "mmio-other", "io", "hlt", "canceled", "irq-window", "msr", "cpuid",
++    "other",
++};
++
++#define WHPX_QA_TOP_SLOTS 64
++#define WHPX_QA_KEY_MMIO 1 /* key = page | 1 */
++#define WHPX_QA_KEY_IO 2   /* key = port << 2 | 2 */
++#define WHPX_QA_CLASS_SLOTS 64
++
++typedef struct WhpxQaSlot {
++    uint64_t key;
++    uint64_t count;
++} WhpxQaSlot;
++
++/* A2: local APIC MMIO accesses by register and direction. */
++enum {
++    WHPX_QA_LAPIC_EOI_W,
++    WHPX_QA_LAPIC_TPR_R,
++    WHPX_QA_LAPIC_TPR_W,
++    WHPX_QA_LAPIC_ICRLO_SELF,
++    WHPX_QA_LAPIC_ICRLO_OTHER,
++    WHPX_QA_LAPIC_ICRLO_BCAST,
++    WHPX_QA_LAPIC_ICRLO_UNKNOWN,
++    WHPX_QA_LAPIC_ICRHI_W,
++    WHPX_QA_LAPIC_LVTT_R,
++    WHPX_QA_LAPIC_LVTT_W,
++    WHPX_QA_LAPIC_TMICT_R,
++    WHPX_QA_LAPIC_TMICT_W,
++    WHPX_QA_LAPIC_TMCCT_R,
++    WHPX_QA_LAPIC_OTHER_R,
++    WHPX_QA_LAPIC_OTHER_W,
++    WHPX_QA_LAPIC_NR,
++};
++
++static const char *const whpx_qa_lapic_names[WHPX_QA_LAPIC_NR] = {
++    "eoi-w", "tpr-r", "tpr-w", "icr-self", "icr-other", "icr-bcast",
++    "icr-?", "icrhi-w", "lvtt-r", "lvtt-w", "tmict-r", "tmict-w", "tmcct-r",
++    "other-r", "other-w",
++};
++
++static const char *const whpx_qa_icr_mode_names[8] = {
++    "fixed", "lowest", "smi", "rsvd3", "nmi", "init", "sipi", "extint",
++};
++
++/* A3: WHvRunVirtualProcessor durations: <2, <4, <8, <16, <32, >=32 us. */
++#define WHPX_QA_RUN_BUCKETS 6
++static uint64_t whpx_qa_ticks_per_us = 10;
++
++typedef struct WhpxQaCpuStats {
++    uint64_t count[WHPX_QA_EXIT_NR];
++    uint64_t ticks[WHPX_QA_EXIT_NR];
++    /* A2 (owned by the vCPU thread unless noted). */
++    uint64_t lapic_count[WHPX_QA_LAPIC_NR];
++    uint64_t lapic_ticks[WHPX_QA_LAPIC_NR];
++    uint64_t icr_mode[8];
++    uint64_t lapic_fast_hit;      /* I: handled by the LAPIC fast path */
++    uint64_t lapic_fast_fallback; /* I: LAPIC exits left to the emulator */
++    uint64_t kick_self;           /* exit_request seen before entering */
++    uint64_t kick_vcpu;           /* atomic: kicked from another vCPU thread */
++    uint64_t kick_other;          /* atomic: kicked from a non-vCPU thread */
++    uint64_t hlt_poll_hit;        /* J: wake-up seen while polling */
++    uint64_t hlt_poll_miss;       /* J: polled n us, then halted */
++    uint64_t prerun_lockless;     /* N: entries without the BQL */
++    uint64_t prerun_locked;       /* N: entries that took the BQL */
++    uint64_t pv_eoi_set;          /* O: entries with the guest flag set */
++    uint64_t pv_eoi_taken;        /* O: guest skipped the EOI, host did it */
++    uint64_t pv_eoi_cleared;      /* O: flag still set at exit, withdrawn */
++    uint64_t mmio_fast_hit;       /* Q: non-LAPIC MMIO done by the fast path */
++    uint64_t mmio_fast_fallback;  /* Q: non-LAPIC MMIO left to the emulator */
++    uint64_t prerun_ticks;        /* A3: time in whpx_vcpu_pre_run (BQL wait incl.) */
++    uint64_t postrun_ticks;       /* A3: time in whpx_vcpu_post_run */
++    uint64_t run_hist[WHPX_QA_RUN_BUCKETS]; /* A3: WHvRunVirtualProcessor wall time */
++    WhpxQaSlot top[WHPX_QA_TOP_SLOTS];
++    /* Page -> MMIO bucket cache, only touched by the owning vCPU. */
++    uint64_t class_page[WHPX_QA_CLASS_SLOTS];
++    uint32_t class_gen[WHPX_QA_CLASS_SLOTS];
++    uint8_t class_bucket[WHPX_QA_CLASS_SLOTS];
++} WhpxQaCpuStats;
++
++static WhpxQaCpuStats *whpx_qa_stats; /* NULL unless the gate is set */
++static unsigned int whpx_qa_stats_ncpus;
++static unsigned int whpx_qa_stats_interval_ms;
++static uint32_t whpx_qa_stats_gen = 1; /* bumped per interval */
++static QemuThread whpx_qa_stats_thread;
++
++static inline uint64_t whpx_qa_now(void)
++{
++    LARGE_INTEGER t;
++    QueryPerformanceCounter(&t);
++    return t.QuadPart;
++}
++
++static void whpx_qa_count_key(WhpxQaCpuStats *st, uint64_t key)
++{
++    unsigned int i, h = (unsigned int)((key >> 2) * 0x9E3779B1u) %
++                        WHPX_QA_TOP_SLOTS;
++
++    for (i = 0; i < WHPX_QA_TOP_SLOTS; i++) {
++        WhpxQaSlot *slot = &st->top[(h + i) % WHPX_QA_TOP_SLOTS];
++        if (slot->key == key) {
++            atomic_set(&slot->count, slot->count + 1);
++            return;
++        }
++        if (!slot->key) {
++            atomic_set(&slot->count, slot->count + 1);
++            atomic_set(&slot->key, key);
++            return;
++        }
++    }
++}
++
++static int whpx_qa_mmio_bucket_slow(uint64_t gpa)
++{
++    MemoryRegionSection sec = memory_region_find(get_system_memory(), gpa, 1);
++    int bucket = WHPX_QA_EXIT_MMIO_OTHER;
++
++    if (sec.mr) {
++        const char *name = memory_region_name(sec.mr);
++        if (name) {
++            if (!strcmp(name, "hpet")) {
++                bucket = WHPX_QA_EXIT_MMIO_HPET;
++            } else if (!strcmp(name, "apic-msi")) {
++                bucket = WHPX_QA_EXIT_MMIO_LAPIC;
++            } else if (!strcmp(name, "ioapic")) {
++                bucket = WHPX_QA_EXIT_MMIO_IOAPIC;
++            } else if (!strcmp(name, "goldfish_pipe")) {
++                bucket = WHPX_QA_EXIT_MMIO_PIPE;
++            } else if (!strncmp(name, "goldfish_address_space", 22)) {
++                bucket = WHPX_QA_EXIT_MMIO_ASG;
++            }
++        }
++        memory_region_unref(sec.mr);
++    }
++    return bucket;
++}
++
++static int whpx_qa_mmio_bucket(WhpxQaCpuStats *st, uint64_t gpa)
++{
++    uint64_t page = gpa & ~0xfffULL;
++    unsigned int i;
++    uint32_t gen;
++    int bucket;
++
++    /* Fixed x86 platform addresses first. */
++    if (page == 0xfee00000ULL) {
++        return WHPX_QA_EXIT_MMIO_LAPIC;
++    }
++    if (page == 0xfed00000ULL) {
++        return WHPX_QA_EXIT_MMIO_HPET;
++    }
++    if (page == 0xfec00000ULL) {
++        return WHPX_QA_EXIT_MMIO_IOAPIC;
++    }
++    /* Other regions (e.g. PCI BARs) by name; cached for one interval. */
++    i = (unsigned int)((page >> 12) * 0x9E3779B1u) % WHPX_QA_CLASS_SLOTS;
++    gen = atomic_read(&whpx_qa_stats_gen);
++    if (st->class_page[i] == page && st->class_gen[i] == gen) {
++        bucket = st->class_bucket[i];
++    } else {
++        bucket = whpx_qa_mmio_bucket_slow(gpa);
++        st->class_page[i] = page;
++        st->class_gen[i] = gen;
++        st->class_bucket[i] = (uint8_t)bucket;
++    }
++    if (bucket == WHPX_QA_EXIT_MMIO_OTHER) {
++        whpx_qa_count_key(st, page | WHPX_QA_KEY_MMIO);
++    }
++    return bucket;
++}
++
++/*
++ * RustEmuDroid QA (A2 statistics and I fast path): decode a 32-bit MOV to or
++ * from memory (89 /r store, 8B /r load, C7 /0 imm32 store) from the
++ * instruction bytes of a memory-access exit. Only the instruction length,
++ * the register operand and the immediate are needed: the hardware already
++ * computed the guest physical address. Anything else (prefixes other than a
++ * REX without W, 16-bit code, other opcodes, register forms, TF/debug
++ * active, truncated bytes, direction mismatch) returns false.
++ */
++typedef struct WhpxQaMov {
++    uint8_t len;
++    uint8_t reg;      /* GPR number 0..15, WHvX64RegisterRax + reg */
++    bool is_write;
++    bool has_imm;
++    uint32_t imm;
++} WhpxQaMov;
++
++static bool whpx_qa_decode_mov32(const WHV_VP_EXIT_CONTEXT *vp,
++                                 const WHV_MEMORY_ACCESS_CONTEXT *ma,
++                                 WhpxQaMov *out)
++{
++    const uint8_t *b = ma->InstructionBytes;
++    const unsigned int n = MIN(ma->InstructionByteCount,
++                               sizeof(ma->InstructionBytes));
++    const bool long_mode = vp->Cs.Long;
++    unsigned int i = 0, disp = 0;
++    uint8_t rex = 0, op, modrm, mod, rm;
++
++    if (!vp->ExecutionState.Cr0Pe || vp->ExecutionState.DebugActive ||
++        (vp->Rflags & (1ULL << 8)) /* TF */) {
++        return false;
++    }
++    if (long_mode ? !vp->ExecutionState.EferLma : !vp->Cs.Default) {
++        return false; /* 16-bit code or inconsistent state */
++    }
++    if (ma->AccessInfo.AccessType != WHvMemoryAccessRead &&
++        ma->AccessInfo.AccessType != WHvMemoryAccessWrite) {
++        return false;
++    }
++    if (n < 2) {
++        return false;
++    }
++    if (long_mode && (b[0] & 0xf0) == 0x40) {
++        rex = b[i++];
++        if (rex & 0x08) {
++            return false; /* REX.W: 64-bit operand */
++        }
++    }
++    op = b[i++];
++    if (op != 0x89 && op != 0x8b && op != 0xc7) {
++        return false;
++    }
++    if (i >= n) {
++        return false;
++    }
++    modrm = b[i++];
++    mod = modrm >> 6;
++    rm = modrm & 7;
++    if (mod == 3 || (op == 0xc7 && ((modrm >> 3) & 7) != 0)) {
++        return false;
++    }
++    if (rm == 4) {
++        if (i >= n) {
++            return false;
++        }
++        if (mod == 0 && (b[i] & 7) == 5) {
++            disp = 4; /* SIB without base: disp32 */
++        }
++        i++;
++    } else if (mod == 0 && rm == 5) {
++        disp = 4; /* RIP-relative (64-bit) or absolute disp32 (32-bit) */
++    }
++    if (mod == 1) {
++        disp = 1;
++    } else if (mod == 2) {
++        disp = 4;
++    }
++    i += disp;
++    out->has_imm = (op == 0xc7);
++    if (out->has_imm) {
++        if (i + 4 > n) {
++            return false;
++        }
++        out->imm = (uint32_t)b[i] | ((uint32_t)b[i + 1] << 8) |
++                   ((uint32_t)b[i + 2] << 16) | ((uint32_t)b[i + 3] << 24);
++        i += 4;
++    }
++    if (i > n || i > 15) {
++        return false;
++    }
++    if (vp->InstructionLength && vp->InstructionLength != i) {
++        return false;
++    }
++    out->len = (uint8_t)i;
++    out->is_write = (op != 0x8b);
++    out->reg = ((modrm >> 3) & 7) | ((rex & 0x04) ? 8 : 0);
++    return out->is_write ==
++           (ma->AccessInfo.AccessType == WHvMemoryAccessWrite);
++}
++
++/* The value a decoded store writes (one register read unless immediate). */
++static bool whpx_qa_mov_store_value(CPUState *cpu, const WhpxQaMov *mv,
++                                    uint32_t *value)
++{
++    WHV_REGISTER_NAME name;
++    WHV_REGISTER_VALUE reg;
++
++    if (mv->has_imm) {
++        *value = mv->imm;
++        return true;
++    }
++    name = (WHV_REGISTER_NAME)(WHvX64RegisterRax + mv->reg);
++    if (FAILED(whp_dispatch.WHvGetVirtualProcessorRegisters(
++            whpx_global.partition, cpu->cpu_index, &name, 1, &reg))) {
++        return false;
++    }
++    *value = (uint32_t)reg.Reg64;
++    return true;
++}
++
++/* A2: LAPIC register/direction, and the ICR delivery mode/destination. */
++static int whpx_qa_lapic_sub(WhpxQaCpuStats *st, CPUState *cpu,
++                             WHV_RUN_VP_EXIT_CONTEXT *ctx)
++{
++    const bool w = ctx->MemoryAccess.AccessInfo.AccessType ==
++                   WHvMemoryAccessWrite;
++    WhpxQaMov mv;
++    uint32_t icr;
++
++    switch (ctx->MemoryAccess.Gpa & 0xff0) {
++    case 0xb0:
++        return w ? WHPX_QA_LAPIC_EOI_W : WHPX_QA_LAPIC_OTHER_R;
++    case 0x80:
++        return w ? WHPX_QA_LAPIC_TPR_W : WHPX_QA_LAPIC_TPR_R;
++    case 0x310:
++        return w ? WHPX_QA_LAPIC_ICRHI_W : WHPX_QA_LAPIC_OTHER_R;
++    case 0x320:
++        return w ? WHPX_QA_LAPIC_LVTT_W : WHPX_QA_LAPIC_LVTT_R;
++    case 0x380:
++        return w ? WHPX_QA_LAPIC_TMICT_W : WHPX_QA_LAPIC_TMICT_R;
++    case 0x390:
++        return w ? WHPX_QA_LAPIC_OTHER_W : WHPX_QA_LAPIC_TMCCT_R;
++    case 0x300:
++        if (!w) {
++            return WHPX_QA_LAPIC_OTHER_R;
++        }
++        if (!whpx_qa_decode_mov32(&ctx->VpContext, &ctx->MemoryAccess, &mv) ||
++            !whpx_qa_mov_store_value(cpu, &mv, &icr)) {
++            return WHPX_QA_LAPIC_ICRLO_UNKNOWN;
++        }
++        atomic_set(&st->icr_mode[(icr >> 8) & 7], st->icr_mode[(icr >> 8) & 7] + 1);
++        switch ((icr >> 18) & 3) {
++        case 1:
++            return WHPX_QA_LAPIC_ICRLO_SELF;
++        case 2:
++        case 3:
++            return WHPX_QA_LAPIC_ICRLO_BCAST;
++        default: {
++            /* Physical destination in ICR high bits 31:24 (racy read, stats). */
++            APICCommonState *s =
++                (APICCommonState *)X86_CPU(cpu)->apic_state;
++            if (!(icr & (1u << 11)) && s &&
++                (s->icr[1] >> 24) == X86_CPU(cpu)->apic_id) {
++                return WHPX_QA_LAPIC_ICRLO_SELF;
++            }
++            return WHPX_QA_LAPIC_ICRLO_OTHER;
++        }
++        }
++    default:
++        return w ? WHPX_QA_LAPIC_OTHER_W : WHPX_QA_LAPIC_OTHER_R;
++    }
++}
++
++static int whpx_qa_stats_classify(WhpxQaCpuStats *st, CPUState *cpu,
++                                  WHV_RUN_VP_EXIT_CONTEXT *ctx, int *lapic_sub)
++{
++    int bucket;
++
++    switch (ctx->ExitReason) {
++    case WHvRunVpExitReasonMemoryAccess:
++        bucket = whpx_qa_mmio_bucket(st, ctx->MemoryAccess.Gpa);
++        if (bucket == WHPX_QA_EXIT_MMIO_LAPIC) {
++            *lapic_sub = whpx_qa_lapic_sub(st, cpu, ctx);
++        }
++        return bucket;
++    case WHvRunVpExitReasonX64IoPortAccess:
++        whpx_qa_count_key(st, ((uint64_t)ctx->IoPortAccess.PortNumber << 2) |
++                          WHPX_QA_KEY_IO);
++        return WHPX_QA_EXIT_IO;
++    case WHvRunVpExitReasonX64Halt:
++        return WHPX_QA_EXIT_HLT;
++    case WHvRunVpExitReasonCanceled:
++        return WHPX_QA_EXIT_CANCELED;
++    case WHvRunVpExitReasonX64InterruptWindow:
++        return WHPX_QA_EXIT_IRQ_WINDOW;
++    case WHvRunVpExitReasonX64MsrAccess:
++        return WHPX_QA_EXIT_MSR;
++    case WHvRunVpExitReasonX64Cpuid:
++        return WHPX_QA_EXIT_CPUID;
++    default:
++        return WHPX_QA_EXIT_OTHER;
++    }
++}
++
++static int whpx_qa_slot_cmp(const void *a, const void *b)
++{
++    const WhpxQaSlot *x = a, *y = b;
++    return x->count < y->count ? 1 : x->count > y->count ? -1 : 0;
++}
++
++static void *whpx_qa_stats_thread_fn(void *opaque)
++{
++    const unsigned int n = whpx_qa_stats_ncpus;
++    const size_t words = n * sizeof(WhpxQaCpuStats) / sizeof(uint64_t);
++    WhpxQaCpuStats *prev = g_new0(WhpxQaCpuStats, n);
++    WhpxQaCpuStats *cur = g_new0(WhpxQaCpuStats, n);
++    WhpxQaSlot *merged = g_new0(WhpxQaSlot, n * WHPX_QA_TOP_SLOTS);
++    uint64_t last = whpx_qa_now();
++    LARGE_INTEGER freq;
++    double us;
++
++    QueryPerformanceFrequency(&freq);
++    us = 1e6 / (double)freq.QuadPart;
++    /* memory_region_find() below takes the RCU read lock. */
++    rcu_register_thread();
++
++    for (;;) {
++        uint64_t count[WHPX_QA_EXIT_NR] = {0}, ticks[WHPX_QA_EXIT_NR] = {0};
++        uint64_t total = 0, mmio = 0, now;
++        const uint64_t *src = (const uint64_t *)whpx_qa_stats;
++        uint64_t *dst = (uint64_t *)cur;
++        unsigned int c, i, j, merged_n = 0;
++        char line[1024];
++        int len;
++
++        Sleep(whpx_qa_stats_interval_ms);
++        for (i = 0; i < words; i++) {
++            dst[i] = atomic_read(&src[i]);
++        }
++        now = whpx_qa_now();
++        atomic_set(&whpx_qa_stats_gen, whpx_qa_stats_gen + 1);
++
++        for (c = 0; c < n; c++) {
++            for (i = 0; i < WHPX_QA_EXIT_NR; i++) {
++                count[i] += cur[c].count[i] - prev[c].count[i];
++                ticks[i] += cur[c].ticks[i] - prev[c].ticks[i];
++            }
++            for (i = 0; i < WHPX_QA_TOP_SLOTS; i++) {
++                uint64_t key = cur[c].top[i].key;
++                /* A slot's key never changes once set (count is stored
++                 * before key), so the count delta is always valid. */
++                uint64_t delta = cur[c].top[i].count - prev[c].top[i].count;
++                if (!key || !delta) {
++                    continue;
++                }
++                for (j = 0; j < merged_n && merged[j].key != key; j++) {
++                }
++                if (j == merged_n) {
++                    merged[merged_n].key = key;
++                    merged[merged_n++].count = 0;
++                }
++                merged[j].count += delta;
++            }
++        }
++        for (i = 0; i < WHPX_QA_EXIT_NR; i++) {
++            total += count[i];
++            if (i <= WHPX_QA_EXIT_MMIO_OTHER) {
++                mmio += count[i];
++            }
++        }
++
++        len = snprintf(line, sizeof(line),
++                       "WHPX EXIT QA: dt_ms=%.0f exits=%" PRIu64
++                       " mmio=%" PRIu64, (now - last) * us / 1e3, total, mmio);
++        for (i = 0; i < WHPX_QA_EXIT_NR && len > 0 &&
++                    len < (int)sizeof(line); i++) {
++            if (count[i]) {
++                len += snprintf(line + len, sizeof(line) - len,
++                                " %s=%" PRIu64 "/%.0fus", whpx_qa_exit_names[i],
++                                count[i], ticks[i] * us);
++            }
++        }
++        if (merged_n && len > 0 && len < (int)sizeof(line)) {
++            qsort(merged, merged_n, sizeof(*merged), whpx_qa_slot_cmp);
++            len += snprintf(line + len, sizeof(line) - len, " top:");
++            for (j = 0; j < merged_n && j < 6 && len > 0 &&
++                        len < (int)sizeof(line); j++) {
++                uint64_t key = merged[j].key;
++                if ((key & 3) == WHPX_QA_KEY_MMIO) {
++                    /* A2: name the region behind the page. */
++                    MemoryRegionSection sec = memory_region_find(
++                        get_system_memory(), key & ~3ULL, 1);
++                    const char *rname = sec.mr ? memory_region_name(sec.mr) : NULL;
++                    len += snprintf(line + len, sizeof(line) - len,
++                                    " gpa:%" PRIx64 "=%" PRIu64 "(%s+0x%" PRIx64
++                                    "%s)", key & ~3ULL, merged[j].count,
++                                    rname ? rname : "unassigned",
++                                    sec.mr ? (uint64_t)sec.offset_within_region : 0,
++                                    sec.mr && memory_region_is_ram(sec.mr) ?
++                                        ",ram" : "");
++                    if (sec.mr) {
++                        memory_region_unref(sec.mr);
++                    }
++                } else {
++                    len += snprintf(line + len, sizeof(line) - len,
++                                    " port:%" PRIx64 "=%" PRIu64, key >> 2,
++                                    merged[j].count);
++                }
++            }
++        }
++        fprintf(stderr, "%s\n", line);
++
++        /* A2: LAPIC breakdown, ICR delivery modes, kicks, fast path, polls. */
++        {
++            uint64_t lc[WHPX_QA_LAPIC_NR] = {0}, lt[WHPX_QA_LAPIC_NR] = {0};
++            uint64_t im[8] = {0}, fh = 0, ff = 0, ks = 0, kv = 0, ko = 0;
++            uint64_t ph = 0, pm = 0, nl = 0, nk = 0, es = 0, et = 0, ec = 0;
++            for (c = 0; c < n; c++) {
++                nl += cur[c].prerun_lockless - prev[c].prerun_lockless;
++                nk += cur[c].prerun_locked - prev[c].prerun_locked;
++                es += cur[c].pv_eoi_set - prev[c].pv_eoi_set;
++                et += cur[c].pv_eoi_taken - prev[c].pv_eoi_taken;
++                ec += cur[c].pv_eoi_cleared - prev[c].pv_eoi_cleared;
++                for (i = 0; i < WHPX_QA_LAPIC_NR; i++) {
++                    lc[i] += cur[c].lapic_count[i] - prev[c].lapic_count[i];
++                    lt[i] += cur[c].lapic_ticks[i] - prev[c].lapic_ticks[i];
++                }
++                for (i = 0; i < 8; i++) {
++                    im[i] += cur[c].icr_mode[i] - prev[c].icr_mode[i];
++                }
++                fh += cur[c].lapic_fast_hit - prev[c].lapic_fast_hit;
++                ff += cur[c].lapic_fast_fallback - prev[c].lapic_fast_fallback;
++                ks += cur[c].kick_self - prev[c].kick_self;
++                kv += cur[c].kick_vcpu - prev[c].kick_vcpu;
++                ko += cur[c].kick_other - prev[c].kick_other;
++                ph += cur[c].hlt_poll_hit - prev[c].hlt_poll_hit;
++                pm += cur[c].hlt_poll_miss - prev[c].hlt_poll_miss;
++            }
++            len = snprintf(line, sizeof(line), "WHPX EXIT QA lapic:");
++            for (i = 0; i < WHPX_QA_LAPIC_NR && len > 0 &&
++                        len < (int)sizeof(line); i++) {
++                if (lc[i]) {
++                    len += snprintf(line + len, sizeof(line) - len,
++                                    " %s=%" PRIu64 "/%.0fus",
++                                    whpx_qa_lapic_names[i], lc[i], lt[i] * us);
++                }
++            }
++            for (i = 0; i < 8 && len > 0 && len < (int)sizeof(line); i++) {
++                if (im[i]) {
++                    len += snprintf(line + len, sizeof(line) - len,
++                                    " icr-%s=%" PRIu64,
++                                    whpx_qa_icr_mode_names[i], im[i]);
++                }
++            }
++            if (len > 0 && len < (int)sizeof(line)) {
++                len += snprintf(line + len, sizeof(line) - len,
++                                " fast=%" PRIu64 "/fallback=%" PRIu64
++                                " kicks: self=%" PRIu64 " from-vcpu=%" PRIu64
++                                " from-other=%" PRIu64 " hlt-poll: hit=%"
++                                PRIu64 " miss=%" PRIu64,
++                                fh, ff, ks, kv, ko, ph, pm);
++            }
++            if (len > 0 && len < (int)sizeof(line)) {
++                len += snprintf(line + len, sizeof(line) - len,
++                                " prerun: lockless=%" PRIu64 " locked=%" PRIu64
++                                " pv-eoi: set=%" PRIu64 " taken=%" PRIu64
++                                " withdrawn=%" PRIu64, nl, nk, es, et, ec);
++            }
++            if (len > 0 && len < (int)sizeof(line)) {
++                uint64_t mh = 0, mf = 0;
++                for (c = 0; c < n; c++) {
++                    mh += cur[c].mmio_fast_hit - prev[c].mmio_fast_hit;
++                    mf += cur[c].mmio_fast_fallback - prev[c].mmio_fast_fallback;
++                }
++                len += snprintf(line + len, sizeof(line) - len,
++                                " mmio-fast=%" PRIu64 "/fallback=%" PRIu64,
++                                mh, mf);
++            }
++            fprintf(stderr, "%s\n", line);
++        }
++
++        /* A2: per-vCPU totals. */
++        for (c = 0; c < n; c++) {
++            uint64_t ce = 0, ct = 0;
++            for (i = 0; i < WHPX_QA_EXIT_NR; i++) {
++                ce += cur[c].count[i] - prev[c].count[i];
++                ct += cur[c].ticks[i] - prev[c].ticks[i];
++            }
++            if (!ce) {
++                continue;
++            }
++            len = snprintf(line, sizeof(line),
++                           "WHPX EXIT QA vcpu%u: exits=%" PRIu64 " handler=%.0fus",
++                           c, ce, ct * us);
++            for (i = 0; i < WHPX_QA_EXIT_NR && len > 0 &&
++                        len < (int)sizeof(line); i++) {
++                uint64_t d = cur[c].count[i] - prev[c].count[i];
++                if (d) {
++                    len += snprintf(line + len, sizeof(line) - len,
++                                    " %s=%" PRIu64 "/%.0fus", whpx_qa_exit_names[i],
++                                    d, (cur[c].ticks[i] - prev[c].ticks[i]) * us);
++                }
++            }
++            for (i = 0; i < WHPX_QA_LAPIC_NR && len > 0 &&
++                        len < (int)sizeof(line); i++) {
++                uint64_t d = cur[c].lapic_count[i] - prev[c].lapic_count[i];
++                if (d) {
++                    len += snprintf(line + len, sizeof(line) - len,
++                                    " l.%s=%" PRIu64, whpx_qa_lapic_names[i], d);
++                }
++            }
++            if (len > 0 && len < (int)sizeof(line)) {
++                len += snprintf(line + len, sizeof(line) - len,
++                                " kicks=%" PRIu64 "/%" PRIu64 "/%" PRIu64,
++                                cur[c].kick_self - prev[c].kick_self,
++                                cur[c].kick_vcpu - prev[c].kick_vcpu,
++                                cur[c].kick_other - prev[c].kick_other);
++            }
++            if (len > 0 && len < (int)sizeof(line)) {
++                /* A3: loop overhead outside the handlers, run-time histogram. */
++                len += snprintf(line + len, sizeof(line) - len,
++                                " prerun=%.0fus postrun=%.0fus run<2/4/8/16/32/+="
++                                "%" PRIu64 "/%" PRIu64 "/%" PRIu64 "/%" PRIu64
++                                "/%" PRIu64 "/%" PRIu64,
++                                (cur[c].prerun_ticks - prev[c].prerun_ticks) * us,
++                                (cur[c].postrun_ticks - prev[c].postrun_ticks) * us,
++                                cur[c].run_hist[0] - prev[c].run_hist[0],
++                                cur[c].run_hist[1] - prev[c].run_hist[1],
++                                cur[c].run_hist[2] - prev[c].run_hist[2],
++                                cur[c].run_hist[3] - prev[c].run_hist[3],
++                                cur[c].run_hist[4] - prev[c].run_hist[4],
++                                cur[c].run_hist[5] - prev[c].run_hist[5]);
++            }
++            fprintf(stderr, "%s\n", line);
++        }
++        fflush(stderr);
++
++        memcpy(prev, cur, n * sizeof(*cur));
++        last = now;
++    }
++    return NULL;
++}
++
++static void whpx_qa_stats_init(void)
++{
++    const char *env = getenv("RUSTEMUDROID_QA_WHPX_EXIT_STATS");
++    int ms;
++
++    if (!env || (ms = atoi(env)) <= 0) {
++        return;
++    }
++    if (ms < 100) {
++        ms = 100;
++    }
++    whpx_qa_stats_interval_ms = ms;
++    {
++        LARGE_INTEGER f;
++        QueryPerformanceFrequency(&f);
++        whpx_qa_ticks_per_us = (uint64_t)(f.QuadPart / 1000000);
++        if (!whpx_qa_ticks_per_us) {
++            whpx_qa_ticks_per_us = 1;
++        }
++    }
++    whpx_qa_stats_ncpus = max_cpus;
++    whpx_qa_stats = g_new0(WhpxQaCpuStats, whpx_qa_stats_ncpus);
++    qemu_thread_create(&whpx_qa_stats_thread, "whpx-qa-stats",
++                       whpx_qa_stats_thread_fn, NULL, QEMU_THREAD_DETACHED);
++    qa_info_report("WHPX EXIT QA: exit statistics active interval_ms=%d vcpus=%u",
++                ms, whpx_qa_stats_ncpus);
++}
++
+ static bool whpx_has_xsave(void)
+ {
+     return whpx_xsave_cap.XsaveSupport;
+@@ -845,6 +1521,106 @@ static int whpx_handle_mmio(CPUState *cpu, WHV_MEMORY_ACCESS_CONTEXT *ctx)
+     return 0;
+ }
+ 
++/*
++ * RustEmuDroid QA (RUSTEMUDROID_QA_LAPIC_FASTPATH=1): local APIC MMIO
++ * exits whose instruction is a plain 32-bit MOV are completed here instead
++ * of by WHvEmulatorTryMmioEmulation. The access itself goes through the same
++ * cpu_physical_memory_rw() call as the emulator's memory callback
++ * (whpx_emu_mmio_callback), so it reaches apic_mem_readl/writel with the same
++ * locking (prepare_mmio_access takes the BQL for the apic-msi region). Then
++ * RIP (and, for a load, the destination register) is written back with one
++ * WHvSetVirtualProcessorRegisters; a register store needs one
++ * WHvGetVirtualProcessorRegisters first. Returns false to use the stock path.
++ */
++static bool whpx_qa_lapic_fastpath;
++/*
++ * RustEmuDroid QA Q (RUSTEMUDROID_QA_MMIO_FASTPATH=1): the same fast path for
++ * memory-access exits on ANY guest physical page (LAPIC included). The access
++ * is the same cpu_physical_memory_rw() the emulator's memory callback makes,
++ * so device dispatch and locking (BQL via prepare_mmio_access, or a device's
++ * own lock) are exactly as with the emulator.
++ */
++static bool whpx_qa_mmio_fastpath;
++
++static bool whpx_qa_lapic_fast(CPUState *cpu, struct whpx_vcpu *vcpu)
++{
++    const WHV_VP_EXIT_CONTEXT *vp = &vcpu->exit_ctx.VpContext;
++    const WHV_MEMORY_ACCESS_CONTEXT *ma = &vcpu->exit_ctx.MemoryAccess;
++    WHV_REGISTER_NAME names[2];
++    WHV_REGISTER_VALUE values[2];
++    WhpxQaMov mv;
++    uint32_t value;
++    UINT64 next_rip;
++
++    if ((ma->Gpa & 3) || !whpx_qa_decode_mov32(vp, ma, &mv)) {
++        return false;
++    }
++    next_rip = vp->Rip + mv.len;
++    if (!vp->Cs.Long) {
++        next_rip = (uint32_t)next_rip;
++    }
++    memset(values, 0, sizeof(values));
++    names[0] = WHvX64RegisterRip;
++    values[0].Reg64 = next_rip;
++    if (mv.is_write) {
++        if (!whpx_qa_mov_store_value(cpu, &mv, &value)) {
++            return false;
++        }
++        cpu_physical_memory_rw(ma->Gpa, (uint8_t *)&value, 4, 1);
++    } else {
++        value = 0;
++        cpu_physical_memory_rw(ma->Gpa, (uint8_t *)&value, 4, 0);
++        names[1] = (WHV_REGISTER_NAME)(WHvX64RegisterRax + mv.reg);
++        values[1].Reg64 = value; /* 32-bit loads zero-extend */
++    }
++    if (FAILED(whp_dispatch.WHvSetVirtualProcessorRegisters(
++            whpx_global.partition, cpu->cpu_index, names,
++            mv.is_write ? 1 : 2, values))) {
++        /* The access is done and cannot be repeated: this is fatal, as an
++         * emulator failure would be. */
++        error_report("WHPX: LAPIC fast path failed to set registers");
++        abort();
++    }
++    return true;
++}
++
++/*
++ * RustEmuDroid QA (RUSTEMUDROID_QA_HALT_POLL_US=<n>, 1..2000): on a HLT exit
++ * with nothing pending, poll (without the BQL) for up to n us for anything
++ * that would wake the vCPU before taking the stock halt path.
++ */
++static unsigned int whpx_qa_halt_poll_us;
++
++static bool whpx_qa_halt_poll(CPUState *cpu)
++{
++    static LONGLONG freq;
++    LARGE_INTEGER t;
++    uint64_t deadline;
++    int i;
++
++    if (!freq) {
++        LARGE_INTEGER f;
++        QueryPerformanceFrequency(&f);
++        freq = f.QuadPart;
++    }
++    QueryPerformanceCounter(&t);
++    deadline = t.QuadPart + (uint64_t)freq * whpx_qa_halt_poll_us / 1000000;
++    for (;;) {
++        if (atomic_read(&cpu->interrupt_request) ||
++            atomic_read(&cpu->exit_request) || atomic_read(&cpu->stop) ||
++            atomic_read(&cpu->queued_work_first)) {
++            return true;
++        }
++        QueryPerformanceCounter(&t);
++        if ((uint64_t)t.QuadPart >= deadline) {
++            return false;
++        }
++        for (i = 0; i < 16; i++) {
++            YieldProcessor();
++        }
++    }
++}
++
+ static int whpx_handle_portio(CPUState *cpu,
+                               WHV_X64_IO_PORT_ACCESS_CONTEXT *ctx)
+ {
+@@ -876,6 +1652,24 @@ static int whpx_handle_halt(CPUState *cpu)
+     int ret = 0;
+ 
+     qemu_mutex_lock_iothread();
++    if (unlikely(whpx_qa_halt_poll_us) &&
++        !((cpu->interrupt_request & CPU_INTERRUPT_HARD) &&
++          (env->eflags & IF_MASK)) &&
++        !(cpu->interrupt_request & CPU_INTERRUPT_NMI)) {
++        /* RustEmuDroid QA J: poll unlocked, then decide as stock. */
++        bool hit;
++        qemu_mutex_unlock_iothread();
++        hit = whpx_qa_halt_poll(cpu);
++        if (whpx_qa_stats && (unsigned int)cpu->cpu_index < whpx_qa_stats_ncpus) {
++            WhpxQaCpuStats *st = &whpx_qa_stats[cpu->cpu_index];
++            if (hit) {
++                atomic_set(&st->hlt_poll_hit, st->hlt_poll_hit + 1);
++            } else {
++                atomic_set(&st->hlt_poll_miss, st->hlt_poll_miss + 1);
++            }
++        }
++        qemu_mutex_lock_iothread();
++    }
+     if (!((cpu->interrupt_request & CPU_INTERRUPT_HARD) &&
+           (env->eflags & IF_MASK)) &&
+         !(cpu->interrupt_request & CPU_INTERRUPT_NMI)) {
+@@ -888,6 +1682,104 @@ static int whpx_handle_halt(CPUState *cpu)
+     return ret;
+ }
+ 
++/*
++ * RustEmuDroid QA N (RUSTEMUDROID_QA_PRERUN_LOCKLESS=1) and O
++ * (RUSTEMUDROID_QA_KVM_PV_EOI=1). Both set once at accel init.
++ */
++static bool whpx_qa_prerun_lockless;
++static bool whpx_qa_pv_eoi;
++
++#define QA_MSR_KVM_PV_EOI_EN 0x4b564d04
++#define QA_KVM_FEATURE_PV_EOI 6
++
++static WhpxQaCpuStats *whpx_qa_cpu_stats(CPUState *cpu)
++{
++    return (whpx_qa_stats &&
++            (unsigned int)cpu->cpu_index < whpx_qa_stats_ncpus) ?
++           &whpx_qa_stats[cpu->cpu_index] : NULL;
++}
++
++/*
++ * O, before entry, BQL held (it reads this vCPU's APIC IRR/ISR/TMR, which
++ * other threads change under the BQL). Like KVM's apic_sync_pv_eoi_to_guest:
++ * set the guest flag only if exactly one vector is in service, nothing is
++ * pending in the IRR and the vector is edge-triggered (no IOAPIC EOI).
++ */
++static void whpx_qa_pv_eoi_to_guest(CPUState *cpu, struct whpx_vcpu *vcpu)
++{
++    APICCommonState *s = (APICCommonState *)X86_CPU(cpu)->apic_state;
++    int i, isr_bits = 0, vector = -1;
++    uint8_t one = 1;
++
++    if (!s || vcpu->qa_pv_eoi_pending) {
++        return;
++    }
++    for (i = 0; i < 8; i++) {
++        if (s->irr[i]) {
++            return; /* something pending: the EOI must dispatch it */
++        }
++        if (s->isr[i]) {
++            isr_bits += ctpop32(s->isr[i]);
++            vector = i * 32 + ctz32(s->isr[i]);
++        }
++    }
++    if (isr_bits == 0) {
++        vcpu->qa_pv_eoi_check = false; /* nothing in service any more */
++        return;
++    }
++    if (isr_bits != 1 || (s->tmr[vector >> 5] & (1u << (vector & 31)))) {
++        return; /* nested or level-triggered: native EOI */
++    }
++    cpu_physical_memory_write(vcpu->qa_pv_eoi_msr & ~3ULL, &one, 1);
++    vcpu->qa_pv_eoi_pending = true;
++    {
++        WhpxQaCpuStats *st = whpx_qa_cpu_stats(cpu);
++        if (st) {
++            atomic_set(&st->pv_eoi_set, st->pv_eoi_set + 1);
++        }
++    }
++}
++
++/*
++ * O, right after every exit, before the exit is handled (no lock held). Like
++ * KVM's apic_sync_pv_eoi_from_guest: if the guest cleared the flag it skipped
++ * its EOI, so do it now through the same APIC MMIO path the guest would have
++ * used (EOI register write; prepare_mmio_access takes the BQL). Otherwise
++ * withdraw the flag. Either way the guest flag is 0 whenever this vCPU is
++ * outside WHvRunVirtualProcessor.
++ */
++static void whpx_qa_pv_eoi_from_guest(CPUState *cpu, struct whpx_vcpu *vcpu)
++{
++    uint8_t flag = 0, zero = 0;
++    uint32_t eoi = 0;
++    WhpxQaCpuStats *st;
++
++    if (!vcpu->qa_pv_eoi_pending) {
++        return;
++    }
++    vcpu->qa_pv_eoi_pending = false;
++    st = whpx_qa_cpu_stats(cpu);
++    cpu_physical_memory_read(vcpu->qa_pv_eoi_msr & ~3ULL, &flag, 1);
++    if (flag & 1) {
++        cpu_physical_memory_write(vcpu->qa_pv_eoi_msr & ~3ULL, &zero, 1);
++        if (st) {
++            atomic_set(&st->pv_eoi_cleared, st->pv_eoi_cleared + 1);
++        }
++        return;
++    }
++    cpu_physical_memory_rw(APIC_DEFAULT_ADDRESS + 0xb0, (uint8_t *)&eoi, 4, 1);
++    if (st) {
++        atomic_set(&st->pv_eoi_taken, st->pv_eoi_taken + 1);
++    }
++}
++
++static void whpx_qa_pv_eoi_reset(struct whpx_vcpu *vcpu)
++{
++    vcpu->qa_pv_eoi_msr = 0;
++    vcpu->qa_pv_eoi_pending = false;
++    vcpu->qa_pv_eoi_check = false;
++}
++
+ static void whpx_vcpu_pre_run(CPUState *cpu)
+ {
+     HRESULT hr;
+@@ -905,6 +1797,28 @@ static void whpx_vcpu_pre_run(CPUState *cpu)
+     memset(&new_int, 0, sizeof(new_int));
+     memset(reg_values, 0, sizeof(reg_values));
+ 
++    /*
++     * RustEmuDroid QA N: with no interrupt_request bit set, an unchanged
++     * TPR and no PV EOI re-evaluation due, every block below is a no-op, so
++     * skip the BQL. See HANDOVER.txt for the ordering argument.
++     */
++    if (unlikely(whpx_qa_prerun_lockless)) {
++        WhpxQaCpuStats *qa_st =
++            (whpx_qa_stats && (unsigned int)cpu->cpu_index < whpx_qa_stats_ncpus) ?
++            &whpx_qa_stats[cpu->cpu_index] : NULL;
++        if (!atomic_read(&cpu->interrupt_request) &&
++            !(vcpu->qa_pv_eoi_check && (vcpu->qa_pv_eoi_msr & 1)) &&
++            cpu_get_apic_tpr(x86_cpu->apic_state) == vcpu->tpr) {
++            if (qa_st) {
++                atomic_set(&qa_st->prerun_lockless, qa_st->prerun_lockless + 1);
++            }
++            return;
++        }
++        if (qa_st) {
++            atomic_set(&qa_st->prerun_locked, qa_st->prerun_locked + 1);
++        }
++    }
++
+     qemu_mutex_lock_iothread();
+ 
+     /* Inject NMI */
+@@ -947,10 +1861,18 @@ static void whpx_vcpu_pre_run(CPUState *cpu)
+                 new_int.InterruptionType = WHvX64PendingInterrupt;
+                 new_int.InterruptionPending = 1;
+                 new_int.InterruptionVector = irq;
++                /* RustEmuDroid QA O: a vector may now be in service. */
++                vcpu->qa_pv_eoi_check = true;
+             }
+         }
+     }
+ 
++    /* RustEmuDroid QA O: offer the guest a PV EOI for this entry. */
++    if (unlikely(whpx_qa_pv_eoi) && vcpu->qa_pv_eoi_check &&
++        (vcpu->qa_pv_eoi_msr & 1)) {
++        whpx_qa_pv_eoi_to_guest(cpu, vcpu);
++    }
++
+     /* Setup interrupt state if new one was prepared */
+     if (new_int.InterruptionPending) {
+         reg_values[reg_count].PendingInterruption = new_int;
+@@ -998,6 +1920,11 @@ static void whpx_vcpu_post_run(CPUState *cpu)
+     struct whpx_vcpu *vcpu = get_whpx_vcpu(cpu);
+     struct CPUX86State *env = (CPUArchState *)(cpu->env_ptr);
+     X86CPU *x86_cpu = X86_CPU(cpu);
++
++    if (unlikely(whpx_qa_pv_eoi)) {
++        whpx_qa_pv_eoi_from_guest(cpu, vcpu);
++    }
++
+     env->eflags = vcpu->exit_ctx.VpContext.Rflags;
+ 
+     uint64_t tpr = vcpu->exit_ctx.VpContext.Cr8;
+@@ -1029,6 +1956,9 @@ static void whpx_vcpu_process_async_events(CPUState *cpu)
+         do_cpu_init(x86_cpu);
+         cpu->vcpu_dirty = true;
+         vcpu->interruptable = true;
++        if (unlikely(whpx_qa_pv_eoi)) {
++            whpx_qa_pv_eoi_reset(vcpu); /* RustEmuDroid QA O: INIT disables it */
++        }
+     }
+ 
+     if (cpu->interrupt_request & CPU_INTERRUPT_POLL) {
+@@ -1066,8 +1996,18 @@ static int whpx_vcpu_run(CPUState *cpu)
+     HRESULT hr;
+     struct whpx_state *whpx = &whpx_global;
+     struct whpx_vcpu *vcpu = get_whpx_vcpu(cpu);
++    WhpxQaCpuStats *qa_st = NULL;
++    uint64_t qa_t_exit = 0;
++    uint64_t qa_t_run = 0;
++    int qa_stat = 0;
++    int qa_lapic_sub = -1;
+     int ret;
+ 
++    if (unlikely(whpx_qa_stats) &&
++        (unsigned int)cpu->cpu_index < whpx_qa_stats_ncpus) {
++        qa_st = &whpx_qa_stats[cpu->cpu_index];
++    }
++
+     whpx_vcpu_process_async_events(cpu);
+     if (cpu->halted) {
+         cpu->exception_index = EXCP_HLT;
+@@ -1084,12 +2024,25 @@ static int whpx_vcpu_run(CPUState *cpu)
+             cpu->vcpu_dirty = false;
+         }
+ 
++        if (unlikely(qa_st)) {
++            qa_t_run = whpx_qa_now();
++        }
+         whpx_vcpu_pre_run(cpu);
+ 
+         if (atomic_read(&cpu->exit_request)) {
++            if (unlikely(qa_st)) {
++                atomic_set(&qa_st->kick_self, qa_st->kick_self + 1);
++            }
+             whpx_vcpu_kick(cpu);
+         }
+ 
++        if (unlikely(qa_st)) {
++            const uint64_t t = whpx_qa_now();
++            atomic_set(&qa_st->prerun_ticks,
++                       qa_st->prerun_ticks + (t - qa_t_run));
++            qa_t_run = t;
++        }
++
+         hr = whp_dispatch.WHvRunVirtualProcessor(
+             whpx->partition, cpu->cpu_index,
+             &vcpu->exit_ctx, sizeof(vcpu->exit_ctx));
+@@ -1101,10 +2054,59 @@ static int whpx_vcpu_run(CPUState *cpu)
+             break;
+         }
+ 
++        if (unlikely(qa_st)) {
++            const uint64_t t = whpx_qa_now();
++            const uint64_t d = (t - qa_t_run) / whpx_qa_ticks_per_us;
++            const int b = d < 2 ? 0 : d < 4 ? 1 : d < 8 ? 2 :
++                          d < 16 ? 3 : d < 32 ? 4 : 5;
++            atomic_set(&qa_st->run_hist[b], qa_st->run_hist[b] + 1);
++            qa_t_run = t;
++        }
++
+         whpx_vcpu_post_run(cpu);
+ 
++        if (unlikely(qa_st)) {
++            qa_t_exit = whpx_qa_now();
++            atomic_set(&qa_st->postrun_ticks,
++                       qa_st->postrun_ticks + (qa_t_exit - qa_t_run));
++            qa_lapic_sub = -1;
++            qa_stat = whpx_qa_stats_classify(qa_st, cpu, &vcpu->exit_ctx,
++                                             &qa_lapic_sub);
++        }
++
+         switch (vcpu->exit_ctx.ExitReason) {
+         case WHvRunVpExitReasonMemoryAccess:
++            if (unlikely(whpx_qa_mmio_fastpath) &&
++                (vcpu->exit_ctx.MemoryAccess.Gpa & ~0xfffULL) != 0xfee00000ULL) {
++                /* Q: every other MMIO page, same decoder and access as I. */
++                if (whpx_qa_lapic_fast(cpu, vcpu)) {
++                    if (qa_st) {
++                        atomic_set(&qa_st->mmio_fast_hit,
++                                   qa_st->mmio_fast_hit + 1);
++                    }
++                    ret = 0;
++                    break;
++                }
++                if (qa_st) {
++                    atomic_set(&qa_st->mmio_fast_fallback,
++                               qa_st->mmio_fast_fallback + 1);
++                }
++            } else if (unlikely(whpx_qa_lapic_fastpath ||
++                                whpx_qa_mmio_fastpath) &&
++                (vcpu->exit_ctx.MemoryAccess.Gpa & ~0xfffULL) == 0xfee00000ULL) {
++                if (whpx_qa_lapic_fast(cpu, vcpu)) {
++                    if (qa_st) {
++                        atomic_set(&qa_st->lapic_fast_hit,
++                                   qa_st->lapic_fast_hit + 1);
++                    }
++                    ret = 0;
++                    break;
++                }
++                if (qa_st) {
++                    atomic_set(&qa_st->lapic_fast_fallback,
++                               qa_st->lapic_fast_fallback + 1);
++                }
++            }
+             ret = whpx_handle_mmio(cpu, &vcpu->exit_ctx.MemoryAccess);
+             break;
+ 
+@@ -1147,6 +2149,22 @@ static int whpx_vcpu_run(CPUState *cpu)
+             reg_count = vcpu->exit_ctx.MsrAccess.AccessInfo.IsWrite ?
+                         1 : 3;
+ 
++            /* RustEmuDroid QA O: MSR_KVM_PV_EOI_EN. */
++            if (unlikely(whpx_qa_pv_eoi) &&
++                vcpu->exit_ctx.MsrAccess.MsrNumber == QA_MSR_KVM_PV_EOI_EN) {
++                if (vcpu->exit_ctx.MsrAccess.AccessInfo.IsWrite) {
++                    whpx_qa_pv_eoi_reset(vcpu);
++                    vcpu->qa_pv_eoi_msr =
++                        ((uint64_t)(uint32_t)vcpu->exit_ctx.MsrAccess.Rdx << 32) |
++                        (uint32_t)vcpu->exit_ctx.MsrAccess.Rax;
++                    /* Re-evaluate on the next entry if a vector is in service. */
++                    vcpu->qa_pv_eoi_check = true;
++                } else {
++                    reg_values[1].Reg64 = (uint32_t)vcpu->qa_pv_eoi_msr;
++                    reg_values[2].Reg64 = vcpu->qa_pv_eoi_msr >> 32;
++                }
++            }
++
+             hr = whp_dispatch.WHvSetVirtualProcessorRegisters(whpx->partition,
+                                                  cpu->cpu_index,
+                                                  reg_names, reg_count,
+@@ -1177,10 +2195,31 @@ static int whpx_vcpu_run(CPUState *cpu)
+                     rcx =
+                         vcpu->exit_ctx.CpuidAccess.DefaultResultRcx |
+                         CPUID_EXT_HYPERVISOR;
++                    if (unlikely(whpx_qa_pv_eoi)) {
++                        /*
++                         * RustEmuDroid QA O: the KVM signature makes Linux
++                         * treat x2APIC as available without interrupt
++                         * remapping (x86_hyper_kvm.init.x2apic_available);
++                         * this user-mode APIC has no x2APIC, so hide it.
++                         */
++                        rcx &= ~(UINT64)CPUID_EXT_X2APIC;
++                    }
+ 
+                     rdx = vcpu->exit_ctx.CpuidAccess.DefaultResultRdx;
+                     rbx = vcpu->exit_ctx.CpuidAccess.DefaultResultRbx;
+                     break;
++                case 0x40000001:
++                    /* RustEmuDroid QA O: KVM features = PV EOI only, no hints. */
++                    if (unlikely(whpx_qa_pv_eoi)) {
++                        rax = 1u << QA_KVM_FEATURE_PV_EOI;
++                        rbx = rcx = rdx = 0;
++                    } else {
++                        rax = vcpu->exit_ctx.CpuidAccess.DefaultResultRax;
++                        rcx = vcpu->exit_ctx.CpuidAccess.DefaultResultRcx;
++                        rdx = vcpu->exit_ctx.CpuidAccess.DefaultResultRdx;
++                        rbx = vcpu->exit_ctx.CpuidAccess.DefaultResultRbx;
++                    }
++                    break;
+                 case 7:
+                     rax = vcpu->exit_ctx.CpuidAccess.DefaultResultRax;
+                     /* Disable SMAP support*/
+@@ -1193,6 +2232,11 @@ static int whpx_vcpu_run(CPUState *cpu)
+                 case WHPX_CPUID_SIGNATURE:
+                     memcpy(signature, "WHPXWHPXWHPX", 12);
+                     rax = vcpu->exit_ctx.CpuidAccess.DefaultResultRax;
++                    if (unlikely(whpx_qa_pv_eoi)) {
++                        /* RustEmuDroid QA O: "KVMKVMKVM\0\0\0", max leaf 0x40000001. */
++                        memcpy(signature, "KVMKVMKVM\0\0\0", 12);
++                        rax = 0x40000001;
++                    }
+                     rbx = signature[0];
+                     rcx = signature[1];
+                     rdx = signature[2];
+@@ -1254,6 +2298,17 @@ static int whpx_vcpu_run(CPUState *cpu)
+             break;
+         }
+ 
++        if (unlikely(qa_st)) {
++            const uint64_t qa_dt = whpx_qa_now() - qa_t_exit;
++            atomic_set(&qa_st->count[qa_stat], qa_st->count[qa_stat] + 1);
++            atomic_set(&qa_st->ticks[qa_stat], qa_st->ticks[qa_stat] + qa_dt);
++            if (qa_lapic_sub >= 0) {
++                atomic_set(&qa_st->lapic_count[qa_lapic_sub],
++                           qa_st->lapic_count[qa_lapic_sub] + 1);
++                atomic_set(&qa_st->lapic_ticks[qa_lapic_sub],
++                           qa_st->lapic_ticks[qa_lapic_sub] + qa_dt);
++            }
++        }
+     } while (!ret);
+ 
+     cpu_exec_end(cpu);
+@@ -1280,12 +2335,12 @@ void whpx_qa_synchronize_tsc(const char *phase)
+     /* The post-init/reset caller owns the iothread lock. A parked VP cannot
+      * enter WHvRunVirtualProcessor and resume partition time during the batch. */
+     if (!qemu_mutex_iothread_locked()) {
+-        error_report("WHPX TSC QA: missing iothread lock at %s", phase);
++        qa_error_report("WHPX TSC QA: missing iothread lock at %s", phase);
+         exit(EXIT_FAILURE);
+     }
+     CPU_FOREACH(cpu) {
+         if (!cpu->stopped) {
+-            error_report("WHPX TSC QA: vCPU %d is not stopped at %s",
++            qa_error_report("WHPX TSC QA: vCPU %d is not stopped at %s",
+                          cpu->cpu_index, phase);
+             exit(EXIT_FAILURE);
+         }
+@@ -1293,7 +2348,7 @@ void whpx_qa_synchronize_tsc(const char *phase)
+ 
+     hr = whpx_qa_suspend_partition_time(whpx->partition);
+     if (FAILED(hr)) {
+-        error_report("WHPX TSC QA: suspend failed at %s, hr=%08lx", phase, hr);
++        qa_error_report("WHPX TSC QA: suspend failed at %s, hr=%08lx", phase, hr);
+         exit(EXIT_FAILURE);
+     }
+ 
+@@ -1304,14 +2359,14 @@ void whpx_qa_synchronize_tsc(const char *phase)
+         hr = whp_dispatch.WHvSetVirtualProcessorRegisters(
+             whpx->partition, cpu->cpu_index, &register_name, 1, &value);
+         if (FAILED(hr)) {
+-            error_report("WHPX TSC QA: write failed at %s, vCPU %d, hr=%08lx",
++            qa_error_report("WHPX TSC QA: write failed at %s, vCPU %d, hr=%08lx",
+                          phase, cpu->cpu_index, hr);
+             exit(EXIT_FAILURE);
+         }
+         ++written;
+     }
+     /* WHvRunVirtualProcessor resumes time after the complete batch. */
+-    info_report("WHPX TSC QA: synchronized %s vcpus=%u", phase, written);
++    qa_info_report("WHPX TSC QA: synchronized %s vcpus=%u", phase, written);
+ }
+ 
+ static void do_whpx_cpu_synchronize_state(CPUState *cpu, run_on_cpu_data arg)
+@@ -1325,6 +2380,10 @@ static void do_whpx_cpu_synchronize_post_reset(CPUState *cpu,
+ {
+     whpx_set_registers(cpu);
+     cpu->vcpu_dirty = false;
++    if (unlikely(whpx_qa_pv_eoi)) {
++        /* RustEmuDroid QA O: a reset disables PV EOI, as on KVM. */
++        whpx_qa_pv_eoi_reset(get_whpx_vcpu(cpu));
++    }
+ }
+ 
+ static void do_whpx_cpu_synchronize_post_init(CPUState *cpu,
+@@ -1332,6 +2391,10 @@ static void do_whpx_cpu_synchronize_post_init(CPUState *cpu,
+ {
+     whpx_set_registers(cpu);
+     cpu->vcpu_dirty = false;
++    if (unlikely(whpx_qa_pv_eoi)) {
++        /* RustEmuDroid QA O: after init/loadvm the guest re-registers. */
++        whpx_qa_pv_eoi_reset(get_whpx_vcpu(cpu));
++    }
+ }
+ 
+ static void do_whpx_cpu_synchronize_pre_loadvm(CPUState *cpu,
+@@ -1372,6 +2435,380 @@ void whpx_cpu_synchronize_pre_loadvm(CPUState *cpu)
+ 
+ // static Error *whpx_migration_blocker;
+ 
++/*
++ * RustEmuDroid QA: vCPU thread placement, RUSTEMUDROID_QA_VCPU_PLACEMENT=
++ * ideal|sets|pin. Idea after Kemu commit 96f854ad13 (topology-aware vCPU
++ * affinity, kuloPo, GPL-2.0-or-later); code written for this tree.
++ * The plan is computed once; each vCPU thread applies its own entry from
++ * whpx_init_vcpu(), which runs on that vCPU thread before it enters the run
++ * loop. Nothing is done per exit.
++ */
++enum { QA_PLACE_OFF, QA_PLACE_IDEAL, QA_PLACE_SETS, QA_PLACE_PIN };
++#define QA_PLACE_MAX_CORES 64
++#define QA_PLACE_MAX_LPS 64
++
++/* Mirror of SYSTEM_CPU_SET_INFORMATION (Windows 10), so that this builds
++ * independently of the _WIN32_WINNT the tree is compiled with. */
++typedef struct QaCpuSetInfo {
++    DWORD Size;
++    DWORD Type;
++    DWORD Id;
++    WORD Group;
++    BYTE LogicalProcessorIndex;
++    BYTE CoreIndex;
++    BYTE LastLevelCacheIndex;
++    BYTE NumaNodeIndex;
++    BYTE EfficiencyClass;
++    BYTE AllFlags;
++    DWORD Reserved;
++    DWORD64 AllocationTag;
++} QaCpuSetInfo;
++typedef BOOL (WINAPI *QaGetSystemCpuSetInformationFn)(void *, ULONG, PULONG,
++                                                       HANDLE, ULONG);
++typedef BOOL (WINAPI *QaSetCpuSetsFn)(HANDLE, const ULONG *, ULONG);
++
++typedef struct QaPlaceCore {
++    int lp[QA_PLACE_MAX_LPS];
++    int nlp;
++    int eff;
++} QaPlaceCore;
++
++static struct {
++    int mode;
++    int ncores;
++    QaPlaceCore core[QA_PLACE_MAX_CORES];
++    int order[QA_PLACE_MAX_CORES];    /* cores, most performant first */
++    ULONG set_id[QA_PLACE_MAX_LPS];   /* CPU set id per logical processor */
++    bool have_sets;
++    QaSetCpuSetsFn set_thread_sets;
++} whpx_qa_place;
++static INIT_ONCE whpx_qa_place_once = INIT_ONCE_STATIC_INIT;
++
++static int whpx_qa_place_core_of_vcpu(int index)
++{
++    return whpx_qa_place.order[index % whpx_qa_place.ncores];
++}
++
++static void whpx_qa_place_append_core(char *buf, size_t size, size_t *len,
++                                      const QaPlaceCore *c, bool first_only)
++{
++    int i;
++
++    for (i = 0; i < (first_only ? 1 : c->nlp) && *len < size; i++) {
++        *len += snprintf(buf + *len, size - *len, "%s%d", i ? "," : "",
++                         c->lp[i]);
++    }
++}
++
++static BOOL CALLBACK whpx_qa_place_init(PINIT_ONCE once, PVOID param,
++                                        PVOID *ctx)
++{
++    const char *env = getenv("RUSTEMUDROID_QA_VCPU_PLACEMENT");
++    const int nvcpus = smp_cpus > 0 ? smp_cpus : 1;
++    DWORD len = 0;
++    uint8_t *buf = NULL;
++    char line[1024];
++    size_t used = 0;
++    int i, j;
++
++    bool high = false;
++    const char *mode_name = env;
++
++    if (!env || !*env) {
++        return TRUE;
++    }
++    if (!strcmp(env, "ideal")) {
++        whpx_qa_place.mode = QA_PLACE_IDEAL;
++    } else if (!strcmp(env, "sets")) {
++        whpx_qa_place.mode = QA_PLACE_SETS;
++    } else if (!strcmp(env, "pin")) {
++        whpx_qa_place.mode = QA_PLACE_PIN;
++    } else if (!strcmp(env, "sets-high")) {
++        whpx_qa_place.mode = QA_PLACE_SETS;
++        high = true;
++    } else if (!strcmp(env, "pin-high")) {
++        whpx_qa_place.mode = QA_PLACE_PIN;
++        high = true;
++    } else {
++        qa_warn_report("RustEmuDroid QA: unknown RUSTEMUDROID_QA_VCPU_PLACEMENT"
++                    " '%s', placement off", env);
++        return TRUE;
++    }
++
++    /* Physical cores and their logical processors (processor group 0). */
++    GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &len);
++    buf = g_malloc0(len ? len : 1);
++    if (!len || !GetLogicalProcessorInformationEx(
++            RelationProcessorCore,
++            (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)buf, &len)) {
++        qa_warn_report("RustEmuDroid QA: vCPU placement off, "
++                    "GetLogicalProcessorInformationEx failed (%lu)",
++                    GetLastError());
++        whpx_qa_place.mode = QA_PLACE_OFF;
++        g_free(buf);
++        return TRUE;
++    }
++    for (DWORD off = 0; off < len && whpx_qa_place.ncores < QA_PLACE_MAX_CORES;) {
++        PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX info =
++            (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)(buf + off);
++        if (info->Relationship == RelationProcessorCore &&
++            info->Processor.GroupMask[0].Group == 0) {
++            QaPlaceCore *c = &whpx_qa_place.core[whpx_qa_place.ncores];
++            KAFFINITY mask = info->Processor.GroupMask[0].Mask;
++            for (i = 0; i < QA_PLACE_MAX_LPS; i++) {
++                if (mask & ((KAFFINITY)1 << i)) {
++                    c->lp[c->nlp++] = i;
++                }
++            }
++            if (c->nlp) {
++                whpx_qa_place.ncores++;
++            }
++        }
++        off += info->Size;
++    }
++    g_free(buf);
++
++    /* CPU sets: ids and efficiency classes (Windows 10+). */
++    {
++        HMODULE k32 = GetModuleHandleA("kernel32.dll");
++        QaGetSystemCpuSetInformationFn get_info = (QaGetSystemCpuSetInformationFn)
++            GetProcAddress(k32, "GetSystemCpuSetInformation");
++        whpx_qa_place.set_thread_sets =
++            (QaSetCpuSetsFn)GetProcAddress(k32, "SetThreadSelectedCpuSets");
++        QaSetCpuSetsFn set_process_sets =
++            (QaSetCpuSetsFn)GetProcAddress(k32, "SetProcessDefaultCpuSets");
++        ULONG slen = 0;
++
++        if (get_info && whpx_qa_place.set_thread_sets && set_process_sets) {
++            get_info(NULL, 0, &slen, GetCurrentProcess(), 0);
++            buf = g_malloc0(slen ? slen : 1);
++            if (slen && get_info(buf, slen, &slen, GetCurrentProcess(), 0)) {
++                for (ULONG off = 0; off < slen;) {
++                    QaCpuSetInfo *s = (QaCpuSetInfo *)(buf + off);
++                    if (s->Type == 0 /* CpuSetInformation */ && s->Group == 0 &&
++                        s->LogicalProcessorIndex < QA_PLACE_MAX_LPS) {
++                        whpx_qa_place.set_id[s->LogicalProcessorIndex] = s->Id;
++                        for (i = 0; i < whpx_qa_place.ncores; i++) {
++                            if (whpx_qa_place.core[i].lp[0] ==
++                                s->LogicalProcessorIndex) {
++                                whpx_qa_place.core[i].eff = s->EfficiencyClass;
++                            }
++                        }
++                    }
++                    off += s->Size ? s->Size : sizeof(*s);
++                }
++                whpx_qa_place.have_sets = true;
++            }
++            g_free(buf);
++        }
++
++        /* Most performant cores first, stable otherwise. */
++        for (i = 0; i < whpx_qa_place.ncores; i++) {
++            whpx_qa_place.order[i] = i;
++        }
++        for (i = 1; i < whpx_qa_place.ncores; i++) {
++            int k = whpx_qa_place.order[i];
++            for (j = i; j > 0 && whpx_qa_place.core[whpx_qa_place.order[j - 1]].eff <
++                                 whpx_qa_place.core[k].eff; j--) {
++                whpx_qa_place.order[j] = whpx_qa_place.order[j - 1];
++            }
++            whpx_qa_place.order[j] = k;
++        }
++
++        if (whpx_qa_place.ncores == 0) {
++            whpx_qa_place.mode = QA_PLACE_OFF;
++            qa_warn_report("RustEmuDroid QA: vCPU placement off, no cores found");
++            return TRUE;
++        }
++
++        /*
++         * sets-high / pin-high: the vCPUs take the LAST nvcpus physical cores
++         * (enumeration order), the rest, core 0 included, stay for the
++         * process default. Needs more cores than vCPUs so core 0 is excluded.
++         */
++        if (high) {
++            if (whpx_qa_place.ncores > nvcpus) {
++                const int first = whpx_qa_place.ncores - nvcpus;
++                for (i = 0; i < nvcpus; i++) {
++                    whpx_qa_place.order[i] = first + i;
++                }
++                for (i = 0; i < first; i++) {
++                    whpx_qa_place.order[nvcpus + i] = i;
++                }
++            } else {
++                qa_warn_report("RustEmuDroid QA: '%s' needs more cores than vCPUs"
++                            " (have %d), using the automatic order", env,
++                            whpx_qa_place.ncores);
++            }
++        }
++
++        /*
++         * RUSTEMUDROID_QA_VCPU_CORES=<i,j,...>: explicit physical core per
++         * vCPU, for every mode; the remaining cores follow in index order.
++         */
++        {
++            const char *cores_env = getenv("RUSTEMUDROID_QA_VCPU_CORES");
++            if (cores_env && *cores_env) {
++                int list[QA_PLACE_MAX_CORES], n = 0;
++                bool used_core[QA_PLACE_MAX_CORES] = {false};
++                const char *p = cores_env, *why = NULL;
++
++                while (*p && !why) {
++                    char *end;
++                    long v = strtol(p, &end, 10);
++                    if (end == p) {
++                        why = "not a number";
++                    } else if (v < 0 || v >= whpx_qa_place.ncores) {
++                        why = "core index out of range";
++                    } else if (used_core[v]) {
++                        why = "duplicate core";
++                    } else if (n >= QA_PLACE_MAX_CORES) {
++                        why = "too many cores";
++                    } else {
++                        used_core[v] = true;
++                        list[n++] = (int)v;
++                        p = end;
++                        if (*p == ',') {
++                            p++;
++                        } else if (*p) {
++                            why = "unexpected character";
++                        }
++                    }
++                }
++                if (!why && n < nvcpus) {
++                    why = "fewer cores than vCPUs";
++                }
++                if (why) {
++                    qa_warn_report("RustEmuDroid QA: RUSTEMUDROID_QA_VCPU_CORES='%s'"
++                                " ignored (%s; %d cores, %d vCPUs), using the"
++                                " automatic order", cores_env, why,
++                                whpx_qa_place.ncores, nvcpus);
++                } else {
++                    for (i = 0; i < n; i++) {
++                        whpx_qa_place.order[i] = list[i];
++                    }
++                    for (i = 0; i < whpx_qa_place.ncores; i++) {
++                        if (!used_core[i]) {
++                            whpx_qa_place.order[n++] = i;
++                        }
++                    }
++                }
++            }
++        }
++
++        if (whpx_qa_place.mode == QA_PLACE_SETS &&
++            (!whpx_qa_place.have_sets ||
++             whpx_qa_place.ncores < nvcpus + 2)) {
++            qa_warn_report("RustEmuDroid QA: vCPU placement 'sets' needs CPU sets"
++                        " and >= %d cores (have %d), using 'ideal'",
++                        nvcpus + 2, whpx_qa_place.ncores);
++            whpx_qa_place.mode = QA_PLACE_IDEAL;
++            mode_name = "ideal";
++        }
++
++        used = snprintf(line, sizeof(line),
++                        "RustEmuDroid QA: vCPU placement mode=%s vcpu->cpus:",
++                        mode_name);
++        for (i = 0; i < nvcpus && used < sizeof(line); i++) {
++            used += snprintf(line + used, sizeof(line) - used, " %d->{", i);
++            whpx_qa_place_append_core(line, sizeof(line), &used,
++                                      &whpx_qa_place.core[whpx_qa_place_core_of_vcpu(i)],
++                                      whpx_qa_place.mode != QA_PLACE_SETS);
++            if (used < sizeof(line)) {
++                used += snprintf(line + used, sizeof(line) - used, "}");
++            }
++        }
++        if (whpx_qa_place.mode == QA_PLACE_SETS) {
++            ULONG ids[QA_PLACE_MAX_LPS];
++            ULONG nids = 0;
++            if (used < sizeof(line)) {
++                used += snprintf(line + used, sizeof(line) - used, " default={");
++            }
++            for (i = nvcpus; i < whpx_qa_place.ncores; i++) {
++                const QaPlaceCore *c = &whpx_qa_place.core[whpx_qa_place.order[i]];
++                for (j = 0; j < c->nlp; j++) {
++                    ids[nids++] = whpx_qa_place.set_id[c->lp[j]];
++                }
++                if (used < sizeof(line)) {
++                    used += snprintf(line + used, sizeof(line) - used, "%s",
++                                     i > nvcpus ? "," : "");
++                }
++                whpx_qa_place_append_core(line, sizeof(line), &used, c, false);
++            }
++            if (used < sizeof(line)) {
++                used += snprintf(line + used, sizeof(line) - used, "}");
++            }
++            if (!set_process_sets(GetCurrentProcess(), ids, nids)) {
++                qa_warn_report("RustEmuDroid QA: SetProcessDefaultCpuSets failed"
++                            " (%lu)", GetLastError());
++            }
++        } else if (used < sizeof(line)) {
++            used += snprintf(line + used, sizeof(line) - used,
++                             " default=unchanged");
++        }
++        qa_info_report("%s", line);
++    }
++    return TRUE;
++}
++
++static void whpx_qa_vcpu_placement(CPUState *cpu)
++{
++    const QaPlaceCore *c;
++    HANDLE thread = GetCurrentThread();
++
++    InitOnceExecuteOnce(&whpx_qa_place_once, whpx_qa_place_init, NULL, NULL);
++    if (whpx_qa_place.mode == QA_PLACE_OFF) {
++        return;
++    }
++    c = &whpx_qa_place.core[whpx_qa_place_core_of_vcpu(cpu->cpu_index)];
++    switch (whpx_qa_place.mode) {
++    case QA_PLACE_IDEAL:
++        if (SetThreadIdealProcessor(thread, c->lp[0]) == (DWORD)-1) {
++            qa_warn_report("RustEmuDroid QA: SetThreadIdealProcessor vCPU %d"
++                        " failed (%lu)", cpu->cpu_index, GetLastError());
++        }
++        break;
++    case QA_PLACE_PIN:
++        if (!SetThreadAffinityMask(thread, (DWORD_PTR)1 << c->lp[0])) {
++            qa_warn_report("RustEmuDroid QA: SetThreadAffinityMask vCPU %d"
++                        " failed (%lu)", cpu->cpu_index, GetLastError());
++        }
++        break;
++    case QA_PLACE_SETS: {
++        ULONG ids[QA_PLACE_MAX_LPS];
++        int i;
++        for (i = 0; i < c->nlp; i++) {
++            ids[i] = whpx_qa_place.set_id[c->lp[i]];
++        }
++        if (!whpx_qa_place.set_thread_sets(thread, ids, c->nlp)) {
++            qa_warn_report("RustEmuDroid QA: SetThreadSelectedCpuSets vCPU %d"
++                        " failed (%lu)", cpu->cpu_index, GetLastError());
++        }
++        break;
++    }
++    }
++
++    /* RUSTEMUDROID_QA_VCPU_PRIORITY=1: one step above normal (placement on). */
++    {
++        static int s_prio = -1;
++        if (s_prio < 0) {
++            const char *pe = getenv("RUSTEMUDROID_QA_VCPU_PRIORITY");
++            s_prio = pe && !strcmp(pe, "1");
++        }
++        if (s_prio) {
++            if (SetThreadPriority(thread, THREAD_PRIORITY_ABOVE_NORMAL)) {
++                if (cpu->cpu_index == 0) {
++                    qa_info_report("RustEmuDroid QA: vCPU threads at"
++                                " THREAD_PRIORITY_ABOVE_NORMAL");
++                }
++            } else {
++                qa_warn_report("RustEmuDroid QA: SetThreadPriority vCPU %d"
++                            " failed (%lu)", cpu->cpu_index, GetLastError());
++            }
++        }
++    }
++}
++
+ int whpx_init_vcpu(CPUState *cpu)
+ {
+     HRESULT hr;
+@@ -1429,6 +2866,8 @@ int whpx_init_vcpu(CPUState *cpu)
+     cpu->vcpu_dirty = true;
+     cpu->whpx_vcpu = vcpu;
+ 
++    whpx_qa_vcpu_placement(cpu);
++
+     return 0;
+ }
+ 
+@@ -1469,6 +2908,13 @@ void whpx_destroy_vcpu(CPUState *cpu)
+ void whpx_vcpu_kick(CPUState *cpu)
+ {
+     struct whpx_state *whpx = &whpx_global;
++    if (unlikely(whpx_qa_stats) &&
++        (unsigned int)cpu->cpu_index < whpx_qa_stats_ncpus &&
++        current_cpu != cpu) {
++        /* RustEmuDroid QA A2: who cancels this vCPU's run. */
++        WhpxQaCpuStats *st = &whpx_qa_stats[cpu->cpu_index];
++        atomic_inc(current_cpu ? &st->kick_vcpu : &st->kick_other);
++    }
+     whp_dispatch.WHvCancelRunVirtualProcessor(whpx->partition, cpu->cpu_index, 0);
+ }
+ 
+@@ -1861,7 +3307,7 @@ static int whpx_accel_init(MachineState *ms)
+         whpx_qa_suspend_partition_time = (WhpxSuspendPartitionTime)GetProcAddress(
+             hWinHvPlatform, "WHvSuspendPartitionTime");
+         if (!whpx_qa_suspend_partition_time) {
+-            error_report("WHPX TSC QA: WHvSuspendPartitionTime is unavailable");
++            qa_error_report("WHPX TSC QA: WHvSuspendPartitionTime is unavailable");
+             exit(EXIT_FAILURE);
+         }
+     }
+@@ -1939,12 +3385,27 @@ static int whpx_accel_init(MachineState *ms)
+         goto error;
+     }
+ 
+-    UINT32 cpuidExitList[] = {1, 7, WHPX_CPUID_SIGNATURE, 0x80000001};
++    UINT32 cpuidExitList[] = {1, 7, WHPX_CPUID_SIGNATURE, 0x80000001,
++                              0x40000001};
++    {
++        /* RustEmuDroid QA N and O gates (read once, before any vCPU). */
++        const char *qa_n = getenv("RUSTEMUDROID_QA_PRERUN_LOCKLESS");
++        const char *qa_o = getenv("RUSTEMUDROID_QA_KVM_PV_EOI");
++        whpx_qa_prerun_lockless = qa_n && strcmp(qa_n, "1") == 0;
++        whpx_qa_pv_eoi = qa_o && strcmp(qa_o, "1") == 0;
++        if (whpx_qa_prerun_lockless) {
++            qa_info_report("RustEmuDroid QA: WHPX pre-run lockless check active");
++        }
++        if (whpx_qa_pv_eoi) {
++            qa_info_report("RustEmuDroid QA: KVM PV EOI active");
++        }
++    }
+     hr = whp_dispatch.WHvSetPartitionProperty(
+         whpx->partition,
+         WHvPartitionPropertyCodeCpuidExitList,
+         cpuidExitList,
+-        RTL_NUMBER_OF(cpuidExitList) * sizeof(UINT32));
++        (RTL_NUMBER_OF(cpuidExitList) - (whpx_qa_pv_eoi ? 0 : 1)) *
++            sizeof(UINT32));
+ 
+     if (FAILED(hr)) {
+         error_report("WHPX: Failed to enable partition extended CpuidExitList"
+@@ -1968,6 +3429,28 @@ static int whpx_accel_init(MachineState *ms)
+     }
+ 
+     whpx_memory_init();
++    whpx_qa_stats_init();
++    {
++        const char *qa_lapic = getenv("RUSTEMUDROID_QA_LAPIC_FASTPATH");
++        const char *qa_mmio = getenv("RUSTEMUDROID_QA_MMIO_FASTPATH");
++        const char *qa_poll = getenv("RUSTEMUDROID_QA_HALT_POLL_US");
++        int poll_us = qa_poll ? atoi(qa_poll) : 0;
++
++        if (qa_mmio && strcmp(qa_mmio, "1") == 0) {
++            whpx_qa_mmio_fastpath = true;
++            qa_info_report("RustEmuDroid QA: MMIO fast path active for all MMIO pages (32-bit MOV)");
++        }
++
++        if (qa_lapic && strcmp(qa_lapic, "1") == 0) {
++            whpx_qa_lapic_fastpath = true;
++            qa_info_report("RustEmuDroid QA: LAPIC MMIO fast path active (32-bit MOV)");
++        }
++        if (poll_us > 0) {
++            whpx_qa_halt_poll_us = poll_us > 2000 ? 2000 : poll_us;
++            qa_info_report("RustEmuDroid QA: HLT polling active, poll_us=%u",
++                        whpx_qa_halt_poll_us);
++        }
++    }
+ 
+     cpu_interrupt_handler = whpx_handle_interrupt;
+ 
+diff --git a/util/oslib-win32.c b/util/oslib-win32.c
+index 6f98f070..5d44b0bb 100644
+--- a/util/oslib-win32.c
++++ b/util/oslib-win32.c
+@@ -38,6 +38,7 @@
+ #include "trace.h"
+ #include "qemu/sockets.h"
+ #include "qemu/cutils.h"
++#include "qemu/error-report.h"
+ 
+ /* this must come after including "trace.h" */
+ #include <shlobj.h>
+@@ -71,10 +72,230 @@ void *qemu_memalign(size_t alignment, size_t size)
+ 
+ bool insufficientMemMessage = false;
+ 
++/*
++ * RustEmuDroid QA (RUSTEMUDROID_QA_RAM_LARGE_PAGES=1): allocate the guest's
++ * main RAM block (the only anonymous block >= 1 GiB) from large pages.
++ * Returns NULL, after logging the reason, if that is not possible; the caller
++ * then uses the stock allocation. Only reached for anonymous RAM: with
++ * -mem-path (QuickbootFileBacked) the block is a file mapping (mmap-alloc.c).
++ */
++#define RUSTEMUDROID_QA_LARGE_PAGES_MIN_BLOCK (1ULL << 30)
++
++static void *qa_large_page_ram_alloc(size_t size)
++{
++    static int s_requested = -1;
++    HANDLE token = NULL;
++    TOKEN_PRIVILEGES tp;
++    SIZE_T large;
++    size_t rounded;
++    void *ptr;
++    DWORD err;
++
++    if (s_requested < 0) {
++        const char *env = getenv("RUSTEMUDROID_QA_RAM_LARGE_PAGES");
++        s_requested = env && !strcmp(env, "1");
++    }
++    if (!s_requested || size < RUSTEMUDROID_QA_LARGE_PAGES_MIN_BLOCK) {
++        return NULL;
++    }
++
++    large = GetLargePageMinimum();
++    if (!large) {
++        qa_info_report("RustEmuDroid QA: guest RAM large pages unavailable "
++                    "(GetLargePageMinimum() returned 0), using stock allocation");
++        return NULL;
++    }
++    if (!OpenProcessToken(GetCurrentProcess(),
++                          TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
++        qa_info_report("RustEmuDroid QA: guest RAM large pages unavailable "
++                    "(OpenProcessToken error %lu), using stock allocation",
++                    GetLastError());
++        return NULL;
++    }
++    memset(&tp, 0, sizeof(tp));
++    tp.PrivilegeCount = 1;
++    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
++    if (!LookupPrivilegeValueA(NULL, "SeLockMemoryPrivilege",
++                               &tp.Privileges[0].Luid)) {
++        err = GetLastError();
++        CloseHandle(token);
++        qa_info_report("RustEmuDroid QA: guest RAM large pages unavailable "
++                    "(LookupPrivilegeValue error %lu), using stock allocation",
++                    err);
++        return NULL;
++    }
++    /* AdjustTokenPrivileges succeeds even when the privilege is not held;
++     * ERROR_NOT_ALL_ASSIGNED reports that case. */
++    if (!AdjustTokenPrivileges(token, FALSE, &tp, 0, NULL, NULL) ||
++        (err = GetLastError()) != ERROR_SUCCESS) {
++        err = GetLastError();
++        CloseHandle(token);
++        qa_info_report("RustEmuDroid QA: guest RAM large pages unavailable "
++                    "(%s, error %lu), using stock allocation",
++                    err == ERROR_NOT_ALL_ASSIGNED ?
++                        "SeLockMemoryPrivilege is not held by this account" :
++                        "AdjustTokenPrivileges failed",
++                    err);
++        return NULL;
++    }
++    CloseHandle(token);
++
++    rounded = (size + large - 1) & ~((size_t)large - 1);
++    ptr = VirtualAlloc(NULL, rounded, MEM_RESERVE | MEM_COMMIT | MEM_LARGE_PAGES,
++                       PAGE_READWRITE);
++    if (!ptr) {
++        err = GetLastError();
++        qa_info_report("RustEmuDroid QA: guest RAM large pages unavailable "
++                    "(VirtualAlloc(MEM_LARGE_PAGES, %zu MiB) error %lu%s), "
++                    "using stock allocation",
++                    rounded >> 20, err,
++                    err == ERROR_NO_SYSTEM_RESOURCES ?
++                        ": not enough contiguous physical memory" : "");
++        return NULL;
++    }
++    qa_info_report("RustEmuDroid QA: guest RAM large pages active, %zu MiB in "
++                "%zu KiB pages", rounded >> 20, (size_t)(large >> 10));
++    return ptr;
++}
++
++/*
++ * RustEmuDroid QA L2 (RUSTEMUDROID_QA_RAM_SECTION=<name>): map the guest's
++ * main RAM block (the only anonymous block >= 1 GiB) from a named,
++ * pagefile-backed SEC_LARGE_PAGES section created by a privileged helper.
++ * Returns NULL after logging the reason; the caller then continues with L
++ * or the stock allocation.
++ */
++#ifndef FILE_MAP_LARGE_PAGES
++#define FILE_MAP_LARGE_PAGES 0x20000000
++#endif
++
++static void *qa_section_view;      /* base of the mapped view, if any */
++
++static void qa_section_unavailable(const char *name, const char *why,
++                                   DWORD err)
++{
++    if (err) {
++        qa_info_report("RustEmuDroid QA: guest RAM section %s unavailable (%s,"
++                    " Win32 error %lu), using stock allocation", name, why, err);
++    } else {
++        qa_info_report("RustEmuDroid QA: guest RAM section %s unavailable (%s),"
++                    " using stock allocation", name, why);
++    }
++}
++
++static void *qa_section_ram_alloc(size_t size)
++{
++    static int s_checked = 0;
++    static const char *s_name = NULL;
++    wchar_t wname[256];
++    SIZE_T large;
++    size_t rounded;
++    HANDLE section;
++    void *ptr;
++    MEMORY_BASIC_INFORMATION mbi;
++    const char *large_state = "unknown";
++    DWORD err;
++
++    if (!s_checked) {
++        s_checked = 1;
++        s_name = getenv("RUSTEMUDROID_QA_RAM_SECTION");
++        if (s_name && !*s_name) {
++            s_name = NULL;
++        }
++    }
++    if (!s_name || size < RUSTEMUDROID_QA_LARGE_PAGES_MIN_BLOCK ||
++        qa_section_view) {
++        return NULL;
++    }
++    large = GetLargePageMinimum();
++    if (!large) {
++        qa_section_unavailable(s_name, "GetLargePageMinimum() returned 0", 0);
++        return NULL;
++    }
++    rounded = (size + large - 1) & ~((size_t)large - 1);
++    if (!MultiByteToWideChar(CP_UTF8, 0, s_name, -1, wname,
++                             (int)(sizeof(wname) / sizeof(wname[0])))) {
++        qa_section_unavailable(s_name, "invalid section name", GetLastError());
++        return NULL;
++    }
++    section = OpenFileMappingW(FILE_MAP_READ | FILE_MAP_WRITE, FALSE, wname);
++    if (!section) {
++        err = GetLastError();
++        qa_section_unavailable(s_name, err == ERROR_FILE_NOT_FOUND ?
++                               "section does not exist (helper not running?)" :
++                               "OpenFileMappingW failed", err);
++        return NULL;
++    }
++    ptr = MapViewOfFileEx(section,
++                          FILE_MAP_READ | FILE_MAP_WRITE | FILE_MAP_LARGE_PAGES,
++                          0, 0, rounded, NULL);
++    err = ptr ? 0 : GetLastError();
++    CloseHandle(section); /* the view keeps the section alive */
++    if (!ptr) {
++        char why[160];
++        snprintf(why, sizeof(why),
++                 "MapViewOfFileEx(FILE_MAP_LARGE_PAGES, %zu MiB) failed%s",
++                 rounded >> 20,
++                 err == ERROR_PRIVILEGE_NOT_HELD ?
++                     ": privilege required at map time" :
++                 err == ERROR_ACCESS_DENIED ?
++                     ": access denied or section smaller than the RAM block" :
++                 "");
++        qa_section_unavailable(s_name, why, err);
++        return NULL;
++    }
++    if (!VirtualQuery(ptr, &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT ||
++        mbi.Type != MEM_MAPPED || mbi.RegionSize < rounded) {
++        UnmapViewOfFile(ptr);
++        qa_section_unavailable(s_name, "VirtualQuery: view is not a committed"
++                               " mapping of the full size", GetLastError());
++        return NULL;
++    }
++    /* The section may have been used by an earlier VM: zero it (this also
++     * makes every page resident, which QueryWorkingSetEx below needs). */
++    memset(ptr, 0, rounded);
++    {
++        PSAPI_WORKING_SET_EX_INFORMATION ws[3];
++        int i, large_count = 0, valid_count = 0;
++        memset(ws, 0, sizeof(ws));
++        ws[0].VirtualAddress = ptr;
++        ws[1].VirtualAddress = (uint8_t *)ptr + (rounded / 2);
++        ws[2].VirtualAddress = (uint8_t *)ptr + rounded - 4096;
++        if (QueryWorkingSetEx(GetCurrentProcess(), ws, sizeof(ws))) {
++            for (i = 0; i < 3; i++) {
++                if (ws[i].VirtualAttributes.Valid) {
++                    valid_count++;
++                    large_count += ws[i].VirtualAttributes.LargePage ? 1 : 0;
++                }
++            }
++            if (valid_count == 3) {
++                large_state = large_count == 3 ? "yes" :
++                              large_count == 0 ? "no" : "partial";
++            }
++        }
++    }
++    qa_section_view = ptr;
++    qa_info_report("RustEmuDroid QA: guest RAM mapped from section %s, %zu MiB,"
++                " large pages=%s", s_name, rounded >> 20, large_state);
++    return ptr;
++}
++
+ void *qemu_anon_ram_alloc(size_t size, uint64_t *align, bool shared)
+ {
+     void *ptr;
+ 
++    ptr = qa_section_ram_alloc(size);
++    if (ptr) {
++        trace_qemu_anon_ram_alloc(size, ptr);
++        return ptr;
++    }
++
++    ptr = qa_large_page_ram_alloc(size);
++    if (ptr) {
++        trace_qemu_anon_ram_alloc(size, ptr);
++        return ptr;
++    }
++
+     /* FIXME: this is not exactly optimal solution since VirtualAlloc
+        has 64Kb granularity, but at least it guarantees us that the
+        memory is page aligned. */
+@@ -146,6 +367,12 @@ void qemu_vfree(void *ptr)
+ void qemu_anon_ram_free(void *ptr, size_t size)
+ {
+     trace_qemu_anon_ram_free(ptr, size);
++    if (ptr && ptr == qa_section_view) {
++        /* RustEmuDroid QA L2: a section view, not a VirtualAlloc block. */
++        UnmapViewOfFile(ptr);
++        qa_section_view = NULL;
++        return;
++    }
+     if (ptr) {
+         VirtualFree(ptr, 0, MEM_RELEASE);
+     }
+diff --git a/util/qemu-error.c b/util/qemu-error.c
+index 0ad574c5..974fd3a1 100644
+--- a/util/qemu-error.c
++++ b/util/qemu-error.c
+@@ -310,3 +310,75 @@ void info_report(const char *fmt, ...)
+     vreport(REPORT_TYPE_INFO, fmt, ap);
+     va_end(ap);
+ }
++
++/*
++ * RustEmuDroid QA P0: one-time proof lines. Same text as vreport() prints
++ * ("[timestamp ]progname: [warning: |info: ]message\n"), but built in memory,
++ * written with a single fputs (so another writer cannot split the line) and
++ * followed by fflush(stderr) (stderr is fully buffered on Windows after
++ * os_set_line_buffering()). With a monitor or a non-default location the
++ * stock vreport() runs and stderr is flushed afterwards.
++ */
++static void qa_vreport(report_type type, const char *fmt, va_list ap)
++{
++    GString *s;
++    gchar *msg;
++
++    if (cur_mon || cur_loc->kind != LOC_NONE) {
++        vreport(type, fmt, ap);
++        fflush(stderr);
++        return;
++    }
++    s = g_string_new(NULL);
++    if (enable_timestamp_msg) {
++        GTimeVal tv;
++        gchar *timestr;
++
++        g_get_current_time(&tv);
++        timestr = g_time_val_to_iso8601(&tv);
++        g_string_append_printf(s, "%s ", timestr);
++        g_free(timestr);
++    }
++    if (progname) {
++        g_string_append_printf(s, "%s: ", progname);
++    }
++    if (type == REPORT_TYPE_WARNING) {
++        g_string_append(s, "warning: ");
++    } else if (type == REPORT_TYPE_INFO) {
++        g_string_append(s, "info: ");
++    }
++    msg = g_strdup_vprintf(fmt, ap);
++    g_string_append(s, msg);
++    g_free(msg);
++    g_string_append_c(s, '\n');
++    fputs(s->str, stderr);
++    fflush(stderr);
++    g_string_free(s, TRUE);
++}
++
++void qa_error_report(const char *fmt, ...)
++{
++    va_list ap;
++
++    va_start(ap, fmt);
++    qa_vreport(REPORT_TYPE_ERROR, fmt, ap);
++    va_end(ap);
++}
++
++void qa_warn_report(const char *fmt, ...)
++{
++    va_list ap;
++
++    va_start(ap, fmt);
++    qa_vreport(REPORT_TYPE_WARNING, fmt, ap);
++    va_end(ap);
++}
++
++void qa_info_report(const char *fmt, ...)
++{
++    va_list ap;
++
++    va_start(ap, fmt);
++    qa_vreport(REPORT_TYPE_INFO, fmt, ap);
++    va_end(ap);
++}

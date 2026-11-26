@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "kind": "rustemudroid-performance-engine",
+  "engine_version": "37.3.10",
+  "build_id": "qa-whpx-16970787",
+  "variant": "performance",
+  "projects": {
+    "external/qemu": {
+      "license": "GPL-2.0 (QEMU)",
+      "commit": "538bcdea5479b3857cd8885cbb9306bfec9c7247",
+      "upstream_source": "https://android.googlesource.com/platform/external/qemu/+/538bcdea5479b3857cd8885cbb9306bfec9c7247",
+      "patches": [
+        {"path": "benchmarks/stk-1.5/whpx-tsc-sync.patch", "sha256": "8b81a6900924fb9f434ef1cab81580f00c804d0a94479971bd0bb41e2f532eee"},
+        {"path": "benchmarks/stk-1.5/gfxstream-cached-host-qa.patch", "sha256": "8307128bfe941c3328e89a88d7172e041602e1b4f03ad56e2c6bb303a75b251e"},
+        {"path": "benchmarks/stk-1.5/performance-engine-qemu.patch", "sha256": "e2d2b2705a7a847c8a97c7db34a92d76028b97084d738a215f950037e0e8efee"}
+      ],
+      "patched_blobs": {
+        "android/android-emu/android/opengl/OpenglEsPipe.cpp": "9b8bc2d115d59027907af9c2991343656449ed28",
+        "android/android-emu/android/opengles.cpp": "3e950056c7706fb0d9ebbf99d9beb0a593607b7b",
+        "android/emu/hardware/src/android/emulation/AndroidPipe.cpp": "a632480e05c2975913a05f0d75ef151618e90280",
+        "cpus.c": "a4ee7a5ba26cab30c6b50189bda72ae6c4fc6837",
+        "exec.c": "1980f13454f9d07aa0fc54eeabba41c977471a0d",
+        "hw/misc/goldfish_pipe.c": "fdd804789f38a2aed5409855931b93e54241bfe7",
+        "include/qemu/error-report.h": "cef375e854f16b81006feef03ed232a49cd66086",
+        "include/sysemu/whpx.h": "e567ce44df1484005fc7b986d91d7539a808052d",
+        "target/i386/whpx-all.c": "610697536787be37dc37f0b5e4c538ad37b9e922",
+        "util/oslib-win32.c": "5d44b0bb5b383861512be3cf0bc773eac798d517",
+        "util/qemu-error.c": "974fd3a140002a9305d5cf22d96f10cf12a40339"
+      }
+    },
+    "hardware/google/gfxstream": {
+      "license": "Apache-2.0",
+      "commit": "501867e6a3b1a3be7b935cc977d291150846edab",
+      "upstream_source": "https://android.googlesource.com/platform/hardware/google/gfxstream/+/501867e6a3b1a3be7b935cc977d291150846edab",
+      "patches": [
+        {"path": "benchmarks/stk-1.5/performance-engine-gfxstream.patch", "sha256": "5c6e034234e902807bef0c88db45203db4508e2c4f5fa262508ba9d4ebeab961"}
+      ],
+      "patched_blobs": {
+        "host/render_channel_impl.cpp": "6a662b2d35e96b2e4a9401bf8b1ec63856b57ab1",
+        "host/ring_stream.cpp": "5087d890999dde65056dadc42e5f7f01068b134e",
+        "host/vulkan/vk_common_operations.cpp": "5788fd9c5c4a81f0637463d4637d694b12876859",
+        "host/vulkan/vk_common_operations.h": "0aabd8d85563dfcc37af509fb3d12db351b6c625",
+        "host/vulkan/vk_emulated_physical_device_memory.cpp": "50abcae4672f65d5159aaaa6d950c750d91683af",
+        "host/vulkan/vk_emulated_physical_device_memory.h": "67704c30f50bf10a4b62db254a30c255e4b6131f",
+        "host/vulkan/vk_memory_allocation_helper.cpp": "15c1bfe714456b1c47ab2a8314e4904ff7bcb758"
+      }
+    }
+  },
+  "build_targets": ["qemu-system-x86_64", "gfxstream_backend"],
+  "backend": {
+    "source": "libgfxstream_backend.dll",
+    "destinations": ["lib64/libgfxstream_backend.dll"]
+  },
+  "reference_builds": {
+    "note": "Hashes of the test PC's builds. A local build of the same sources normally produces different hashes (paths, PDB signatures, toolchain servicing).",
+    "published_sources": {
+      "description": "Built from the pinned commits plus exactly these patches.",
+      "qemu/windows-x86_64/qemu-system-x86_64.exe": {"sha256": "1c7a05e30e6d2f21a8d716e18cab7181c2e3a3e25756daa2137123b2502ea0c6", "bytes": 66872832},
+      "lib64/libgfxstream_backend.dll": {"sha256": "7d01cde7d9450e050effb4805c87dcf4c0cfaa274a290ac8f526f192eac085fe", "bytes": 23054336}
+    },
+    "measured": {
+      "description": "Used for every published timing of 2026-11-25/26. Same sources minus P0, L2, P, Q and A3.",
+      "qemu/windows-x86_64/qemu-system-x86_64.exe": {"sha256": "a55d48c6d412693caebd7664744fd9f2f0d85d2a693e203c1d150a25a30b37f5", "bytes": 66869760},
+      "lib64/libgfxstream_backend.dll": {"sha256": "d92f6060d3dc054c54000ba5231b62bbcbcd61d6e1c08820c98ea4f2cc8360d0", "bytes": 23053312}
+    },
+    "emulator.exe": {"sha256": "7476c5d7cf249182b7310d45e5304778bd5a337e8d6d11890edb27954b0f9717", "origin": "stock Android Emulator 37.3.10"}
+  },
+  "default_on_changes": [
+    {"name": "P0", "module": "qemu", "description": "Every RustEmuDroid one-time proof and diagnostic line of QEMU is formatted as one line, written with one call and flushed at once (util/qemu-error.c helpers). Windows QEMU fully buffers stderr after os_set_line_buffering(), so these lines otherwise appeared only at exit. Text of the lines is unchanged."}
+  ],
+  "gates": [
+    {"variable": "RUSTEMUDROID_QA_WHPX_SYNC_TSC", "module": "qemu", "recipe": true, "value": "1", "proof": "WHPX TSC QA: synchronized"},
+    {"variable": "RUSTEMUDROID_QA_VULKAN_CACHED_HOST", "module": "qemu", "recipe": true, "value": "1", "proof": "RustEmuDroid QA: requested cached Vulkan host allocations"},
+    {"variable": "RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL", "module": "gfxstream", "recipe": true, "value": "2", "proof": "RustEmuDroid QA: cached mappable device-local Vulkan allocations active (v2)"},
+    {"variable": "RUSTEMUDROID_QA_ASG_SPIN_US", "module": "gfxstream", "recipe": true, "value": "3000", "proof": "RustEmuDroid QA: ASG consumer spin active, spin_us="},
+    {"variable": "RUSTEMUDROID_QA_VCPU_PLACEMENT", "module": "qemu", "recipe": true, "value": "sets-high", "proof": "RustEmuDroid QA: vCPU placement mode=sets-high vcpu->cpus:"},
+    {"variable": "RUSTEMUDROID_QA_LAPIC_FASTPATH", "module": "qemu", "recipe": true, "value": "1", "proof": "RustEmuDroid QA: LAPIC MMIO fast path active (32-bit MOV)"},
+    {"variable": "RUSTEMUDROID_QA_KVM_PV_EOI", "module": "qemu", "recipe": true, "value": "1", "proof": "RustEmuDroid QA: KVM PV EOI active"},
+    {"variable": "RUSTEMUDROID_QA_VCPU_CORES", "module": "qemu", "recipe": false, "value": "list of physical cores", "proof": "RustEmuDroid QA: vCPU placement mode="},
+    {"variable": "RUSTEMUDROID_QA_VCPU_PRIORITY", "module": "qemu", "recipe": false, "value": "1", "proof": "RustEmuDroid QA: vCPU threads at THREAD_PRIORITY_ABOVE_NORMAL"},
+    {"variable": "RUSTEMUDROID_QA_PRERUN_LOCKLESS", "module": "qemu", "recipe": false, "value": "1", "proof": "RustEmuDroid QA: WHPX pre-run lockless check active"},
+    {"variable": "RUSTEMUDROID_QA_HALT_POLL_US", "module": "qemu", "recipe": false, "value": "1-2000", "proof": "RustEmuDroid QA: HLT polling active, poll_us="},
+    {"variable": "RUSTEMUDROID_QA_WHPX_EXIT_STATS", "module": "qemu", "recipe": false, "value": "interval in ms", "proof": "WHPX EXIT QA: exit statistics active", "status": "diagnostic; includes the A2 and A3 statistics"},
+    {"variable": "RUSTEMUDROID_QA_PIPE_RECV_WAIT_US", "module": "qemu", "recipe": false, "value": "1-1000", "proof": "RustEmuDroid QA: opengles pipe recv wait active, wait_us="},
+    {"variable": "RUSTEMUDROID_QA_PIPE_LOCKLESS", "module": "qemu", "recipe": false, "value": "1", "proof": "RustEmuDroid QA: goldfish pipe lockless opengles READ/WRITE/CALL active"},
+    {"variable": "RUSTEMUDROID_QA_RAM_LARGE_PAGES", "module": "qemu", "recipe": false, "value": "1", "proof": "RustEmuDroid QA: guest RAM large pages active"},
+    {"variable": "RUSTEMUDROID_QA_RAM_SECTION", "module": "qemu", "recipe": false, "value": "name of a SEC_LARGE_PAGES section", "proof": "RustEmuDroid QA: guest RAM mapped from section", "status": "never measured"},
+    {"variable": "RUSTEMUDROID_QA_MMIO_FASTPATH", "module": "qemu", "recipe": false, "value": "1", "proof": "RustEmuDroid QA: MMIO fast path active for all MMIO pages (32-bit MOV)", "status": "not validated; no client capability"},
+    {"variable": "RUSTEMUDROID_QA_RENDER_SPIN_US", "module": "gfxstream", "recipe": false, "value": "1-10000", "proof": "RustEmuDroid QA: render thread spin before blocking active, spin_us="},
+    {"variable": "RUSTEMUDROID_QA_READBACK_UNLOCK", "module": "gfxstream", "recipe": false, "value": "1", "proof": "RustEmuDroid QA: Vulkan scaled readback releases the emulation lock while waiting"},
+    {"variable": "RUSTEMUDROID_QA_ASG_SPIN_RENDERING", "module": "gfxstream", "recipe": false, "value": "1 (needs RUSTEMUDROID_QA_ASG_SPIN_US)", "proof": "RustEmuDroid QA: ASG consumer advertises RENDERING while spinning", "status": "measurement inconclusive; no client capability"}
+  ],
+  "capabilities": {
+    "tsc_sync": {"qemu": ["RUSTEMUDROID_QA_WHPX_SYNC_TSC", "WHPX TSC QA: synchronized"]},
+    "lapic_fastpath": {"qemu": ["RUSTEMUDROID_QA_LAPIC_FASTPATH", "RustEmuDroid QA: LAPIC MMIO fast path active (32-bit MOV)"]},
+    "kvm_pv_eoi": {"qemu": ["RUSTEMUDROID_QA_KVM_PV_EOI", "RustEmuDroid QA: KVM PV EOI active"]},
+    "vulkan_cached_host": {"qemu": ["RUSTEMUDROID_QA_VULKAN_CACHED_HOST", "RustEmuDroid QA: requested cached Vulkan host allocations"]},
+    "vulkan_cached_device_local_v2": {"gfxstream": ["RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL", "RustEmuDroid QA: cached mappable device-local Vulkan allocations active (v2)"]},
+    "asg_spin": {"gfxstream": ["RUSTEMUDROID_QA_ASG_SPIN_US", "RustEmuDroid QA: ASG consumer spin active"]},
+    "vcpu_placement_high": {"qemu": ["RUSTEMUDROID_QA_VCPU_PLACEMENT", "sets-high", "RustEmuDroid QA: vCPU placement mode="]},
+    "vulkan_native_swapchain": {"qemu": ["VulkanNativeSwapchain"], "gfxstream": ["useVulkanNativeSwapchain"]},
+    "guest_kernel_parameters": {"qemu": ["kernel.parameters"]}
+  }
+}

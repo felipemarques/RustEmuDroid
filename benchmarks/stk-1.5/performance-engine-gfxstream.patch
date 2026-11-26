@@ -1,0 +1,827 @@
+diff --git a/host/render_channel_impl.cpp b/host/render_channel_impl.cpp
+index 2e209ed4..6a662b2d 100644
+--- a/host/render_channel_impl.cpp
++++ b/host/render_channel_impl.cpp
+@@ -15,9 +15,19 @@
+ 
+ #include <algorithm>
+ #include <assert.h>
++#include <chrono>
++#include <stdlib.h>
+ #include <string.h>
++#include <thread>
+ #include <utility>
++#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
++#include <immintrin.h>
++#define RUSTEMUDROID_QA_CPU_RELAX() _mm_pause()
++#else
++#define RUSTEMUDROID_QA_CPU_RELAX() std::this_thread::yield()
++#endif
+ 
++#include "gfxstream/common/logging.h"
+ #include "gfxstream/host/graphics_driver_lock.h"
+ #include "render_thread.h"
+ #include "gfxstream/synchronization/Lock.h"
+@@ -26,6 +36,26 @@ namespace gfxstream {
+ namespace host {
+ namespace {
+ 
++// RustEmuDroid QA (RUSTEMUDROID_QA_RENDER_SPIN_US=<n>): the render thread
++// polls the guest->host queue for up to n microseconds before blocking on
++// its condition variable. Read once; 0 (default) keeps the stock path.
++int64_t RustEmuDroidQaRenderSpinUs() {
++    static const int64_t sSpinUs = [] {
++        const char* env = getenv("RUSTEMUDROID_QA_RENDER_SPIN_US");
++        long long us = env ? atoll(env) : 0;
++        if (us <= 0) {
++            return (int64_t)0;
++        }
++        if (us > 10000) {
++            us = 10000;
++        }
++        GFXSTREAM_WARNING("RustEmuDroid QA: render thread spin before blocking active, spin_us=%lld",
++                          us);
++        return (int64_t)us;
++    }();
++    return sSpinUs;
++}
++
+ using Buffer = RenderChannel::Buffer;
+ using State = RenderChannel::State;
+ using gfxstream::base::AutoLock;
+@@ -153,6 +183,31 @@ bool RenderChannelImpl::writeToGuest(Buffer&& buffer) {
+ 
+ RenderChannelImpl::IoResult
+ RenderChannelImpl::readFromGuest(Buffer* buffer, bool blocking) {
++    const int64_t qaSpinUs = blocking ? RustEmuDroidQaRenderSpinUs() : 0;
++    if (qaSpinUs > 0) {
++        // Poll with short lock holds; TryAgain means empty, open and not in
++        // snapshot mode. Ok/Error are final, exactly as popLocked() would
++        // return them, so they take the normal state update path below.
++        const auto deadline =
++            std::chrono::steady_clock::now() + std::chrono::microseconds(qaSpinUs);
++        for (;;) {
++            {
++                AutoLock lock(mLock);
++                BufferQueueResult result = mFromGuest.tryPopLocked(buffer);
++                if (result != BufferQueueResult::TryAgain) {
++                    updateStateLocked();
++                    notifyStateChangeLocked();
++                    return ToIoResult(result);
++                }
++            }
++            if (std::chrono::steady_clock::now() >= deadline) {
++                break;
++            }
++            for (int i = 0; i < 32; ++i) {
++                RUSTEMUDROID_QA_CPU_RELAX();
++            }
++        }
++    }
+     AutoLock lock(mLock);
+     BufferQueueResult result;
+     if (blocking) {
+diff --git a/host/ring_stream.cpp b/host/ring_stream.cpp
+index 034e63a1..5087d890 100644
+--- a/host/ring_stream.cpp
++++ b/host/ring_stream.cpp
+@@ -16,6 +16,18 @@
+ 
+ #include <assert.h>
+ #include <memory.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include <atomic>
++#include <chrono>
++#include <thread>
++#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
++#include <immintrin.h>
++#define RUSTEMUDROID_QA_CPU_RELAX() _mm_pause()
++#else
++#define RUSTEMUDROID_QA_CPU_RELAX() std::this_thread::yield()
++#endif
+ 
+ #include "gfxstream/host/dma_device.h"
+ #include "gfxstream/common/logging.h"
+@@ -41,6 +53,59 @@ struct asg_context CreateContext(const AsgConsumerCreateInfo& info) {
+     return context;
+ }
+ 
++// RustEmuDroid QA (RUSTEMUDROID_QA_ASG_SPIN_US=<n>, 1..5000): the consumer polls
++// the rings for up to n microseconds per idle period before it goes through the
++// stock unavailable-read path (NEED_NOTIFY + sleep), and an arrival of data
++// resets mUnavailableReadCount. Read once; 0 (default) keeps the stock path.
++int64_t RustEmuDroidQaAsgSpinUs() {
++    static const int64_t sSpinUs = [] {
++        const char* env = getenv("RUSTEMUDROID_QA_ASG_SPIN_US");
++        long long us = env ? atoll(env) : 0;
++        if (us <= 0) {
++            return (int64_t)0;
++        }
++        if (us > 5000) {
++            us = 5000;
++        }
++        GFXSTREAM_WARNING("RustEmuDroid QA: ASG consumer spin active, spin_us=%lld", us);
++        return (int64_t)us;
++    }();
++    return sSpinUs;
++}
++
++// RustEmuDroid QA P (RUSTEMUDROID_QA_ASG_SPIN_RENDERING=1, needs
++// RUSTEMUDROID_QA_ASG_SPIN_US > 0): while the consumer polls inside its spin
++// window it advertises ASG_HOST_STATE_RENDERING instead of CAN_CONSUME. The
++// guest (AddressSpaceStream::type1Write / writeFully) pings after every
++// commit unless the state is RENDERING, so this removes the ping (one MMIO
++// exit) per commit while the host is awake anyway. At the end of the window
++// the state goes back to CAN_CONSUME and polling continues for
++// kQaSpinRenderingGraceUs before the stock sleep path; that grace closes the
++// race of a guest that read RENDERING just before the switch while its ring
++// store was still in its store buffer (the guest has no fence between the
++// store and the state load).
++constexpr int64_t kQaSpinRenderingGraceUs = 100;
++
++bool RustEmuDroidQaAsgSpinRendering() {
++    static const bool sOn = [] {
++        const char* env = getenv("RUSTEMUDROID_QA_ASG_SPIN_RENDERING");
++        if (!env || strcmp(env, "1") != 0) {
++            return false;
++        }
++        if (RustEmuDroidQaAsgSpinUs() <= 0) {
++            GFXSTREAM_WARNING(
++                "RustEmuDroid QA: RUSTEMUDROID_QA_ASG_SPIN_RENDERING has no effect without "
++                "RUSTEMUDROID_QA_ASG_SPIN_US");
++            return false;
++        }
++        GFXSTREAM_WARNING(
++            "RustEmuDroid QA: ASG consumer advertises RENDERING while spinning, grace_us=%lld",
++            (long long)kQaSpinRenderingGraceUs);
++        return true;
++    }();
++    return sOn;
++}
++
+ void SaveRingConfig(Stream* stream, const struct asg_ring_config& config) {
+     stream->putBe32(config.buffer_size);
+     stream->putBe32(config.flush_interval);
+@@ -166,8 +231,17 @@ const unsigned char* RingStream::readRaw(void* buf, size_t* inout_len) {
+     const uint32_t maxSpins = 30;
+     uint32_t spins = 0;
+     bool inLargeXfer = true;
+-
+-    *(mContext.host_state) = ASG_HOST_STATE_CAN_CONSUME;
++    const int64_t qaSpinUs = RustEmuDroidQaAsgSpinUs();
++    bool qaIdle = false;  // a QA idle period (deadline below) is running
++    std::chrono::steady_clock::time_point qaIdleDeadline;
++    // P: RENDERING is advertised while polling, except in the grace phase
++    // after the spin window of the current idle period.
++    const bool qaRendering = qaSpinUs > 0 && RustEmuDroidQaAsgSpinRendering();
++    bool qaGrace = false;
++    std::chrono::steady_clock::time_point qaGraceDeadline;
++
++    *(mContext.host_state) =
++        qaRendering ? ASG_HOST_STATE_RENDERING : ASG_HOST_STATE_CAN_CONSUME;
+ 
+     while (count < wanted) {
+ 
+@@ -188,7 +262,9 @@ const unsigned char* RingStream::readRaw(void* buf, size_t* inout_len) {
+             break;
+         }
+ 
+-        *(mContext.host_state) = ASG_HOST_STATE_CAN_CONSUME;
++        *(mContext.host_state) = (qaRendering && !qaGrace)
++                                     ? ASG_HOST_STATE_RENDERING
++                                     : ASG_HOST_STATE_CAN_CONSUME;
+ 
+         if (mShouldExit) {
+             return nullptr;
+@@ -204,6 +280,13 @@ const unsigned char* RingStream::readRaw(void* buf, size_t* inout_len) {
+         auto current = dst + count;
+         auto ptrEnd = dst + wanted;
+ 
++        if (qaSpinUs > 0 && (ringAvailable || ringLargeXferAvailable)) {
++            // Data arrived: the next idle period starts afresh.
++            qaIdle = false;
++            qaGrace = false;
++            mUnavailableReadCount = 0;
++        }
++
+         if (ringAvailable) {
+             inLargeXfer = false;
+             uint32_t transferMode =
+@@ -241,7 +324,39 @@ const unsigned char* RingStream::readRaw(void* buf, size_t* inout_len) {
+                 inLargeXfer = false;
+             }
+ 
+-            if (++spins < maxSpins) {
++            if (qaSpinUs > 0) {
++                // Poll until the deadline of this idle period; after it, every
++                // pass goes straight to the stock unavailable-read handling
++                // below, so the consumer sleeps after about qaSpinUs.
++                const auto now = std::chrono::steady_clock::now();
++                if (!qaIdle) {
++                    qaIdle = true;
++                    qaIdleDeadline = now + std::chrono::microseconds(qaSpinUs);
++                }
++                if (now < qaIdleDeadline) {
++                    for (int i = 0; i < 16; ++i) {
++                        RUSTEMUDROID_QA_CPU_RELAX();
++                    }
++                    continue;
++                }
++                if (qaRendering) {
++                    if (!qaGrace) {
++                        // P: stop advertising RENDERING (the guest pings from
++                        // now on) and keep polling for the grace period.
++                        qaGrace = true;
++                        qaGraceDeadline = now + std::chrono::microseconds(kQaSpinRenderingGraceUs);
++                        *(mContext.host_state) = ASG_HOST_STATE_CAN_CONSUME;
++                        std::atomic_thread_fence(std::memory_order_seq_cst);
++                        continue;
++                    }
++                    if (now < qaGraceDeadline) {
++                        for (int i = 0; i < 16; ++i) {
++                            RUSTEMUDROID_QA_CPU_RELAX();
++                        }
++                        continue;
++                    }
++                }
++            } else if (++spins < maxSpins) {
+                 ring_buffer_yield();
+                 continue;
+             } else {
+diff --git a/host/vulkan/vk_common_operations.cpp b/host/vulkan/vk_common_operations.cpp
+index 0791644b..5788fd9c 100644
+--- a/host/vulkan/vk_common_operations.cpp
++++ b/host/vulkan/vk_common_operations.cpp
+@@ -1777,6 +1777,16 @@ VkEmulation::~VkEmulation() {
+ 
+         mStaging.destroy(mDvk, mDevice);
+ 
++        // RustEmuDroid QA: private scaled readback resources (only created when the gate is on).
++        // No readback can be running here (the PostWorker is stopped first); mQaReadbackMutex is
++        // not taken because it must never be acquired after mMutex.
++        if (mQaReadbackCommandPool != VK_NULL_HANDLE) {
++            mQaReadbackStaging.destroy(mDvk, mDevice);
++            mDvk->vkDestroyFence(mDevice, mQaReadbackFence, nullptr);
++            mDvk->vkDestroyCommandPool(mDevice, mQaReadbackCommandPool, nullptr);
++            mQaReadbackCommandPool = VK_NULL_HANDLE;
++        }
++
+         mDvk->vkDestroyFence(mDevice, mCommandBufferFence, nullptr);
+         mDvk->vkFreeCommandBuffers(mDevice, mCommandPool, 1, &mCommandBuffer);
+         mDvk->vkDestroyCommandPool(mDevice, mCommandPool, nullptr);
+@@ -3887,6 +3897,59 @@ bool VkEmulation::readColorBufferPixelsScaledCpu(uint32_t colorBufferHandle, int
+     return true;
+ }
+ 
++// RustEmuDroid QA (RUSTEMUDROID_QA_READBACK_UNLOCK=1): create (once) the private command
++// buffer/fence and (re)size the private staging buffer. Caller holds mQaReadbackMutex and mMutex.
++bool VkEmulation::qaPrepareScaledReadbackLocked(VkDeviceSize size) {
++    if (size > kDefaultStagingBufferSize) {
++        return false;
++    }
++    if (mQaReadbackCommandPool == VK_NULL_HANDLE) {
++        const VkCommandPoolCreateInfo poolInfo = {
++            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
++            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
++            .queueFamilyIndex = mQueueFamilyIndex,
++        };
++        if (mDvk->vkCreateCommandPool(mDevice, &poolInfo, nullptr, &mQaReadbackCommandPool) !=
++            VK_SUCCESS) {
++            mQaReadbackCommandPool = VK_NULL_HANDLE;
++            return false;
++        }
++        const VkCommandBufferAllocateInfo bufferInfo = {
++            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
++            .commandPool = mQaReadbackCommandPool,
++            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
++            .commandBufferCount = 1,
++        };
++        const VkFenceCreateInfo fenceInfo = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
++        if (mDvk->vkAllocateCommandBuffers(mDevice, &bufferInfo, &mQaReadbackCommandBuffer) !=
++                VK_SUCCESS ||
++            mDvk->vkCreateFence(mDevice, &fenceInfo, nullptr, &mQaReadbackFence) != VK_SUCCESS) {
++            if (mQaReadbackFence != VK_NULL_HANDLE) {
++                mDvk->vkDestroyFence(mDevice, mQaReadbackFence, nullptr);
++                mQaReadbackFence = VK_NULL_HANDLE;
++            }
++            mDvk->vkDestroyCommandPool(mDevice, mQaReadbackCommandPool, nullptr);
++            mQaReadbackCommandPool = VK_NULL_HANDLE;
++            mQaReadbackCommandBuffer = VK_NULL_HANDLE;
++            return false;
++        }
++        GFXSTREAM_WARNING(
++            "RustEmuDroid QA: Vulkan scaled readback releases the emulation lock while waiting");
++    }
++    if (size > mQaReadbackStagingSize) {
++        mQaReadbackStaging.destroy(mDvk, mDevice);
++        mQaReadbackStagingSize = 0;
++        if (!mQaReadbackStaging.create(mDvk, mDevice, &mDeviceInfo.memProps, mDebugUtilsHelper,
++                                       size) ||
++            !mQaReadbackStaging.mMappedPtr) {
++            mQaReadbackStaging.destroy(mDvk, mDevice);
++            return false;
++        }
++        mQaReadbackStagingSize = size;
++    }
++    return true;
++}
++
+ bool VkEmulation::readColorBufferPixelsScaledGpu(uint32_t colorBufferHandle, int pixelsWidth,
+                                                  int pixelsHeight, GFXSTREAM_ROTATION pixelsRotation,
+                                                  const Rect& rect, GfxstreamFormat pixelsFormat,
+@@ -3896,7 +3959,14 @@ bool VkEmulation::readColorBufferPixelsScaledGpu(uint32_t colorBufferHandle, int
+         return false;
+     }
+ 
+-    std::lock_guard<std::mutex> lock(mMutex);
++    // RustEmuDroid QA: off unless RUSTEMUDROID_QA_READBACK_UNLOCK is exactly "1". Read once.
++    static const bool sQaReadbackUnlock =
++        gfxstream::base::getEnvironmentVariable("RUSTEMUDROID_QA_READBACK_UNLOCK") == "1";
++    std::unique_lock<std::mutex> qaReadbackLock;
++    if (sQaReadbackUnlock) {
++        qaReadbackLock = std::unique_lock<std::mutex>(mQaReadbackMutex);
++    }
++    std::unique_lock<std::mutex> lock(mMutex);
+ 
+     auto sourceCbInfo = gfxstream::base::find(mColorBuffers, colorBufferHandle);
+     if (!sourceCbInfo) {
+@@ -3960,6 +4030,14 @@ bool VkEmulation::readColorBufferPixelsScaledGpu(uint32_t colorBufferHandle, int
+         return false;
+     }
+ 
++    // RustEmuDroid QA: use private resources (and drop mMutex during the fence wait) only if
++    // they could be prepared; otherwise this readback takes the stock path.
++    const bool qaUnlock = sQaReadbackUnlock && qaPrepareScaledReadbackLocked(requiredStagingSize);
++    const VkCommandBuffer readbackCommandBuffer =
++        qaUnlock ? mQaReadbackCommandBuffer : mCommandBuffer;
++    const VkFence readbackFence = qaUnlock ? mQaReadbackFence : mCommandBufferFence;
++    StagingBuffer& readbackStaging = qaUnlock ? mQaReadbackStaging : mStaging;
++
+     // 1. Create temporary VkImage, VkImageView, VkRenderPass, VkFramebuffer.
+     VkImage tempImage = VK_NULL_HANDLE;
+     VkDeviceMemory tempImageMemory = VK_NULL_HANDLE;
+@@ -4128,7 +4206,7 @@ bool VkEmulation::readColorBufferPixelsScaledGpu(uint32_t colorBufferHandle, int
+         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+     };
+-    vkRes = mDvk->vkBeginCommandBuffer(mCommandBuffer, &beginInfo);
++    vkRes = mDvk->vkBeginCommandBuffer(readbackCommandBuffer, &beginInfo);
+     if (vkRes != VK_SUCCESS) {
+         GFXSTREAM_ERROR("%s: vkBeginCommandBuffer failed with %s", __func__, string_VkResult(vkRes));
+         cleanupTemporaryResources();
+@@ -4140,7 +4218,7 @@ bool VkEmulation::readColorBufferPixelsScaledGpu(uint32_t colorBufferHandle, int
+         mCompositorVk->acquireImmediateModeResources();
+     if (!imResources) {
+         GFXSTREAM_ERROR("Failed to acquire immediate mode resources.");
+-        VK_CHECK(mDvk->vkEndCommandBuffer(mCommandBuffer));
++        VK_CHECK(mDvk->vkEndCommandBuffer(readbackCommandBuffer));
+         cleanupTemporaryResources();
+         return false;
+     }
+@@ -4173,14 +4251,14 @@ bool VkEmulation::readColorBufferPixelsScaledGpu(uint32_t colorBufferHandle, int
+                     .layerCount = 1,
+                 },
+         };
+-        mDvk->vkCmdPipelineBarrier(mCommandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
++        mDvk->vkCmdPipelineBarrier(readbackCommandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
+                                    nullptr, 1, &toShaderReadBarrier);
+     }
+ 
+     // 2. Call m_compositorVk->drawImage for the transformation.
+     CompositorVk::ImageDrawParams drawParams = {
+-        .commandBuffer = mCommandBuffer,
++        .commandBuffer = readbackCommandBuffer,
+         .targetFormat = VK_FORMAT_R8G8B8A8_UNORM,
+         .targetWidth = (uint32_t)pixelsWidth,
+         .targetHeight = (uint32_t)pixelsHeight,
+@@ -4215,13 +4293,13 @@ bool VkEmulation::readColorBufferPixelsScaledGpu(uint32_t colorBufferHandle, int
+                     .layerCount = 1,
+                 },
+         };
+-        mDvk->vkCmdPipelineBarrier(mCommandBuffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
++        mDvk->vkCmdPipelineBarrier(readbackCommandBuffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0,
+                                    nullptr, 1, &toOrigLayoutBarrier);
+     }
+ 
+     // 3. Perform GPU-side readback from tempImage to staging buffer.
+-    mDebugUtilsHelper.cmdBeginDebugLabel(mCommandBuffer, "readColorBufferPixelsScaledGpu_Readback");
++    mDebugUtilsHelper.cmdBeginDebugLabel(readbackCommandBuffer, "readColorBufferPixelsScaledGpu_Readback");
+ 
+     VkBufferImageCopy bufferImageCopy = {
+         .bufferOffset = 0,
+@@ -4236,12 +4314,12 @@ bool VkEmulation::readColorBufferPixelsScaledGpu(uint32_t colorBufferHandle, int
+                 1,
+             },
+     };
+-    mDvk->vkCmdCopyImageToBuffer(mCommandBuffer, tempImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+-                                 mStaging.mBuffer, 1, &bufferImageCopy);
++    mDvk->vkCmdCopyImageToBuffer(readbackCommandBuffer, tempImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++                                 readbackStaging.mBuffer, 1, &bufferImageCopy);
+ 
+-    mDebugUtilsHelper.cmdEndDebugLabel(mCommandBuffer);
++    mDebugUtilsHelper.cmdEndDebugLabel(readbackCommandBuffer);
+ 
+-    vkRes = mDvk->vkEndCommandBuffer(mCommandBuffer);
++    vkRes = mDvk->vkEndCommandBuffer(readbackCommandBuffer);
+     if (vkRes != VK_SUCCESS) {
+         GFXSTREAM_ERROR("%s: vkEndCommandBuffer failed with %s", __func__, string_VkResult(vkRes));
+         mCompositorVk->releaseImmediateModeResources(imResources);
+@@ -4253,11 +4331,11 @@ bool VkEmulation::readColorBufferPixelsScaledGpu(uint32_t colorBufferHandle, int
+     const VkSubmitInfo submitInfo = {
+         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+         .commandBufferCount = 1,
+-        .pCommandBuffers = &mCommandBuffer,
++        .pCommandBuffers = &readbackCommandBuffer,
+     };
+     {
+         gfxstream::base::AutoLock queueLock(*mQueueLock);
+-        vkRes = mDvk->vkQueueSubmit(mQueue, 1, &submitInfo, mCommandBufferFence);
++        vkRes = mDvk->vkQueueSubmit(mQueue, 1, &submitInfo, readbackFence);
+     }
+     if (vkRes != VK_SUCCESS) {
+         GFXSTREAM_ERROR("%s: vkQueueSubmit failed with %s", __func__, string_VkResult(vkRes));
+@@ -4266,13 +4344,25 @@ bool VkEmulation::readColorBufferPixelsScaledGpu(uint32_t colorBufferHandle, int
+         return false;
+     }
+ 
++    // RustEmuDroid QA: everything recorded above is submitted; during the wait this thread only
++    // touches its private fence/command buffer/staging (guarded by mQaReadbackMutex), its local
++    // temporary objects and the compositor's internally locked immediate mode resources. The
++    // source ColorBuffer is kept alive by the caller's reference (FrameBuffer::getScreenshot
++    // holds an IColorBufferRef until the PostWorker finished), and sourceCbInfo is not used
++    // after this point.
++    if (qaUnlock) {
++        lock.unlock();
++    }
+     static constexpr uint64_t ANB_MAX_WAIT_NS = 5ULL * 1000ULL * 1000ULL * 1000ULL;
+     VkResult waitRes =
+-        mDvk->vkWaitForFences(mDevice, 1, &mCommandBufferFence, VK_TRUE, ANB_MAX_WAIT_NS);
++        mDvk->vkWaitForFences(mDevice, 1, &readbackFence, VK_TRUE, ANB_MAX_WAIT_NS);
+     if (waitRes == VK_TIMEOUT) {
+         GFXSTREAM_ERROR("%s: vkWaitForFences timed out, retrying...", __func__);
+         waitRes =
+-            mDvk->vkWaitForFences(mDevice, 1, &mCommandBufferFence, VK_TRUE, ANB_MAX_WAIT_NS * 2);
++            mDvk->vkWaitForFences(mDevice, 1, &readbackFence, VK_TRUE, ANB_MAX_WAIT_NS * 2);
++    }
++    if (qaUnlock) {
++        lock.lock();
+     }
+     if (waitRes != VK_SUCCESS) {
+         GFXSTREAM_ERROR("%s: vkWaitForFences failed with %s", __func__, string_VkResult(waitRes));
+@@ -4284,15 +4374,15 @@ bool VkEmulation::readColorBufferPixelsScaledGpu(uint32_t colorBufferHandle, int
+         cleanupTemporaryResources();
+         return false;
+     }
+-    mDvk->vkResetFences(mDevice, 1, &mCommandBufferFence);
++    mDvk->vkResetFences(mDevice, 1, &readbackFence);
+ 
+     // Release ImmediateModeResources after the fence is signaled.
+     mCompositorVk->releaseImmediateModeResources(imResources);
+ 
+-    if (!mStaging.mIsHostCoherent) {
++    if (!readbackStaging.mIsHostCoherent) {
+         VkMappedMemoryRange toInvalidate = {
+             .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+-            .memory = mStaging.mMemory,
++            .memory = readbackStaging.mMemory,
+             .offset = 0,
+             .size = VK_WHOLE_SIZE,
+         };
+@@ -4302,7 +4392,7 @@ bool VkEmulation::readColorBufferPixelsScaledGpu(uint32_t colorBufferHandle, int
+     // 5. Cleanup temporary resources
+     cleanupTemporaryResources();
+ 
+-    const uint8_t* srcPixelsBytes = static_cast<const uint8_t*>(mStaging.mMappedPtr);
++    const uint8_t* srcPixelsBytes = static_cast<const uint8_t*>(readbackStaging.mMappedPtr);
+     return readbackFromR8G8B8A8WithFormatChange(srcPixelsBytes, pixelsFormat, pixelsWidth, pixelsHeight,
+                                          outPixels);
+ }
+diff --git a/host/vulkan/vk_common_operations.h b/host/vulkan/vk_common_operations.h
+index 2376badf..0aabd8d8 100644
+--- a/host/vulkan/vk_common_operations.h
++++ b/host/vulkan/vk_common_operations.h
+@@ -736,6 +736,18 @@ class VkEmulation {
+     // Staging buffer to perform reads and updates on color buffers.
+     StagingBuffer mStaging GUARDED_BY(mMutex);
+ 
++    // RustEmuDroid QA (RUSTEMUDROID_QA_READBACK_UNLOCK=1): private command buffer, fence and
++    // staging buffer of readColorBufferPixelsScaledGpu(), so that mMutex can be released while
++    // its fence is waited on. mQaReadbackMutex serializes those readbacks and is always
++    // acquired before mMutex.
++    std::mutex mQaReadbackMutex;
++    StagingBuffer mQaReadbackStaging;
++    VkDeviceSize mQaReadbackStagingSize = 0;
++    VkCommandPool mQaReadbackCommandPool = VK_NULL_HANDLE;
++    VkCommandBuffer mQaReadbackCommandBuffer = VK_NULL_HANDLE;
++    VkFence mQaReadbackFence = VK_NULL_HANDLE;
++    bool qaPrepareScaledReadbackLocked(VkDeviceSize size);
++
+     // ColorBuffers are intended to back the guest's shareable images.
+     // For example:
+     // Android: gralloc
+diff --git a/host/vulkan/vk_emulated_physical_device_memory.cpp b/host/vulkan/vk_emulated_physical_device_memory.cpp
+index 4c3c6bc1..50abcae4 100644
+--- a/host/vulkan/vk_emulated_physical_device_memory.cpp
++++ b/host/vulkan/vk_emulated_physical_device_memory.cpp
+@@ -15,10 +15,13 @@
+ #include "vk_emulated_physical_device_memory.h"
+ 
+ #include <algorithm>
++#include <cstdio>
+ #include <limits>
+ #include <mutex>
++#include <string>
+ 
+ #include "gfxstream/common/logging.h"
++#include "gfxstream/system/System.h"
+ 
+ namespace gfxstream {
+ namespace host {
+@@ -50,26 +53,41 @@ std::optional<uint32_t> FindDeviceLocalMemoryTypeIfAllAreHostVisible(
+ // memory, e.g. on NVIDIA. The guest writes into it through its mapping, which we measured to be
+ // much slower than cached memory under WHPX, so use a cached coherent type on the same heap
+ // instead, if there is one.
++//
++// RustEmuDroid QA (RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL=1): also replace host visible,
++// uncached, device local types (e.g. a PCIe BAR / ReBAR window). Their mapping can never be
++// cached, so use a cached coherent type on the same heap if there is one (UMA), otherwise
++// cached coherent system memory. The GPU then reads that memory over the bus.
+ uint32_t FindReplacementCachedHostMemoryTypeIndex(
+-    const VkPhysicalDeviceMemoryProperties& hostMemoryProperties, uint32_t hostMemoryTypeIndex) {
++    const VkPhysicalDeviceMemoryProperties& hostMemoryProperties, uint32_t hostMemoryTypeIndex,
++    bool replaceHostLocal, bool replaceDeviceLocal) {
++    constexpr VkMemoryPropertyFlags kAmdFlags =
++        VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD | VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD;
+     const VkMemoryType& memoryType = hostMemoryProperties.memoryTypes[hostMemoryTypeIndex];
++    const bool deviceLocal = memoryType.propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+     if (!(memoryType.propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ||
+-        (memoryType.propertyFlags &
+-         (VK_MEMORY_PROPERTY_HOST_CACHED_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))) {
++        (memoryType.propertyFlags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) ||
++        (deviceLocal ? (!replaceDeviceLocal || (memoryType.propertyFlags & kAmdFlags))
++                     : !replaceHostLocal)) {
+         return hostMemoryTypeIndex;
+     }
+ 
+     constexpr VkMemoryPropertyFlags kCachedCoherent = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                                                       VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+-    for (uint32_t i = 0; i < hostMemoryProperties.memoryTypeCount; i++) {
+-        const VkMemoryType& candidate = hostMemoryProperties.memoryTypes[i];
+-        if (candidate.heapIndex == memoryType.heapIndex &&
+-            (candidate.propertyFlags & kCachedCoherent) == kCachedCoherent &&
+-            !(candidate.propertyFlags &
+-              (VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD |
+-               VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD))) {
+-            return i;
++    // Pass 0: same heap (a device local source may use a device local cached type).
++    // Pass 1, device local sources only: cached system memory on any heap.
++    for (int pass = 0; pass < (deviceLocal ? 2 : 1); pass++) {
++        for (uint32_t i = 0; i < hostMemoryProperties.memoryTypeCount; i++) {
++            const VkMemoryType& candidate = hostMemoryProperties.memoryTypes[i];
++            const bool candidateDeviceLocal =
++                candidate.propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
++            if ((pass == 1 || candidate.heapIndex == memoryType.heapIndex) &&
++                (candidate.propertyFlags & kCachedCoherent) == kCachedCoherent &&
++                !(candidate.propertyFlags & kAmdFlags) &&
++                (!candidateDeviceLocal || (deviceLocal && pass == 0))) {
++                return i;
++            }
+         }
+     }
+     return hostMemoryTypeIndex;
+@@ -194,19 +212,63 @@ EmulatedPhysicalDeviceMemoryProperties::EmulatedPhysicalDeviceMemoryProperties(
+         }
+     }
+ 
++    // RustEmuDroid QA: off unless the environment variable is exactly "1" (E: replace the host
++    // type of the guest type) or "2" (E2: replace it only at vkAllocateMemory() time for the
++    // mappable device local guest types; the guest masks stay stock). Read once.
++    static const int sQaCachedDeviceLocalMode = [] {
++        const std::string value =
++            gfxstream::base::getEnvironmentVariable("RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL");
++        return value == "1" ? 1 : value == "2" ? 2 : 0;
++    }();
++    bool allocateDeviceLocalHostVisibleAsCached = false;
++    bool qaAllocateMappableDeviceLocalAsCached = false;
++    if (sQaCachedDeviceLocalMode != 0) {
++        if (hostVisibleMemoryIsExportedOrImported) {
++            static std::once_flag sWarnDeviceLocalOnce;
++            std::call_once(sWarnDeviceLocalOnce, [] {
++                GFXSTREAM_WARNING(
++                    "RustEmuDroid QA: RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL has no effect "
++                    "with exported or imported host visible memory.");
++            });
++        } else if (sQaCachedDeviceLocalMode == 1) {
++            allocateDeviceLocalHostVisibleAsCached = true;
++        } else {
++            qaAllocateMappableDeviceLocalAsCached = true;
++        }
++    }
++    std::string deviceLocalReplacements;
++
+     for (uint32_t i = 0; i < mGuestMemoryProperties.memoryTypeCount; i++) {
+         // A replaced guest memory type keeps the flags of the original host memory type, and
+         // transformToGuestMemoryRequirements() only offers it for resources that allow the
+         // replacement.
+         const uint32_t hostMemoryTypeIndex =
+-            allocateUncachedHostVisibleAsCached
+-                ? FindReplacementCachedHostMemoryTypeIndex(mHostMemoryProperties, i)
++            (allocateUncachedHostVisibleAsCached || allocateDeviceLocalHostVisibleAsCached)
++                ? FindReplacementCachedHostMemoryTypeIndex(
++                      mHostMemoryProperties, i, allocateUncachedHostVisibleAsCached,
++                      allocateDeviceLocalHostVisibleAsCached &&
++                          i != hostColorBufferMemoryTypeIndex)
+                 : i;
++        if (hostMemoryTypeIndex != i && (mHostMemoryProperties.memoryTypes[i].propertyFlags &
++                                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
++            deviceLocalReplacements += " " + std::to_string(i) + "->" +
++                                       std::to_string(hostMemoryTypeIndex);
++        }
+         mGuestMemoryTypes.push_back(EmulatedGuestMemoryType{
+             .hostMemoryTypeIndex = hostMemoryTypeIndex,
+             .memoryType = mGuestMemoryProperties.memoryTypes[i],
+         });
+     }
++    if (allocateDeviceLocalHostVisibleAsCached) {
++        // This is built again for every vkEnumeratePhysicalDevices(), so log only once.
++        static std::once_flag sLogDeviceLocalOnce;
++        std::call_once(sLogDeviceLocalOnce, [&] {
++            GFXSTREAM_WARNING(
++                "RustEmuDroid QA: cached device-local Vulkan allocations active, host memory "
++                "types replaced:%s",
++                deviceLocalReplacements.empty() ? " none" : deviceLocalReplacements.c_str());
++        });
++    }
+ 
+ #if defined(__APPLE__)
+     const std::optional<uint32_t> hostDeviceLocalIndex =
+@@ -261,10 +323,73 @@ EmulatedPhysicalDeviceMemoryProperties::EmulatedPhysicalDeviceMemoryProperties(
+         }
+     }
+ 
++    // RustEmuDroid QA E2: on the final guest table, give each guest type backed by a host
++    // visible, uncached, device local type (the guest's mappable device local type) a cached
++    // coherent host type for its allocations. hostMemoryTypeIndex is left alone, so
++    // transformToGuestMemoryRequirements() offers exactly the stock guest types.
++    if (qaAllocateMappableDeviceLocalAsCached) {
++        std::string redirects;
++        for (uint32_t g = 0; g < mGuestMemoryTypes.size(); g++) {
++            EmulatedGuestMemoryType& guestType = mGuestMemoryTypes[g];
++            const uint32_t h = guestType.hostMemoryTypeIndex;
++            if (guestType.isReservedForAhbAllocations || h == hostColorBufferMemoryTypeIndex ||
++                (mGuestAppleSystemBlobMemoryTypeIndex && g == *mGuestAppleSystemBlobMemoryTypeIndex) ||
++                !(mHostMemoryProperties.memoryTypes[h].propertyFlags &
++                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
++                continue;
++            }
++            const uint32_t r = FindReplacementCachedHostMemoryTypeIndex(
++                mHostMemoryProperties, h, /*replaceHostLocal=*/false, /*replaceDeviceLocal=*/true);
++            if (r != h) {
++                guestType.qaAllocHostMemoryTypeIndex = r;
++                mQaHasAllocRedirect = true;
++                redirects += " " + std::to_string(g) + "->" + std::to_string(r);
++            }
++        }
++        static std::once_flag sLogMappableDeviceLocalOnce;
++        std::call_once(sLogMappableDeviceLocalOnce, [&] {
++            GFXSTREAM_WARNING(
++                "RustEmuDroid QA: cached mappable device-local Vulkan allocations active (v2), "
++                "guest->host:%s",
++                redirects.empty() ? " none" : redirects.c_str());
++        });
++    }
++
+     mGuestMemoryProperties.memoryTypeCount = static_cast<uint32_t>(mGuestMemoryTypes.size());
+     for (uint32_t i = 0; i < mGuestMemoryProperties.memoryTypeCount; i++) {
+         mGuestMemoryProperties.memoryTypes[i] = mGuestMemoryTypes[i].memoryType;
+     }
++
++    // RustEmuDroid QA (E and E2): document the final mapping once.
++    if (sQaCachedDeviceLocalMode != 0) {
++        static std::once_flag sLogTableOnce;
++        std::call_once(sLogTableOnce, [&] {
++            std::string table;
++            char entry[160];
++            for (uint32_t g = 0; g < mGuestMemoryTypes.size(); g++) {
++                const EmulatedGuestMemoryType& t = mGuestMemoryTypes[g];
++                const uint32_t h = t.hostMemoryTypeIndex;
++                snprintf(entry, sizeof(entry),
++                         "%sguest type %u (0x%x heap %u) -> host type %u (0x%x heap %u)",
++                         g ? "; " : "", g, t.memoryType.propertyFlags, t.memoryType.heapIndex, h,
++                         mHostMemoryProperties.memoryTypes[h].propertyFlags,
++                         mHostMemoryProperties.memoryTypes[h].heapIndex);
++                table += entry;
++                if (t.qaAllocHostMemoryTypeIndex) {
++                    const uint32_t a = *t.qaAllocHostMemoryTypeIndex;
++                    snprintf(entry, sizeof(entry), " [allocates host type %u (0x%x heap %u)]", a,
++                             mHostMemoryProperties.memoryTypes[a].propertyFlags,
++                             mHostMemoryProperties.memoryTypes[a].heapIndex);
++                    table += entry;
++                }
++                if (t.isReservedForAhbAllocations) {
++                    table += " [AHB/ColorBuffer only]";
++                }
++            }
++            GFXSTREAM_WARNING("RustEmuDroid QA: Vulkan memory type table (mode %d): %s",
++                              sQaCachedDeviceLocalMode, table.c_str());
++        });
++    }
+ }
+ 
+ uint32_t EmulatedPhysicalDeviceMemoryProperties::findIndexForNewMemoryType(
+@@ -295,13 +420,20 @@ EmulatedPhysicalDeviceMemoryProperties::getHostMemoryInfoFromHostMemoryTypeIndex
+ 
+ std::optional<EmulatedPhysicalDeviceMemoryProperties::HostMemoryInfo>
+ EmulatedPhysicalDeviceMemoryProperties::getHostMemoryInfoFromGuestMemoryTypeIndex(
+-    uint32_t guestMemoryTypeIndex) const {
++    uint32_t guestMemoryTypeIndex, bool qaDedicatedImage) const {
+     if (guestMemoryTypeIndex >= mGuestMemoryProperties.memoryTypeCount) {
+         return std::nullopt;
+     }
+ 
+     uint32_t hostMemoryTypeIndex = mGuestMemoryTypes[guestMemoryTypeIndex].hostMemoryTypeIndex;
+ 
++    // RustEmuDroid QA E2: allocate from the cached host type, except for allocations
++    // dedicated to an image (images keep the host type their requirements were made for).
++    if (mQaHasAllocRedirect && !qaDedicatedImage &&
++        mGuestMemoryTypes[guestMemoryTypeIndex].qaAllocHostMemoryTypeIndex) {
++        hostMemoryTypeIndex = *mGuestMemoryTypes[guestMemoryTypeIndex].qaAllocHostMemoryTypeIndex;
++    }
++
+     // The host type with its host visibility withheld, so no host visible emulation.
+     if (guestMemoryTypeIndex == mGuestAppleSystemBlobMemoryTypeIndex) {
+         return HostMemoryInfo{
+@@ -330,6 +462,23 @@ void EmulatedPhysicalDeviceMemoryProperties::transformToGuestMemoryRequirements(
+         }
+ 
+         guestMemoryTypeBits |= (1u << guestMemoryTypeIndex);
++
++        // RustEmuDroid QA E2: the mask is stock, so report (once) a resource that is offered
++        // a redirected guest type although its host requirements exclude the cached type.
++        if (mQaHasAllocRedirect &&
++            mGuestMemoryTypes[guestMemoryTypeIndex].qaAllocHostMemoryTypeIndex &&
++            !(hostMemoryTypeBits &
++              (1u << *mGuestMemoryTypes[guestMemoryTypeIndex].qaAllocHostMemoryTypeIndex))) {
++            static std::once_flag sWarnIncompatibleOnce;
++            std::call_once(sWarnIncompatibleOnce, [&] {
++                GFXSTREAM_WARNING(
++                    "RustEmuDroid QA: v2 guest type %u offered to a resource whose host "
++                    "memoryTypeBits 0x%x exclude cached host type %u; a non-dedicated binding of "
++                    "it would be invalid",
++                    guestMemoryTypeIndex, hostMemoryTypeBits,
++                    *mGuestMemoryTypes[guestMemoryTypeIndex].qaAllocHostMemoryTypeIndex);
++            });
++        }
+     }
+ 
+     memoryRequirements->memoryTypeBits = guestMemoryTypeBits;
+diff --git a/host/vulkan/vk_emulated_physical_device_memory.h b/host/vulkan/vk_emulated_physical_device_memory.h
+index 344669bd..67704c30 100644
+--- a/host/vulkan/vk_emulated_physical_device_memory.h
++++ b/host/vulkan/vk_emulated_physical_device_memory.h
+@@ -41,8 +41,10 @@ class EmulatedPhysicalDeviceMemoryProperties {
+     };
+     std::optional<HostMemoryInfo> getHostMemoryInfoFromHostMemoryTypeIndex(
+         uint32_t hostMemoryTypeIndex) const;
++    // |qaDedicatedImage|: RustEmuDroid QA E2, the allocation is dedicated to an image and
++    // keeps the original host type. Ignored unless RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL=2.
+     std::optional<HostMemoryInfo> getHostMemoryInfoFromGuestMemoryTypeIndex(
+-        uint32_t guestMemoryTypeIndex) const;
++        uint32_t guestMemoryTypeIndex, bool qaDedicatedImage = false) const;
+ 
+     const VkPhysicalDeviceMemoryProperties& getGuestMemoryProperties() const {
+         return mGuestMemoryProperties;
+@@ -75,8 +77,13 @@ class EmulatedPhysicalDeviceMemoryProperties {
+         bool isReservedForAhbAllocations = false;
+         // The memory properties reported to the guest.
+         VkMemoryType memoryType;
++        // RustEmuDroid QA E2: host type used by vkAllocateMemory() instead of
++        // |hostMemoryTypeIndex| (which still defines the memoryTypeBits offered to the guest).
++        std::optional<uint32_t> qaAllocHostMemoryTypeIndex;
+     };
+     std::vector<EmulatedGuestMemoryType> mGuestMemoryTypes;
++    // RustEmuDroid QA E2: true if any guest type has qaAllocHostMemoryTypeIndex.
++    bool mQaHasAllocRedirect = false;
+ 
+     // The memory type index reported to the guest for VkDeviceMemory requirements which would
+     // try to import host ColorBuffer allocations
+diff --git a/host/vulkan/vk_memory_allocation_helper.cpp b/host/vulkan/vk_memory_allocation_helper.cpp
+index ebfff45f..15c1bfe7 100644
+--- a/host/vulkan/vk_memory_allocation_helper.cpp
++++ b/host/vulkan/vk_memory_allocation_helper.cpp
+@@ -647,7 +647,9 @@ VkResult VkMemoryAllocationHelper::selectStrategy(
+ 
+         const auto hostMemoryInfoOpt =
+             inputs.memoryProperties->getHostMemoryInfoFromGuestMemoryTypeIndex(
+-                pAllocateInfo->memoryTypeIndex);
++                pAllocateInfo->memoryTypeIndex,
++                /*qaDedicatedImage=*/outPlan->dedicatedAllocInfo &&
++                    outPlan->dedicatedAllocInfo->image != VK_NULL_HANDLE);
+         if (!hostMemoryInfoOpt) {
+             GFXSTREAM_ERROR("Failed to get host memory info.");
+             return VK_ERROR_INCOMPATIBLE_DRIVER;
