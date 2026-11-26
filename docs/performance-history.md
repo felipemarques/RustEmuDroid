@@ -2,6 +2,8 @@
 
 **November 25, 2026.** The first RustEmuDroid prototype delivered **45.86 FPS** in SuperTuxKart's Black Forest replay. By the end of the initial v0.1.0 integration, it reached **59.98 FPS** on the Original preset, alongside Kemu at **59.90**. At High quality and 90 Hz, the Rust frontend later reached **90.02 FPS** with Kemu's Android 16 image and engine. With its own Android 17 Google Play profile, Rust v0.21.1 measured **85.62 FPS** alongside **90.02 for Kemu** and **89.99 for BlueStacks**. [English PDF summary](../output/pdf/windows-performance-2026-11-25.pdf) · [Português brasileiro](performance-history.pt-BR.md)
 
+**November 26, 2026.** In uncapped Vulkan Mailbox on the RTX 5070 Ti, a patched Android Emulator 37.3.10 engine with host and guest settings raised SuperTuxKart on the unmodified Android 17 Google Play image from **164–176 FPS** to **356 FPS** with the Windows Balanced power mode and **375 FPS** with Best performance. Kemu measured **325 and 358** and BlueStacks **376 and 396** in the same session. A test operator set the engine environment around the v0.22.0 client. In a later daytime check with the same engine sources, the v0.23.0 client applying the settings from its own preferences matched the operator path (341.8 against 342.5 FPS). [Client and operator paths](#client-and-operator-paths) [Conditions, recipe and limits](#performance-engine-in-uncapped-mailbox) · [Engine source kit](../experiments/whpx-clock/README.md#4-build-the-performance-engine)
+
 With the same **v0.21.1 Rust window** and a separately rebuilt Android engine, a Windows virtual clock fix improved the game from **85.65 to 87.46 FPS (+2.11%)** in four cold-boot replays. Android presentation gaps over 16.667 ms fell from **5.08% to 3.18%**. The release still ships with its regular runtime setup. [Per-lap results and frame traces](../benchmarks/stk-1.5/windows-whpx-clock-kart.md)
 
 With the v0.22.0 client and the newly linked Windows engine, the same kart replay measured **84.73 game FPS with the cache off and 90.16 with it on**. Android P99 fell from 23.17 to 14.46 ms. The Rust panel processed 86.32 frames/s with the cache on. This pair qualified the build made with FFmpeg and libvpx sources. [Build identity, sampling and traces](../benchmarks/stk-1.5/windows-source-media-cache-rtx.md)
@@ -13,6 +15,72 @@ With the **official v0.22.0 Windows client and stock Android Emulator 37.3.10**,
 The relinked engine decoded video in software and recorded VP9 in a separate media test. Three Goldfish hardware-advertised decoders raised errors in the tested acquisition path. [Decode and recording results](../benchmarks/stk-1.5/windows-source-media-cache-rtx.md#media-smoke-on-the-relinked-engine)
 
 Cipó Livre has a separate interactive test. At 1600 × 900 and 60 Hz on the RTX, RustEmuDroid presented **59.68–59.98 frames/s** and Kemu **59.85–60.04** with the same locally adjusted APK. End-of-run captures showed a 3D render scale of 80% on the RTX. On the integrated Radeon 780M, the two Rust walks reached **55.13 and 57.19 frames/s**, ending at 80% and 70% scale. [Android audio changes, gameplay and frame intervals](../benchmarks/cipo-livre/README.md)
+
+## Performance engine in uncapped Mailbox
+
+All runs on November 25–26 used the same Windows PC (Ryzen 9 8945HS, eight cores, GeForce RTX 5070 Ti), SuperTuxKart 1.5's built-in Black Forest replay at High, Vulkan with game VSync off (Mailbox, uncapped), 1600 × 900 in Android, Android at 90 Hz and four vCPUs. FPS comes from the game's own profiler report: frames over the measured lap. Each value below is the mean of the lap results. Android ran the official Android 17 Google Play x86-64 image, revision 7, unmodified. The Rust window was the **v0.22.0 desktop client** with an 800 × 450 panel. A test operator started it and set the engine environment, AVD keys and power mode itself, one cold boot at a time, with one warm-up lap and two measured laps per boot. The **v0.23.0** Settings preset applies the same values; a separate check below compares the two paths. From step 6 on, each boot waited before installing the game until QEMU used less than 0.6 of a host core.
+
+The engine is Android Emulator 37.3.10 (stock `emulator.exe`) with a rebuilt QEMU core (SHA-256 `a55d48c6…37f5`) and gfxstream renderer (`d92f6060…60d0`). The published kit describes a later build of the same sources (QEMU `1c7a05e3…a0c6`, gfxstream `7d01cde7…85fe`). It adds prompt writing of the engine's proof lines and four options that are off unless enabled and were not part of these measurements. [Source kit, gates and build](../experiments/whpx-clock/README.md#4-build-the-performance-engine)
+
+| Windows power mode | RustEmuDroid, performance engine | Kemu 0.7.1 · Android 16 | BlueStacks 5 Pie64 · Android 9 |
+|---|---:|---:|---:|
+| Balanced | **356** (1 run, 2 boots, 4 laps) | 325 (3 boots, 6 laps) | 376 (1 boot, 2 laps) |
+| Best performance | **375** (3 runs, 6 boots, 12 laps) | 358 (1 boot, 2 laps) | 396 (1 boot, 2 laps) |
+
+Kemu and BlueStacks were measured by the same operator in the same session, between the RustEmuDroid runs, with their own players and windows. The Best performance values of both peers and the Balanced BlueStacks value come from one boot each. At the start of the night the same client and workload measured 164–176 FPS with the stock engine. RustEmuDroid was 9.5% ahead of Kemu with Balanced and 4.7% ahead with Best performance. BlueStacks stayed 5–6% ahead in both modes. The aim of passing Kemu and 300 FPS was met; matching BlueStacks was not.
+
+### Recipe and measured effect of each step
+
+Each step was measured against the preceding configuration within one alternating run (A/B/B/A or similar, same binary). Run-to-run drift of the same configuration was 2–3%, and single laps varied by 5–8%. Steps 1–9 were measured with the Balanced mode unless noted.
+
+| # | Change | How it is enabled | Measured result |
+|---|---|---|---|
+| 1 | Synchronized guest TSC on WHPX | `RUSTEMUDROID_QA_WHPX_SYNC_TSC=1` (QEMU) | 179.53 → 228.12 FPS with the Vulkan cache on. Other disk-heavy work overlapped this run. Later clean runs of cache + clock measured 245.57 and 248.03. |
+| 2 | Cached host-visible Vulkan memory (type 2) | `RUSTEMUDROID_QA_VULKAN_CACHED_HOST=1` (QEMU) | Part of every run; not measured separately in Mailbox |
+| 3 | Shared-memory graphics transport with a spinning host consumer | AVD `hw.gltransport=asg` + `RUSTEMUDROID_QA_ASG_SPIN_US` (gfxstream) | ASG alone: 245.57 → 247.27. ASG + 200 µs spin: 244.02 → 260.45 |
+| 4 | Vulkan composition with ANGLE in the guest | `-feature VulkanNativeSwapchain` (stock feature) | 253.63 → 269.05. This arm ran last in its run. |
+| 5 | Cached memory behind mappable device-local Vulkan allocations | `RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL=2` (gfxstream) | 268.42 → 310.25 (three boots each) |
+| 6 | Guest kernel parameters | AVD `kernel.parameters=mitigations=off init_on_alloc=0 transparent_hugepage=always` | 301.54 → 310.08 (+2.8%, near the noise) |
+| 7 | vCPUs on dedicated physical cores, never core 0 | `RUSTEMUDROID_QA_VCPU_PLACEMENT=sets-high` (QEMU) | `sets` (cores 0–3): 304.46 → 341.84. `sets-high` (cores 4–7) instead of `sets`: 314.0 → 345.7 |
+| 8 | Fewer VM exits | `RUSTEMUDROID_QA_LAPIC_FASTPATH=1`, `RUSTEMUDROID_QA_KVM_PV_EOI=1` (QEMU) | 327.51 → 339.83 and 332.57 → 341.31, both within the noise. LAPIC handler time fell from 86 to 43 ms/s. |
+| 9 | Longer consumer spin | `RUSTEMUDROID_QA_ASG_SPIN_US=3000` instead of 200, with Best performance | 373.7 → 384.6 (+2.9%) |
+| 10 | Windows Best performance power mode while Android runs | Power mode overlay `ded574b5-45a0-4f42-8737-46345c09c238` | With `sets-high`: 345.7 → 362.7. Final recipe: 355.5 → 359.6 including one 300.90 lap, 379.2 without it |
+
+With `sets` the result depended on the vCPU that ran the game's main thread: 330–375 FPS on vCPUs 2–3, 270–305 FPS on the vCPU bound to host core 0. `sets-high` removed that split. During the measured laps QEMU used about 1.8–2.0 host cores with a 200 µs spin and 2.7 with 3000 µs. The busiest vCPU, which ran the game's main thread, stayed near one full core.
+
+**Tested and discarded:** Vulkan descriptor batching (`VulkanBatchedDescriptorSetUpdate`, 379.8 → 355.7); waiting in the OpenGL ES pipe while holding the global lock plus a render-thread spin (227.12 → 172.2, one boot each); `idle=poll` in the guest (319.74 → 293.66); HLT polling (339.83 → 291.50); `ideal` vCPU placement (320.94 → 305.05); 5000 µs and 1000 µs consumer spins; larger ASG buffers (260.45 → 227.48); disabling the file-backed guest RAM (304.19 → 294.57); unlocking the scaled screenshot readback, the lockless pre-run check and above-normal vCPU priority (all within the noise); the stock `VulkanAllocateHostMemory` option (−16% in an earlier FIFO series); `isolcpus=0` in the guest kernel (332 FPS against 337 for the control in a daytime series, no gain). Guest RAM in host large pages was not measured: the account lacks the Lock pages in memory privilege, and a guest memory probe measured slower random memory access on BlueStacks than in this guest, which removed the motivation.
+
+**Remaining gap.** With Best performance, the main loop took 2.633 ms per frame against 2.527 ms on BlueStacks. The whole graphics update was nearly equal (2.393 vs 2.346 ms). BlueStacks spent less time in `drawAll` and game logic, and more in `endScene`.
+
+**Sensitivity to background load.** On November 26 during the day, with other desktop programs using roughly 0.7 to 1.2 host cores, the same recipe and binaries measured 309 to 350 FPS per lap, pooling 313 and 337 in two series, instead of about 375 with Best performance. The laps followed the background load: about 1.0 core gave 309–331 FPS and about 0.75 core 343–350. The night figures above were taken on an otherwise idle desktop. Kemu and BlueStacks were not measured under that load, so these daytime values do not compare the players.
+
+### Client and operator paths
+
+On November 26 between 10:59 and 11:13, the same PC, RTX 5070 Ti, image and SuperTuxKart workload ran one interleaved series o, c, c, o with two timed laps per boot and the Best performance power mode. Both arms used a pre-release build of the v0.23.0 client as the Rust window (the same sources, compiled before the version number was raised from 0.22.0) and the published-source engine build (QEMU `1c7a05e3…a0c6`, gfxstream `7d01cde7…85fe`, new gates off). In arm o the test operator applied the settings: environment, feature flag, AVD keys and power mode. In arm c the client applied them from its preferences: the performance engine selected for the profile with the default options plus kernel parameters, and the client's own power-mode option. The operator set nothing in arm c.
+
+| Arm | Laps (FPS) | Mean |
+|---|---|---:|
+| o · operator applies the settings | 345.18 · 335.13 · 354.77 · 334.88 | 342.5 |
+| c · v0.23.0 client applies the settings | 310.55 · 359.95 · 346.21 · 350.43 | 341.8 |
+
+The engine log and the running processes showed the same options active in all four boots. The client passes `-feature VulkanNativeSwapchain` as an argument where the operator used the equivalent environment variable. After the series the test profile's `config.ini` was back to its original bytes. Other desktop programs were running, so the level of about 342 FPS reflects that daytime condition, described under background load above, not the idle-desktop figures. The series shows that the client path reproduces the operator path under the same conditions. Separately, from a normal (non-elevated) session on a fresh profile with this engine build, the client's startup status confirmed all seven default options, and boot confirmation was not delayed (18 s).
+
+### Cipó Livre on the integrated Radeon 780M
+
+The same recipe was also run with Cipó Livre (Godot, Vulkan) on the integrated Radeon 780M, with the same Android 17 Google Play image, Android at 60 Hz and the Windows Balanced mode. The Rust window was a local build of the v0.22.0 client. Six cold boots alternated in the order s, r, u, u, r, s, with one 20-second sample per scene and boot. The metric counts distinct SurfaceFlinger presentation timestamps of the game surface. The published configuration (s) used the v0.22.0 cache engine with the goldfish pipe, OpenGL composition and the AMD integrated-GPU option. The recipe (r) used the measured performance engine. The third arm (u) added the AMD option (`-VulkanAllocateDeviceMemoryOnly`) to the recipe.
+
+| Configuration | Scene | Presentations/s | Intervals > 1.5 periods | Mean P99 |
+|---|---|---:|---:|---:|
+| Published (s) | Forest | 58.61 | 4.86% | 31.2 ms |
+| Published (s) | Walking | 57.38 | 9.15% | 33.8 ms |
+| Recipe (r) | Forest | 59.93 | 0.17% | 19.7 ms |
+| Recipe (r) | Walking | 59.89 | 0.08% | 19.4 ms |
+| Recipe + AMD option (u) | Forest | 60.01 | 0.00% | 19.2 ms |
+| Recipe + AMD option (u) | Walking | 59.99 | 0.08% | 20.6 ms |
+
+All six boots rendered the game correctly, and the AMD option worked together with `VulkanNativeSwapchain`. Each value combines two 20-second samples from two boots. The 60 Hz display caps the rate, and the game adjusts its render resolution on its own, so these figures show smoother delivery rather than more rendering work. [Earlier Cipó Livre tests](../benchmarks/cipo-livre/README.md)
+
+**Limits.** SuperTuxKart on the RTX 5070 Ti and Cipó Livre on the Radeon 780M, both on the same PC; PUBG has not been tested with this engine. The engine prints a warning that GuestAngle is unstable for API levels above 35. The 3000 µs spin costs about one extra host core while the game runs. About one lap in twelve was an outlier near 300 FPS with that spin, and background programs lower the result, as described above. With `kvm_pv_eoi`, the guest identifies its hypervisor as KVM. In SuperTuxKart Android still presented at the 90 Hz display rate; those figures measure how fast the game renders. Longer sessions and snapshots remain untested with this engine.
 
 ## SuperTuxKart from the first prototype through v0.21.1
 
