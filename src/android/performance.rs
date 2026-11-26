@@ -48,8 +48,9 @@ const QA_PREFIX: &str = "RUSTEMUDROID_QA_";
 
 /// The gates known in the patched 37.3.10 tree, also cleared explicitly (the
 /// launch clears every inherited `RUSTEMUDROID_QA_*` variable, see [`QA_PREFIX`]).
-const QA_GATES: [&str; 17] = [
+const QA_GATES: [&str; 18] = [
     "RUSTEMUDROID_QA_WHPX_SYNC_TSC",
+    "RUSTEMUDROID_QA_WHPX_APIC",
     "RUSTEMUDROID_QA_LAPIC_FASTPATH",
     "RUSTEMUDROID_QA_KVM_PV_EOI",
     "RUSTEMUDROID_QA_VULKAN_CACHED_HOST",
@@ -76,10 +77,14 @@ pub(super) const PROOF_CACHED_HOST: &str =
     "RustEmuDroid QA: requested cached Vulkan host allocations";
 const PROOF_DEVICE_LOCAL: &str =
     "RustEmuDroid QA: cached mappable device-local Vulkan allocations active (v2)";
-const PROOF_ASG_TRANSPORT: &str = "androidboot.hardware.gltransport=asg";
 const PROOF_ASG_SPIN: &str = "RustEmuDroid QA: ASG consumer spin active";
 const PROOF_NATIVE_SWAPCHAIN: &str = "useVulkanNativeSwapchain: true";
 const PROOF_VCPU: &str = "RustEmuDroid QA: vCPU placement mode=";
+/// May continue with "; RUSTEMUDROID_QA_KVM_PV_EOI overridden (off)".
+const PROOF_APIC_HV: &str = "RustEmuDroid QA: WHPX local APIC emulated by the hypervisor (xAPIC)";
+/// Followed by "(<reason>, hr=..), using the user-mode APIC".
+const APIC_HV_FALLBACK: &str = "RustEmuDroid QA: WHPX hypervisor local APIC unavailable (";
+const APIC_HV: &str = "hv";
 
 /// Names an engine manifest can list. Unknown names (including the older
 /// `vcpu_placement`, which meant the low-core `sets` mode) are ignored.
@@ -94,10 +99,13 @@ pub(crate) enum Capability {
     VulkanNativeSwapchain,
     VcpuPlacementHigh,
     GuestKernelParameters,
+    /// The Windows hypervisor emulates the guest's local APIC. Requested with
+    /// the CPU virtualization switch; it has no preference of its own.
+    WhpxApicHv,
 }
 
 impl Capability {
-    pub(crate) const ALL: [Self; 9] = [
+    pub(crate) const ALL: [Self; 10] = [
         Self::TscSync,
         Self::LapicFastpath,
         Self::KvmPvEoi,
@@ -107,6 +115,7 @@ impl Capability {
         Self::VulkanNativeSwapchain,
         Self::VcpuPlacementHigh,
         Self::GuestKernelParameters,
+        Self::WhpxApicHv,
     ];
 
     pub(crate) const fn name(self) -> &'static str {
@@ -120,6 +129,7 @@ impl Capability {
             Self::VulkanNativeSwapchain => "vulkan_native_swapchain",
             Self::VcpuPlacementHigh => "vcpu_placement_high",
             Self::GuestKernelParameters => "guest_kernel_parameters",
+            Self::WhpxApicHv => "whpx_apic_hv",
         }
     }
 
@@ -546,6 +556,39 @@ pub(crate) struct Plan {
     /// Enabled and listed by the engine, but not requested on this computer.
     pub(crate) held_back: Vec<Tuning>,
     device_local: bool,
+    /// The engine lists `whpx_apic_hv` and the CPU virtualization switch is on.
+    apic_hv: bool,
+}
+
+/// What the engine did with `RUSTEMUDROID_QA_WHPX_APIC=hv`.
+#[derive(Debug, PartialEq, Eq)]
+enum ApicMode {
+    Hypervisor,
+    /// Not possible on this host: the user-mode APIC (with its own gates) runs.
+    UserMode(String),
+    Unknown,
+}
+
+fn apic_mode(log: &str) -> ApicMode {
+    if log.contains(PROOF_APIC_HV) {
+        return ApicMode::Hypervisor;
+    }
+    log.lines()
+        .find_map(|line| {
+            let (_, rest) = line.split_once(APIC_HV_FALLBACK)?;
+            let inner = rest.rfind(')').map_or(rest, |end| &rest[..end]);
+            let reason = inner.rfind(", hr=").map_or(inner, |end| &inner[..end]);
+            Some(ApicMode::UserMode(reason.trim().to_owned()))
+        })
+        .unwrap_or(ApicMode::Unknown)
+}
+
+const fn apic_hv_name(locale: Locale) -> &'static str {
+    locale.pick(
+        "controlador de interrupções emulado pelo Windows",
+        "interrupt controller emulated by Windows",
+        "controlador de interrupciones emulado por Windows",
+    )
 }
 
 impl Plan {
@@ -561,10 +604,19 @@ impl Plan {
             .partition(|tuning| *tuning != Tuning::DedicatedVcpuCores || placement_fits);
         let device_local = tunings.contains(&Tuning::VulkanMemoryCache)
             && capabilities.contains(&Capability::VulkanCachedDeviceLocalV2);
+        // The switch is on when every CPU gate the engine lists is enabled.
+        let cpu: Vec<_> = Tuning::CPU_VIRTUALIZATION
+            .into_iter()
+            .filter(|tuning| capabilities.contains(&tuning.capability()))
+            .collect();
+        let apic_hv = capabilities.contains(&Capability::WhpxApicHv)
+            && !cpu.is_empty()
+            && cpu.iter().all(|tuning| tuning.enabled(options));
         Self {
             tunings,
             held_back,
             device_local,
+            apic_hv,
         }
     }
 
@@ -588,6 +640,11 @@ impl Plan {
         }
         if self.has(Tuning::KvmPvEoi) {
             command.env("RUSTEMUDROID_QA_KVM_PV_EOI", "1");
+        }
+        // The gates above stay set: a host that can not use it falls back to
+        // the user-mode APIC, where they apply.
+        if self.apic_hv {
+            command.env("RUSTEMUDROID_QA_WHPX_APIC", APIC_HV);
         }
         if self.has(Tuning::VulkanMemoryCache) {
             command.env("RUSTEMUDROID_QA_VULKAN_CACHED_HOST", "1");
@@ -620,20 +677,23 @@ impl Plan {
     /// Requested settings whose proof is missing from the engine log or, for
     /// the kernel parameters, from the guest's /proc/cmdline.
     pub(crate) fn inactive(&self, log: &str, guest_cmdline: Option<&str>) -> Vec<Tuning> {
+        // In hypervisor APIC mode the fast path and PV EOI do not apply.
+        let not_applicable = self.apic_hv && apic_mode(log) == ApicMode::Hypervisor;
         self.tunings
             .iter()
             .copied()
             .filter(|tuning| match tuning {
                 Tuning::ClockSync => !clock_confirmed(log),
-                Tuning::LapicFastpath => !log.contains(PROOF_LAPIC),
-                Tuning::KvmPvEoi => !log.contains(PROOF_PV_EOI),
+                Tuning::LapicFastpath => !not_applicable && !log.contains(PROOF_LAPIC),
+                Tuning::KvmPvEoi => !not_applicable && !log.contains(PROOF_PV_EOI),
                 Tuning::VulkanMemoryCache => {
                     !log.contains(PROOF_CACHED_HOST)
                         || (self.device_local && !log.contains(PROOF_DEVICE_LOCAL))
                 }
-                Tuning::AsgTransport => {
-                    !log.contains(PROOF_ASG_TRANSPORT) || !log.contains(PROOF_ASG_SPIN)
-                }
+                // The consumer only exists for the shared-memory transport, and the engine writes this
+                // line in one piece. The emulator's own `androidboot.hardware.gltransport=asg` line is
+                // not required: it is written in pieces and another writer can land in the middle.
+                Tuning::AsgTransport => !log.contains(PROOF_ASG_SPIN),
                 Tuning::VulkanComposition => !log.contains(PROOF_NATIVE_SWAPCHAIN),
                 Tuning::DedicatedVcpuCores => !placement_confirmed(log),
                 Tuning::GuestKernelParameters => !guest_cmdline.is_some_and(|cmdline| {
@@ -645,6 +705,12 @@ impl Plan {
             .collect()
     }
 
+    /// The hypervisor APIC was requested and the engine has not said yet
+    /// whether it is used.
+    pub(crate) fn apic_pending(&self, log: &str) -> bool {
+        self.apic_hv && apic_mode(log) == ApicMode::Unknown
+    }
+
     /// The startup status: what is active, what the engine did not confirm
     /// (with its own warning lines) and what this computer can not use.
     pub(crate) fn status(
@@ -654,7 +720,24 @@ impl Plan {
         locale: Locale,
         log: &Path,
     ) -> String {
-        let mut text = self.summary(inactive, locale, log);
+        let mut text = self.summary(inactive, engine_log, locale, log);
+        if self.apic_hv
+            && let ApicMode::UserMode(reason) = apic_mode(engine_log)
+        {
+            text.push_str(&format!(
+                " {} ({reason}). {}",
+                locale.pick(
+                    "O controlador de interrupções emulado pelo Windows não está disponível neste computador",
+                    "The interrupt controller emulated by Windows is not available on this computer",
+                    "El controlador de interrupciones emulado por Windows no está disponible en este equipo",
+                ),
+                locale.pick(
+                    "O motor usa o APIC do modo usuário.",
+                    "The engine uses the user-mode APIC.",
+                    "El motor usa el APIC del modo usuario.",
+                )
+            ));
+        }
         if !self.held_back.is_empty() {
             text.push_str(&format!(
                 " {} {}.",
@@ -681,11 +764,32 @@ impl Plan {
         text
     }
 
-    fn summary(&self, inactive: &[Tuning], locale: Locale, log: &Path) -> String {
-        let names = |list: &mut dyn Iterator<Item = Tuning>| {
-            list.map(|tuning| tuning.short_name(locale))
-                .collect::<Vec<_>>()
-                .join(", ")
+    fn summary(&self, inactive: &[Tuning], engine_log: &str, locale: Locale, log: &Path) -> String {
+        let mode = if self.apic_hv {
+            apic_mode(engine_log)
+        } else {
+            ApicMode::Unknown
+        };
+        let hypervisor = mode == ApicMode::Hypervisor;
+        let names = |list: &mut dyn Iterator<Item = Tuning>, apic: bool| {
+            let mut names: Vec<&str> = Vec::new();
+            let mut apic = apic;
+            for tuning in list {
+                // Not applicable in hypervisor APIC mode.
+                if hypervisor && matches!(tuning, Tuning::LapicFastpath | Tuning::KvmPvEoi) {
+                    continue;
+                }
+                // The CPU group comes first in Tuning::ALL; the APIC item follows it.
+                if apic && !Tuning::CPU_VIRTUALIZATION.contains(&tuning) {
+                    names.push(apic_hv_name(locale));
+                    apic = false;
+                }
+                names.push(tuning.short_name(locale));
+            }
+            if apic {
+                names.push(apic_hv_name(locale));
+            }
+            names.join(", ")
         };
         if self.tunings.is_empty() {
             return locale
@@ -702,8 +806,10 @@ impl Plan {
                 .iter()
                 .copied()
                 .filter(|t| !inactive.contains(t)),
+            hypervisor,
         );
-        if inactive.is_empty() {
+        let apic_unconfirmed = self.apic_hv && mode == ApicMode::Unknown;
+        if inactive.is_empty() && !apic_unconfirmed {
             return format!(
                 "{} {active}.",
                 locale.pick(
@@ -720,7 +826,7 @@ impl Plan {
                 "Not confirmed in the engine log (this does not mean it is off; older engines write some lines only at exit):",
                 "No confirmado en el registro del motor (no significa que esté desactivado; los motores anteriores escriben algunas líneas solo al cerrarse):",
             ),
-            names(&mut inactive.iter().copied()),
+            names(&mut inactive.iter().copied(), apic_unconfirmed),
             locale.pick("Confirmados:", "Confirmed:", "Confirmados:"),
             if active.is_empty() {
                 "-"
@@ -801,7 +907,8 @@ impl Confirmation {
             self.cmdline = read_cmdline();
         }
         let inactive = plan.inactive(log, self.cmdline.as_deref());
-        (inactive.is_empty() || last || now >= self.deadline).then_some(inactive)
+        let complete = inactive.is_empty() && !plan.apic_pending(log);
+        (complete || last || now >= self.deadline).then_some(inactive)
     }
 }
 
@@ -1199,6 +1306,7 @@ mod tests {
             "vulkan_native_swapchain",
             "vcpu_placement_high",
             "guest_kernel_parameters",
+            "whpx_apic_hv",
             "future_gate",
             "tsc_sync",
         ];
@@ -1384,6 +1492,7 @@ mod tests {
             ("RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL", "2"),
             ("RUSTEMUDROID_QA_ASG_SPIN_US", "3000"),
             ("RUSTEMUDROID_QA_VCPU_PLACEMENT", "sets-high"),
+            ("RUSTEMUDROID_QA_WHPX_APIC", "hv"),
         ] {
             assert_eq!(set(key).as_deref(), Some(value), "{key}");
         }
@@ -1544,11 +1653,19 @@ mod tests {
         }
     }
 
+    /// Every capability of revision 4, i.e. without `whpx_apic_hv`.
+    fn rev4_capabilities() -> Vec<Capability> {
+        Capability::ALL
+            .into_iter()
+            .filter(|capability| *capability != Capability::WhpxApicHv)
+            .collect()
+    }
+
     #[test]
     fn confirmation_never_waits_and_retries_the_guest_cmdline() {
         let mut options = PerformanceOptions::default();
         options.guest_kernel_parameters = true;
-        let plan = Plan::new(&options, &Capability::ALL, true);
+        let plan = Plan::new(&options, &rev4_capabilities(), true);
         let start = Instant::now();
         let cmdline = format!("console=ttynull {KERNEL_PARAMETERS}");
         let mut reads = 0;
@@ -1609,6 +1726,185 @@ mod tests {
         );
     }
 
+    const APIC_HV_LINE: &str = "qemu-system-x86_64.exe: info: RustEmuDroid QA: WHPX local APIC emulated by the hypervisor (xAPIC); RUSTEMUDROID_QA_KVM_PV_EOI overridden (off)";
+    const APIC_FALLBACK_LINE: &str = "qemu-system-x86_64.exe: info: RustEmuDroid QA: WHPX hypervisor local APIC unavailable (no LocalApicEmulation (feature bit), hr=0x80070057), using the user-mode APIC";
+    const LAPIC_LINE: &str =
+        "qemu-system-x86_64.exe: info: RustEmuDroid QA: LAPIC MMIO fast path active (32-bit MOV)";
+    const PV_EOI_LINE: &str = "qemu-system-x86_64.exe: info: RustEmuDroid QA: KVM PV EOI active";
+
+    #[test]
+    fn hypervisor_apic_is_requested_with_the_cpu_switch_only_when_listed() {
+        let everything = Capability::ALL.to_vec();
+        let defaults = PerformanceOptions::default();
+        let apic = |plan: &Plan| {
+            let mut command = Command::new("emulator");
+            command.env("RUSTEMUDROID_QA_WHPX_APIC", "inherited");
+            plan.apply(&mut command);
+            envs(&command)
+                .get("RUSTEMUDROID_QA_WHPX_APIC")
+                .cloned()
+                .flatten()
+        };
+        let plan = Plan::new(&defaults, &everything, true);
+        assert_eq!(apic(&plan).as_deref(), Some("hv"));
+        // The user-mode APIC gates stay set for a fallback.
+        let mut command = Command::new("emulator");
+        plan.apply(&mut command);
+        let env = envs(&command);
+        for key in [
+            "RUSTEMUDROID_QA_WHPX_SYNC_TSC",
+            "RUSTEMUDROID_QA_LAPIC_FASTPATH",
+            "RUSTEMUDROID_QA_KVM_PV_EOI",
+        ] {
+            assert_eq!(
+                env.get(key).cloned().flatten().as_deref(),
+                Some("1"),
+                "{key}"
+            );
+        }
+        // Capability absent: exactly revision 4 (and an inherited value is cleared).
+        assert_eq!(
+            apic(&Plan::new(&defaults, &rev4_capabilities(), true)),
+            None
+        );
+        assert!(!Plan::new(&defaults, &rev4_capabilities(), true).apic_hv);
+        // The switch is off when any listed CPU gate is off.
+        for tuning in Tuning::CPU_VIRTUALIZATION {
+            let mut options = defaults.clone();
+            *tuning.enabled_mut(&mut options) = false;
+            assert_eq!(
+                apic(&Plan::new(&options, &everything, true)),
+                None,
+                "{tuning:?}"
+            );
+        }
+        // An engine that lists only the clock gate: its switch alone decides.
+        let clock_only = [Capability::TscSync, Capability::WhpxApicHv];
+        let mut options = defaults.clone();
+        options.lapic_fastpath = false;
+        options.kvm_pv_eoi = false;
+        assert_eq!(
+            apic(&Plan::new(&options, &clock_only, true)).as_deref(),
+            Some("hv")
+        );
+        assert_eq!(
+            apic(&Plan::new(&defaults, &[Capability::WhpxApicHv], true)),
+            None
+        );
+    }
+
+    #[test]
+    fn hypervisor_apic_confirmation_matrix() {
+        let plan = Plan::new(&PerformanceOptions::default(), &Capability::ALL, true);
+        let path = Path::new("boot.log");
+        let user_mode = full_log();
+        let hv = user_mode
+            .replace(LAPIC_LINE, APIC_HV_LINE)
+            .replace(PV_EOI_LINE, "");
+        let status = |log: &str| {
+            let inactive = plan.inactive(log, None);
+            plan.status(&inactive, log, Locale::EnUs, path)
+        };
+
+        // (a) Hypervisor line: fast path and PV EOI do not apply.
+        assert!(plan.inactive(&hv, None).is_empty());
+        assert!(!plan.apic_pending(&hv));
+        assert_eq!(
+            status(&hv),
+            "Performance engine active: synchronized clock, interrupt controller emulated by Windows, Vulkan memory cache, shared graphics transport, Vulkan composition, dedicated cores."
+        );
+        for locale in LOCALES {
+            let text = plan.status(&[], &hv, locale, path);
+            assert!(text.contains(apic_hv_name(locale)), "{text}");
+            assert!(
+                !text.contains(Tuning::LapicFastpath.short_name(locale)),
+                "{text}"
+            );
+        }
+        let no_clock = hv.replace("synchronized init", "x");
+        assert_eq!(plan.inactive(&no_clock, None), [Tuning::ClockSync]);
+
+        // (b) Fallback with both user-mode proofs: confirmed, with a note.
+        let fallback = format!("{user_mode}\n{APIC_FALLBACK_LINE}");
+        assert!(plan.inactive(&fallback, None).is_empty());
+        assert!(!plan.apic_pending(&fallback));
+        let text = status(&fallback);
+        assert!(
+            text.starts_with(
+                "Performance engine active: synchronized clock, fast APIC access, paravirtualized end of interrupt, Vulkan memory cache"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.ends_with(
+                " The interrupt controller emulated by Windows is not available on this computer (no LocalApicEmulation (feature bit)). The engine uses the user-mode APIC."
+            ),
+            "{text}"
+        );
+        for locale in LOCALES {
+            let text = plan.status(&[], &fallback, locale, path);
+            assert!(
+                text.contains("(no LocalApicEmulation (feature bit))"),
+                "{text}"
+            );
+        }
+
+        // Fallback with one user-mode proof missing.
+        let missing = fallback.replace(PV_EOI_LINE, "");
+        assert_eq!(plan.inactive(&missing, None), [Tuning::KvmPvEoi]);
+        let text = status(&missing);
+        assert!(
+            text.starts_with(
+                "Not confirmed in the engine log (this does not mean it is off; older engines write some lines only at exit): paravirtualized end of interrupt. Confirmed: synchronized clock, fast APIC access, Vulkan memory cache"
+            ),
+            "{text}"
+        );
+        assert!(text.contains("is not available on this computer"), "{text}");
+
+        // Neither line yet: still open, then reported as not confirmed.
+        assert!(plan.inactive(&user_mode, None).is_empty());
+        assert!(plan.apic_pending(&user_mode));
+        let start = Instant::now();
+        let mut confirmation = Confirmation::new(start);
+        let mut no_cmdline = || None::<String>;
+        assert_eq!(
+            confirmation.check(&plan, start, &user_mode, &mut no_cmdline, false),
+            None
+        );
+        assert_eq!(
+            confirmation.check(&plan, start, &hv, &mut no_cmdline, false),
+            Some(vec![])
+        );
+        let text = status(&user_mode);
+        assert!(
+            text.starts_with(
+                "Not confirmed in the engine log (this does not mean it is off; older engines write some lines only at exit): interrupt controller emulated by Windows. Confirmed: synchronized clock, fast APIC access, paravirtualized end of interrupt, Vulkan memory cache"
+            ),
+            "{text}"
+        );
+        let missing_both = hv.replace(APIC_HV_LINE, "");
+        assert_eq!(
+            plan.inactive(&missing_both, None),
+            [Tuning::LapicFastpath, Tuning::KvmPvEoi]
+        );
+
+        // Capability absent: the hypervisor line changes nothing (revision 4).
+        let rev4 = Plan::new(&PerformanceOptions::default(), &rev4_capabilities(), true);
+        assert_eq!(
+            rev4.inactive(&hv, None),
+            [Tuning::LapicFastpath, Tuning::KvmPvEoi]
+        );
+        assert!(!rev4.apic_pending(&user_mode));
+        assert!(rev4.inactive(&fallback, None).is_empty());
+        let text = rev4.status(&[], &fallback, Locale::EnUs, path);
+        assert!(!text.contains("interrupt controller"), "{text}");
+        assert_eq!(
+            apic_mode(&fallback),
+            ApicMode::UserMode("no LocalApicEmulation (feature bit)".into())
+        );
+        assert_eq!(apic_mode(&user_mode), ApicMode::Unknown);
+    }
+
     const PLACEMENT_LINE: &str = "qemu-system-x86_64.exe: info: RustEmuDroid QA: vCPU placement mode=sets-high vcpu->cpus: 0->{8,9} 1->{10,11} 2->{12,13} 3->{14,15} default={0,1,2,3,4,5,6,7}";
 
     fn full_log() -> String {
@@ -1627,10 +1923,31 @@ mod tests {
     }
 
     #[test]
+    fn shared_transport_is_confirmed_by_the_engine_line_alone() {
+        let plan = Plan::new(&PerformanceOptions::default(), &rev4_capabilities(), true);
+        // Seen on a real boot: an engine line written in the middle of the emulator's parameter line.
+        let interleaved = full_log().replace(
+            "androidboot.hardware.gltransport=asg",
+            "androidboot.hardware.gltransport=qemu-system-x86_64.exe: info: RustEmuDroid QA: KVM PV EOI active
+asg",
+        );
+        assert!(
+            !plan
+                .inactive(&interleaved, None)
+                .contains(&Tuning::AsgTransport)
+        );
+        let no_consumer = full_log().replace("ASG consumer spin active", "x");
+        assert!(
+            plan.inactive(&no_consumer, None)
+                .contains(&Tuning::AsgTransport)
+        );
+    }
+
+    #[test]
     fn startup_status_reports_options_without_their_proof_line() {
         let mut options = PerformanceOptions::default();
         options.guest_kernel_parameters = true;
-        let plan = Plan::new(&options, &Capability::ALL, true);
+        let plan = Plan::new(&options, &rev4_capabilities(), true);
         let log = full_log();
         let cmdline = format!("console=ttynull {KERNEL_PARAMETERS} ramoops.mem_address=0xff018000");
         assert!(plan.inactive(&log, Some(&cmdline)).is_empty());
