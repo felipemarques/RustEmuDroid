@@ -58,7 +58,7 @@ class ManifestTests(unittest.TestCase):
         self.assertTrue(all(TOOL["evidence"](files, TOOL["capability_markers"]()).values()))
         self.assertEqual(set(SPEC["capabilities"]), {
             "tsc_sync", "lapic_fastpath", "kvm_pv_eoi", "vulkan_cached_host", "vulkan_cached_device_local_v2",
-            "asg_spin", "vulkan_native_swapchain", "vcpu_placement_high", "guest_kernel_parameters"})
+            "asg_spin", "vulkan_native_swapchain", "vcpu_placement_high", "guest_kernel_parameters", "whpx_apic_hv"})
 
     def test_rejects_capabilities_without_evidence(self):
         put(self.qemu, b"MZ qa-whpx-16970787\0" + markers("qemu", drop={"sets-high", "RustEmuDroid QA: KVM PV EOI active"}))
@@ -74,6 +74,20 @@ class ManifestTests(unittest.TestCase):
         put(self.gfx, b"MZ stock renderer")
         with self.assertRaisesRegex(ValueError, "libgfxstream_backend.dll lacks"):
             TOOL["build_manifest"](self.engine, ["asg_spin"])
+
+    def test_hypervisor_apic_needs_gate_and_both_lines(self):
+        _, manifest = TOOL["build_manifest"](self.engine, ["tsc_sync", "whpx_apic_hv"])
+        self.assertEqual(manifest["capabilities"], ["tsc_sync", "whpx_apic_hv"])
+        for missing in ("RUSTEMUDROID_QA_WHPX_APIC", "RustEmuDroid QA: WHPX local APIC emulated by the hypervisor (xAPIC)",
+                        "RustEmuDroid QA: WHPX hypervisor local APIC unavailable ("):
+            with self.subTest(missing=missing):
+                put(self.qemu, b"MZ qa-whpx-16970787\0" + markers("qemu", drop={missing}))
+                with self.assertRaisesRegex(ValueError, "whpx_apic_hv"):
+                    TOOL["build_manifest"](self.engine, ["whpx_apic_hv"])
+                _, _, files = TOOL["engine_files"](self.engine)
+                found = TOOL["evidence"](files, TOOL["capability_markers"]())
+                self.assertFalse(found["whpx_apic_hv"])
+                self.assertTrue(found["tsc_sync"])
 
     def test_rejects_wrong_build_version_and_unsafe_extra_paths(self):
         with self.assertRaisesRegex(ValueError, "identify itself as build other-build"):

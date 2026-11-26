@@ -105,7 +105,7 @@ The two conditions need the same executable. For clock comparisons, confirm the 
 
 ## 4. Build the performance engine
 
-The `performance` variant rebuilds the QEMU core and the gfxstream renderer with the changes used for the November 26 uncapped Mailbox measurements, plus the later prompt proof lines and three options that are off by default (see the build table below). On the RTX 5070 Ti, with the earlier build, the recipe below measured 356 game FPS with the Windows Balanced power mode and 375 with Best performance, against 164–176 with the stock engine. [Measurements, recipe and limits](../../docs/performance-history.md#performance-engine-in-uncapped-mailbox)
+The `performance` variant rebuilds the QEMU core and the gfxstream renderer with the changes used for the November 26 uncapped Mailbox measurements, plus the later prompt proof lines, three options that are off by default and the hypervisor local APIC option (see the build table below). On the RTX 5070 Ti, with the earlier build, the recipe below measured 356 game FPS with the Windows Balanced power mode and 375 with Best performance, against 164–176 with the stock engine. [Measurements, recipe and limits](../../docs/performance-history.md#performance-engine-in-uncapped-mailbox)
 
 ### Sources
 
@@ -118,18 +118,20 @@ The QEMU patch is layered on the two published clock and cache patches, which st
 
 | Build | QEMU `qemu-system-x86_64.exe` | gfxstream `libgfxstream_backend.dll` | Sources |
 |---|---|---|---|
-| Published sources | `1c7a05e30e6d2f21a8d716e18cab7181c2e3a3e25756daa2137123b2502ea0c6` | `7d01cde7d9450e050effb4805c87dcf4c0cfaa274a290ac8f526f192eac085fe` | Pinned commits plus exactly these patches |
-| Measured | `a55d48c6d412693caebd7664744fd9f2f0d85d2a693e203c1d150a25a30b37f5` | `d92f6060d3dc054c54000ba5231b62bbcbcd61d6e1c08820c98ea4f2cc8360d0` | The same sources without P0, L2, P, Q and A3 (below) |
+| Published sources | `fc990b45532c16008327a15e07a15297963716d7dadb9e46ecab4acf3c1cb94f` | `7d01cde7d9450e050effb4805c87dcf4c0cfaa274a290ac8f526f192eac085fe` | Pinned commits plus exactly these patches. Used, with and without `RUSTEMUDROID_QA_WHPX_APIC=hv`, for the daytime hypervisor APIC series. |
+| v0.23.0 kit | `1c7a05e30e6d2f21a8d716e18cab7181c2e3a3e25756daa2137123b2502ea0c6` | `7d01cde7d9450e050effb4805c87dcf4c0cfaa274a290ac8f526f192eac085fe` | The same sources without R (below). Used for the daytime client and operator path series. |
+| Night measurements | `a55d48c6d412693caebd7664744fd9f2f0d85d2a693e203c1d150a25a30b37f5` | `d92f6060d3dc054c54000ba5231b62bbcbcd61d6e1c08820c98ea4f2cc8360d0` | The same sources without P0, L2, P, Q, A3 and R. Used for the night figures (356 and 375 FPS) and the Cipó Livre series. |
 
-**Every published timing so far used the measured build.** The published build has not been timed. It differs in one default-on change and in changes that are off unless their variable is set:
+The later builds differ from the night build in one default-on change and in changes that are off unless their variable is set:
 
 - **P0 (default on).** QEMU on Windows fully buffers stderr after `os_set_line_buffering()`, so one-time lines printed later in start-up reached the log only when the process exited, and the client could not confirm them during the session. Each RustEmuDroid proof and diagnostic line of QEMU is now formatted as one line, written with one call and flushed immediately through new helpers in `util/qemu-error.c`. The text of the lines is unchanged.
 - **L2** `RUSTEMUDROID_QA_RAM_SECTION` (QEMU): maps guest RAM from a named large-page section created by a separate privileged helper, which this repository does not ship. Never measured.
 - **P** `RUSTEMUDROID_QA_ASG_SPIN_RENDERING=1` (gfxstream, needs `RUSTEMUDROID_QA_ASG_SPIN_US`): the host reports itself as rendering while it spins, so the guest skips its wake-up ping after each command commit. The measurement so far is inconclusive.
 - **Q** `RUSTEMUDROID_QA_MMIO_FASTPATH=1` (QEMU): extends the LAPIC MOV fast path to every MMIO page. Not measured.
 - **A3** (QEMU): extra per-vCPU timing statistics under the existing `RUSTEMUDROID_QA_WHPX_EXIT_STATS` gate.
+- **R** `RUSTEMUDROID_QA_WHPX_APIC=hv` (QEMU, published-source build only): the Windows hypervisor emulates each vCPU's local APIC (xAPIC) instead of QEMU's user-mode APIC. The engine requires the hypervisor's local APIC emulation, the INIT/SIPI exit and `WHvRequestInterrupt`; MSIs and I/O APIC interrupts are delivered through `WHvRequestInterrupt`, while the I/O APIC, PIC, PIT and HPET stay in QEMU. x2APIC, TSC-deadline and MONITOR are hidden from the guest. It forces `RUSTEMUDROID_QA_KVM_PV_EOI` off, so the guest no longer reports KVM, and the LAPIC fast path has nothing left to handle. Proof line: `RustEmuDroid QA: WHPX local APIC emulated by the hypervisor (xAPIC)`. When the host cannot provide it, the engine prints `RustEmuDroid QA: WHPX hypervisor local APIC unavailable (<reason>, hr=…), using the user-mode APIC` and continues with the user-mode APIC. In one daytime series it raised SuperTuxKart from 345.2 to 380.1 FPS. Tested with cold boots of one image on one AMD PC only; snapshots, guest reboots, injected NMIs and x2APIC are untested. [Measurements](../../docs/performance-history.md#hypervisor-local-apic)
 
-P and Q have no client capability and the v0.23.0 client never enables them.
+P and Q have no client capability and the client never enables them. R is the client capability `whpx_apic_hv` (v0.24.0).
 
 The patches contain every change compiled into the published build. Apart from P0, each change is behind its own environment variable and inactive when the variable is unset. The client and the recipe use:
 
@@ -142,6 +144,7 @@ The patches contain every change compiled into the published build. Apart from P
 | `RUSTEMUDROID_QA_VCPU_PLACEMENT` | QEMU | `sets-high` | Gives each vCPU its own physical core at the top of the core list and keeps the other engine threads on the remaining cores. Needs at least vCPUs + 2 physical cores. |
 | `RUSTEMUDROID_QA_LAPIC_FASTPATH` | QEMU | `1` | Handles 32-bit MOV accesses to the local APIC page without the generic instruction emulator |
 | `RUSTEMUDROID_QA_KVM_PV_EOI` | QEMU | `1` | Offers the KVM paravirtual end-of-interrupt protocol. The guest then reports KVM as its hypervisor and x2APIC is hidden. |
+| `RUSTEMUDROID_QA_WHPX_APIC` | QEMU | `hv` | Hypervisor-emulated local APIC (R above). Requested by the v0.24.0 client together with the CPU virtualization switch when the manifest lists `whpx_apic_hv`. Overrides the two lines above. |
 
 These are also present and were tested off or rejected: `RUSTEMUDROID_QA_VCPU_CORES`, `RUSTEMUDROID_QA_VCPU_PRIORITY`, `RUSTEMUDROID_QA_PRERUN_LOCKLESS`, `RUSTEMUDROID_QA_HALT_POLL_US`, `RUSTEMUDROID_QA_WHPX_EXIT_STATS` (diagnostic exit counters), `RUSTEMUDROID_QA_PIPE_RECV_WAIT_US`, `RUSTEMUDROID_QA_PIPE_LOCKLESS`, `RUSTEMUDROID_QA_RAM_LARGE_PAGES` (QEMU), `RUSTEMUDROID_QA_RENDER_SPIN_US` and `RUSTEMUDROID_QA_READBACK_UNLOCK` (gfxstream). `PIPE_LOCKLESS` and `RAM_LARGE_PAGES` were compiled but never enabled in a measured boot. The v0.23.0 client removes every inherited `RUSTEMUDROID_QA_*` variable before it starts this engine. The recipe also uses the stock `-feature VulkanNativeSwapchain` and, optionally, the AVD key `kernel.parameters=mitigations=off init_on_alloc=0 transparent_hugepage=always`.
 
@@ -168,6 +171,7 @@ python -B $Manifest write --engine $Perf `
     --capability tsc_sync --capability vulkan_cached_host --capability vulkan_cached_device_local_v2 `
     --capability asg_spin --capability vulkan_native_swapchain --capability vcpu_placement_high `
     --capability lapic_fastpath --capability kvm_pv_eoi --capability guest_kernel_parameters `
+    --capability whpx_apic_hv `
     --extra emulator/lib64/libemugl_common.dll --build-id 'qa-whpx-16970787 local'
 ```
 

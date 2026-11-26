@@ -12,18 +12,20 @@
       "patches": [
         {"path": "benchmarks/stk-1.5/whpx-tsc-sync.patch", "sha256": "8b81a6900924fb9f434ef1cab81580f00c804d0a94479971bd0bb41e2f532eee"},
         {"path": "benchmarks/stk-1.5/gfxstream-cached-host-qa.patch", "sha256": "8307128bfe941c3328e89a88d7172e041602e1b4f03ad56e2c6bb303a75b251e"},
-        {"path": "benchmarks/stk-1.5/performance-engine-qemu.patch", "sha256": "e2d2b2705a7a847c8a97c7db34a92d76028b97084d738a215f950037e0e8efee"}
+        {"path": "benchmarks/stk-1.5/performance-engine-qemu.patch", "sha256": "b2f549d68802f7afa51a596ca98e2f75c1f3dd55d3bf981952d1e96bf3bc67dc"}
       ],
       "patched_blobs": {
         "android/android-emu/android/opengl/OpenglEsPipe.cpp": "9b8bc2d115d59027907af9c2991343656449ed28",
         "android/android-emu/android/opengles.cpp": "3e950056c7706fb0d9ebbf99d9beb0a593607b7b",
         "android/emu/hardware/src/android/emulation/AndroidPipe.cpp": "a632480e05c2975913a05f0d75ef151618e90280",
-        "cpus.c": "a4ee7a5ba26cab30c6b50189bda72ae6c4fc6837",
+        "cpus.c": "6084bf09597b485965bbb8fa0e4e34743435e857",
         "exec.c": "1980f13454f9d07aa0fc54eeabba41c977471a0d",
+        "hw/i386/pc.c": "38477509a2f65f883639696546bd7b6d39c0d1b9",
         "hw/misc/goldfish_pipe.c": "fdd804789f38a2aed5409855931b93e54241bfe7",
         "include/qemu/error-report.h": "cef375e854f16b81006feef03ed232a49cd66086",
-        "include/sysemu/whpx.h": "e567ce44df1484005fc7b986d91d7539a808052d",
-        "target/i386/whpx-all.c": "610697536787be37dc37f0b5e4c538ad37b9e922",
+        "include/sysemu/whpx.h": "86731ccd2c0047f8c2839af150f7ee57ea9cdd5c",
+        "target/i386/cpu.c": "99fdb0c0898f9c34095a2cfb89893cd24d0659f2",
+        "target/i386/whpx-all.c": "6502f0b6d21a05a0136716ed480d64e293641360",
         "util/oslib-win32.c": "5d44b0bb5b383861512be3cf0bc773eac798d517",
         "util/qemu-error.c": "974fd3a140002a9305d5cf22d96f10cf12a40339"
       }
@@ -55,11 +57,16 @@
     "note": "Hashes of the test PC's builds. A local build of the same sources normally produces different hashes (paths, PDB signatures, toolchain servicing).",
     "published_sources": {
       "description": "Built from the pinned commits plus exactly these patches.",
+      "qemu/windows-x86_64/qemu-system-x86_64.exe": {"sha256": "fc990b45532c16008327a15e07a15297963716d7dadb9e46ecab4acf3c1cb94f", "bytes": 66877952},
+      "lib64/libgfxstream_backend.dll": {"sha256": "7d01cde7d9450e050effb4805c87dcf4c0cfaa274a290ac8f526f192eac085fe", "bytes": 23054336}
+    },
+    "v0_23_0_kit": {
+      "description": "Sources of the v0.23.0 kit: the same sources without R. Used for the daytime client and operator path series.",
       "qemu/windows-x86_64/qemu-system-x86_64.exe": {"sha256": "1c7a05e30e6d2f21a8d716e18cab7181c2e3a3e25756daa2137123b2502ea0c6", "bytes": 66872832},
       "lib64/libgfxstream_backend.dll": {"sha256": "7d01cde7d9450e050effb4805c87dcf4c0cfaa274a290ac8f526f192eac085fe", "bytes": 23054336}
     },
     "measured": {
-      "description": "Used for every published timing of 2026-11-25/26. Same sources minus P0, L2, P, Q and A3.",
+      "description": "Used for the night timings of 2026-11-25/26 and the Cipó Livre series. Same sources minus P0, L2, P, Q, A3 and R.",
       "qemu/windows-x86_64/qemu-system-x86_64.exe": {"sha256": "a55d48c6d412693caebd7664744fd9f2f0d85d2a693e203c1d150a25a30b37f5", "bytes": 66869760},
       "lib64/libgfxstream_backend.dll": {"sha256": "d92f6060d3dc054c54000ba5231b62bbcbcd61d6e1c08820c98ea4f2cc8360d0", "bytes": 23053312}
     },
@@ -76,6 +83,7 @@
     {"variable": "RUSTEMUDROID_QA_VCPU_PLACEMENT", "module": "qemu", "recipe": true, "value": "sets-high", "proof": "RustEmuDroid QA: vCPU placement mode=sets-high vcpu->cpus:"},
     {"variable": "RUSTEMUDROID_QA_LAPIC_FASTPATH", "module": "qemu", "recipe": true, "value": "1", "proof": "RustEmuDroid QA: LAPIC MMIO fast path active (32-bit MOV)"},
     {"variable": "RUSTEMUDROID_QA_KVM_PV_EOI", "module": "qemu", "recipe": true, "value": "1", "proof": "RustEmuDroid QA: KVM PV EOI active"},
+    {"variable": "RUSTEMUDROID_QA_WHPX_APIC", "module": "qemu", "recipe": true, "value": "hv", "proof": "RustEmuDroid QA: WHPX local APIC emulated by the hypervisor (xAPIC)", "fallback": "RustEmuDroid QA: WHPX hypervisor local APIC unavailable (", "status": "measured during the day with Best performance only; overrides RUSTEMUDROID_QA_KVM_PV_EOI and makes the LAPIC fast path inapplicable"},
     {"variable": "RUSTEMUDROID_QA_VCPU_CORES", "module": "qemu", "recipe": false, "value": "list of physical cores", "proof": "RustEmuDroid QA: vCPU placement mode="},
     {"variable": "RUSTEMUDROID_QA_VCPU_PRIORITY", "module": "qemu", "recipe": false, "value": "1", "proof": "RustEmuDroid QA: vCPU threads at THREAD_PRIORITY_ABOVE_NORMAL"},
     {"variable": "RUSTEMUDROID_QA_PRERUN_LOCKLESS", "module": "qemu", "recipe": false, "value": "1", "proof": "RustEmuDroid QA: WHPX pre-run lockless check active"},
@@ -99,6 +107,7 @@
     "asg_spin": {"gfxstream": ["RUSTEMUDROID_QA_ASG_SPIN_US", "RustEmuDroid QA: ASG consumer spin active"]},
     "vcpu_placement_high": {"qemu": ["RUSTEMUDROID_QA_VCPU_PLACEMENT", "sets-high", "RustEmuDroid QA: vCPU placement mode="]},
     "vulkan_native_swapchain": {"qemu": ["VulkanNativeSwapchain"], "gfxstream": ["useVulkanNativeSwapchain"]},
-    "guest_kernel_parameters": {"qemu": ["kernel.parameters"]}
+    "guest_kernel_parameters": {"qemu": ["kernel.parameters"]},
+    "whpx_apic_hv": {"qemu": ["RUSTEMUDROID_QA_WHPX_APIC", "RustEmuDroid QA: WHPX local APIC emulated by the hypervisor (xAPIC)", "RustEmuDroid QA: WHPX hypervisor local APIC unavailable ("]}
   }
 }

@@ -104,6 +104,20 @@ index 539ff123..a632480e 100644
  void android_pipe_guest_wake_on(void* internalPipe, unsigned wakes) {
      CHECK_VM_STATE_LOCK();
      auto pipe = static_cast<AndroidPipe*>(internalPipe);
+diff --git a/cpus.c b/cpus.c
+index a4ee7a5b..6084bf09 100644
+--- a/cpus.c
++++ b/cpus.c
+@@ -108,7 +108,8 @@ static bool cpu_thread_is_idle(CPUState *cpu)
+         return true;
+     }
+     if (!cpu->halted || cpu_has_work(cpu) ||
+-        kvm_halt_in_kernel()) {
++        kvm_halt_in_kernel() ||
++        whpx_apic_in_platform() /* RustEmuDroid QA R: halt in hypervisor */) {
+         return false;
+     }
+     return true;
 diff --git a/exec.c b/exec.c
 index d4d9ff9d..1980f134 100644
 --- a/exec.c
@@ -135,6 +149,38 @@ index d4d9ff9d..1980f134 100644
      block->page_size = qemu_fd_getpagesize(fd);
      if (block->mr->align % block->page_size) {
          error_setg(errp, "alignment 0x%" PRIx64
+diff --git a/hw/i386/pc.c b/hw/i386/pc.c
+index 12f1b410..38477509 100644
+--- a/hw/i386/pc.c
++++ b/hw/i386/pc.c
+@@ -51,6 +51,7 @@
+ #include "sysemu/numa.h"
+ #include "sysemu/kvm.h"
+ #include "sysemu/aehd.h"
++#include "sysemu/whpx.h"
+ #include "sysemu/qtest.h"
+ #include "kvm_i386.h"
+ #include "aehd_i386.h"
+@@ -171,7 +172,8 @@ int cpu_get_pic_interrupt(CPUX86State *env)
+     X86CPU *cpu = x86_env_get_cpu(env);
+     int intno;
+ 
+-    if (!kvm_irqchip_in_kernel()) {
++    /* RustEmuDroid QA R: with the hypervisor APIC only the 8259 is read. */
++    if (!kvm_irqchip_in_kernel() && !whpx_apic_in_platform()) {
+         intno = apic_get_interrupt(cpu->apic_state);
+         if (intno >= 0) {
+             return intno;
+@@ -192,7 +194,8 @@ static void pic_irq_request(void *opaque, int irq, int level)
+     X86CPU *cpu = X86_CPU(cs);
+ 
+     DPRINTF("pic_irqs: %s irq %d\n", level? "raise" : "lower", irq);
+-    if (cpu->apic_state && !kvm_irqchip_in_kernel()) {
++    if (cpu->apic_state && !kvm_irqchip_in_kernel() &&
++        !whpx_apic_in_platform() /* RustEmuDroid QA R: ExtINT to vCPU 0 */) {
+         CPU_FOREACH(cs) {
+             cpu = X86_CPU(cs);
+             if (apic_accept_pic_intr(cpu->apic_state)) {
 diff --git a/hw/misc/goldfish_pipe.c b/hw/misc/goldfish_pipe.c
 index 0d501db7..fdd80478 100644
 --- a/hw/misc/goldfish_pipe.c
@@ -307,22 +353,56 @@ index 7dbdc43a..cef375e8 100644
  
  const char *error_get_progname(void);
  extern bool enable_timestamp_msg;
+diff --git a/include/sysemu/whpx.h b/include/sysemu/whpx.h
+index e567ce44..86731ccd 100644
+--- a/include/sysemu/whpx.h
++++ b/include/sysemu/whpx.h
+@@ -32,10 +32,13 @@ void* whpx_gpa2hva(uint64_t gpa, bool* found);
+ 
+ int whpx_enabled(void);
+ void whpx_qa_synchronize_tsc(const char *phase);
++/* RustEmuDroid QA R: local APICs emulated by the hypervisor. */
++bool whpx_apic_in_platform(void);
+ 
+ #else /* CONFIG_WHPX */
+ 
+ #define whpx_enabled() (0)
++#define whpx_apic_in_platform() (0)
+ 
+ #endif /* CONFIG_WHPX */
+ 
+diff --git a/target/i386/cpu.c b/target/i386/cpu.c
+index 5dd7b444..99fdb0c0 100644
+--- a/target/i386/cpu.c
++++ b/target/i386/cpu.c
+@@ -3991,6 +3991,8 @@ APICCommonClass *apic_get_class(void)
+         apic_type = "kvm-apic";
+     } else if (aehd_apic_in_kernel()) {
+         apic_type = "aehd-apic";
++    } else if (whpx_apic_in_platform()) {
++        apic_type = "whpx-apic"; /* RustEmuDroid QA R */
+     } else if (xen_enabled()) {
+         apic_type = "xen-apic";
+     }
 diff --git a/target/i386/whpx-all.c b/target/i386/whpx-all.c
-index 42f2b179..61069753 100644
+index 42f2b179..6502f0b6 100644
 --- a/target/i386/whpx-all.c
 +++ b/target/i386/whpx-all.c
-@@ -27,6 +27,10 @@
+@@ -27,6 +27,13 @@
  #include "qemu/abort.h"
  #include "qemu/main-loop.h"
  #include "hw/boards.h"
 +#include "hw/i386/apic_internal.h"
++#include "hw/i386/apic-msidef.h"
++#include "hw/i386/ioapic.h"
++#include "hw/pci/msi.h"
 +#include "qemu/host-utils.h"
 +#include "qemu/rcu.h"
 +#include "qemu/thread.h"
  #include "qemu/error-report.h"
  #include "qemu/queue.h"
  #include "qapi/error.h"
-@@ -167,6 +171,11 @@ struct whpx_vcpu {
+@@ -167,6 +174,15 @@ struct whpx_vcpu {
      uint64_t apic_base;
      bool interruption_pending;
  
@@ -331,13 +411,40 @@ index 42f2b179..61069753 100644
 +    bool qa_pv_eoi_pending;   /* guest flag set by us for the current entry */
 +    bool qa_pv_eoi_check;     /* an injected vector may still be in service */
 +
++    /* RustEmuDroid QA R (hypervisor APIC): an interrupt window opened for
++     * the 8259 output; only used by the vCPU thread. */
++    bool qa_ready_for_pic_interrupt;
++
      /* Must be the last field as it may have a tail */
      WHV_RUN_VP_EXIT_CONTEXT exit_ctx;
  };
-@@ -181,6 +190,673 @@ static WHV_PROCESSOR_XSAVE_FEATURES whpx_xsave_cap;
+@@ -181,6 +197,702 @@ static WHV_PROCESSOR_XSAVE_FEATURES whpx_xsave_cap;
  struct whpx_state whpx_global;
  struct WHPDispatch whp_dispatch;
  
++/*
++ * RustEmuDroid QA R (RUSTEMUDROID_QA_WHPX_APIC=hv): the local APICs are
++ * emulated by the hypervisor (WHvPartitionPropertyCodeLocalApicEmulationMode
++ * = xAPIC). Set once in whpx_accel_init before any vCPU exists, read-only
++ * afterwards. Design after upstream QEMU's WHPX kernel-irqchip support
++ * (hw/i386/whpx/whpx-apic.c) and Kemu 21a3456b69; code written for this tree.
++ */
++static bool whpx_qa_apic_hv;
++typedef HRESULT (WINAPI *WhpxRequestInterruptFn)(
++    WHV_PARTITION_HANDLE, const WHV_INTERRUPT_CONTROL *, UINT32);
++typedef HRESULT (WINAPI *WhpxGetIcState2Fn)(
++    WHV_PARTITION_HANDLE, UINT32, PVOID, UINT32, UINT32 *);
++typedef HRESULT (WINAPI *WhpxSetIcState2Fn)(
++    WHV_PARTITION_HANDLE, UINT32, const VOID *, UINT32);
++static WhpxRequestInterruptFn whpx_qa_request_interrupt;
++static WhpxGetIcState2Fn whpx_qa_get_ic_state2;
++static WhpxSetIcState2Fn whpx_qa_set_ic_state2;
++
++bool whpx_apic_in_platform(void)
++{
++    return whpx_qa_apic_hv;
++}
++
 +/*
 + * RustEmuDroid QA: WHPX exit statistics, RUSTEMUDROID_QA_WHPX_EXIT_STATS=<ms>.
 + * Idea and layout follow the KEMU_WHPX_EXIT_STATS instrumentation of Kemu
@@ -359,13 +466,15 @@ index 42f2b179..61069753 100644
 +    WHPX_QA_EXIT_MSR,
 +    WHPX_QA_EXIT_CPUID,
 +    WHPX_QA_EXIT_OTHER,
++    WHPX_QA_EXIT_APIC_EOI,   /* R: hypervisor APIC, level-triggered EOI */
++    WHPX_QA_EXIT_INIT_SIPI,  /* R: hypervisor APIC, INIT/SIPI trap */
 +    WHPX_QA_EXIT_NR,
 +};
 +
 +static const char *const whpx_qa_exit_names[WHPX_QA_EXIT_NR] = {
 +    "mmio-hpet", "mmio-lapic", "mmio-ioapic", "mmio-pipe", "mmio-asg",
 +    "mmio-other", "io", "hlt", "canceled", "irq-window", "msr", "cpuid",
-+    "other",
++    "other", "apic-eoi", "init-sipi",
 +};
 +
 +#define WHPX_QA_TOP_SLOTS 64
@@ -733,6 +842,10 @@ index 42f2b179..61069753 100644
 +        return WHPX_QA_EXIT_MSR;
 +    case WHvRunVpExitReasonX64Cpuid:
 +        return WHPX_QA_EXIT_CPUID;
++    case WHvRunVpExitReasonX64ApicEoi:
++        return WHPX_QA_EXIT_APIC_EOI;
++    case WHvRunVpExitReasonX64ApicInitSipiTrap:
++        return WHPX_QA_EXIT_INIT_SIPI;
 +    default:
 +        return WHPX_QA_EXIT_OTHER;
 +    }
@@ -1008,7 +1121,7 @@ index 42f2b179..61069753 100644
  static bool whpx_has_xsave(void)
  {
      return whpx_xsave_cap.XsaveSupport;
-@@ -845,6 +1521,106 @@ static int whpx_handle_mmio(CPUState *cpu, WHV_MEMORY_ACCESS_CONTEXT *ctx)
+@@ -845,6 +1557,106 @@ static int whpx_handle_mmio(CPUState *cpu, WHV_MEMORY_ACCESS_CONTEXT *ctx)
      return 0;
  }
  
@@ -1115,7 +1228,7 @@ index 42f2b179..61069753 100644
  static int whpx_handle_portio(CPUState *cpu,
                                WHV_X64_IO_PORT_ACCESS_CONTEXT *ctx)
  {
-@@ -876,6 +1652,24 @@ static int whpx_handle_halt(CPUState *cpu)
+@@ -876,6 +1688,24 @@ static int whpx_handle_halt(CPUState *cpu)
      int ret = 0;
  
      qemu_mutex_lock_iothread();
@@ -1140,7 +1253,7 @@ index 42f2b179..61069753 100644
      if (!((cpu->interrupt_request & CPU_INTERRUPT_HARD) &&
            (env->eflags & IF_MASK)) &&
          !(cpu->interrupt_request & CPU_INTERRUPT_NMI)) {
-@@ -888,6 +1682,104 @@ static int whpx_handle_halt(CPUState *cpu)
+@@ -888,6 +1718,411 @@ static int whpx_handle_halt(CPUState *cpu)
      return ret;
  }
  
@@ -1242,10 +1355,326 @@ index 42f2b179..61069753 100644
 +    vcpu->qa_pv_eoi_check = false;
 +}
 +
++/*
++ * RustEmuDroid QA R: hypervisor local APIC support.
++ */
++static bool whpx_qa_activity_get(CPUState *cpu, bool *startup, bool *halt)
++{
++    WHV_REGISTER_NAME name = WHvRegisterInternalActivityState;
++    WHV_REGISTER_VALUE value;
++
++    memset(&value, 0, sizeof(value));
++    if (FAILED(whp_dispatch.WHvGetVirtualProcessorRegisters(
++            whpx_global.partition, cpu->cpu_index, &name, 1, &value))) {
++        return false;
++    }
++    *startup = value.InternalActivity.StartupSuspend;
++    *halt = value.InternalActivity.HaltSuspend;
++    return true;
++}
++
++static void whpx_qa_activity_set(CPUState *cpu, bool startup, bool halt)
++{
++    WHV_REGISTER_NAME name = WHvRegisterInternalActivityState;
++    WHV_REGISTER_VALUE value;
++    HRESULT hr;
++
++    memset(&value, 0, sizeof(value));
++    value.InternalActivity.StartupSuspend = startup;
++    value.InternalActivity.HaltSuspend = halt;
++    hr = whp_dispatch.WHvSetVirtualProcessorRegisters(
++        whpx_global.partition, cpu->cpu_index, &name, 1, &value);
++    if (FAILED(hr)) {
++        error_report("RustEmuDroid QA R: set activity state of vCPU %d"
++                     " (startup=%d halt=%d) failed, hr=%08lx",
++                     cpu->cpu_index, startup, halt, hr);
++    }
++}
++
++static void whpx_qa_hv_request(const WHV_INTERRUPT_CONTROL *ic, const char *what)
++{
++    static int reported;
++    HRESULT hr = whpx_qa_request_interrupt(whpx_global.partition, ic,
++                                           sizeof(*ic));
++    if (FAILED(hr) && reported < 20) {
++        reported++;
++        qa_error_report("RustEmuDroid QA R: WHvRequestInterrupt(%s type=%u"
++                        " dest=%u mode=%u trig=%u vec=%u) failed, hr=%08lx",
++                        what, (unsigned)ic->Type, ic->Destination,
++                        (unsigned)ic->DestinationMode,
++                        (unsigned)ic->TriggerMode, ic->Vector, hr);
++    }
++}
++
++/* INIT/SIPI written to the ICR trap to user mode; forward them. */
++static void whpx_qa_hv_init_sipi(CPUState *cpu, uint64_t icr)
++{
++    WHV_INTERRUPT_CONTROL ipi;
++    const uint32_t mode = (icr & APIC_ICR_DELIV_MOD) >> APIC_ICR_DELIV_MOD_SHIFT;
++    const int shorthand = (icr & APIC_ICR_DEST_SHORT) >> APIC_ICR_DEST_SHORT_SHIFT;
++    CPUState *cs;
++
++    if (mode != APIC_DM_INIT && mode != APIC_DM_SIPI) {
++        qa_error_report("RustEmuDroid QA R: unexpected INIT/SIPI trap icr=%016"
++                        PRIx64, icr);
++        return;
++    }
++    /* INIT level de-assert: arbitration ID resync only. */
++    if (mode == APIC_DM_INIT && (icr & APIC_ICR_TRIGGER_MOD) &&
++        !(icr & APIC_ICR_LEVEL)) {
++        return;
++    }
++    memset(&ipi, 0, sizeof(ipi));
++    ipi.Type = mode == APIC_DM_INIT ? WHvX64InterruptTypeInit
++                                    : WHvX64InterruptTypeSipi;
++    ipi.DestinationMode = (icr & APIC_ICR_DEST_MOD)
++                              ? WHvX64InterruptDestinationModeLogical
++                              : WHvX64InterruptDestinationModePhysical;
++    ipi.TriggerMode = WHvX64InterruptTriggerModeEdge;
++    ipi.Vector = icr & APIC_VECTOR_MASK;
++    if (shorthand == 0) {
++        ipi.Destination = (icr >> 56) & 0xff;
++        whpx_qa_hv_request(&ipi, mode == APIC_DM_INIT ? "INIT" : "SIPI");
++        return;
++    }
++    ipi.DestinationMode = WHvX64InterruptDestinationModePhysical;
++    CPU_FOREACH(cs) {
++        if ((shorthand == 1 && cs != cpu) || (shorthand == 3 && cs == cpu)) {
++            continue;
++        }
++        ipi.Destination = X86_CPU(cs)->apic_id;
++        whpx_qa_hv_request(&ipi, mode == APIC_DM_INIT ? "INIT" : "SIPI");
++    }
++}
++
++/* The xAPIC register page as InterruptControllerState2 returns it. */
++typedef struct WhpxQaLapicPage {
++    struct {
++        uint32_t data;
++        uint32_t pad[3];
++    } r[256];
++} WhpxQaLapicPage;
++
++static void whpx_qa_apic_put(CPUState *cs, run_on_cpu_data data)
++{
++    APICCommonState *s = data.host_ptr;
++    WHV_REGISTER_NAME name = WHvX64RegisterApicBase;
++    WHV_REGISTER_VALUE value;
++    WhpxQaLapicPage *page;
++    bool startup = false, halt = false;
++    UINT32 written = 0;
++    HRESULT hr;
++    int i;
++
++    memset(&value, 0, sizeof(value));
++    value.Reg64 = s->apicbase;
++    hr = whp_dispatch.WHvSetVirtualProcessorRegisters(
++        whpx_global.partition, cs->cpu_index, &name, 1, &value);
++    if (FAILED(hr)) {
++        error_report("RustEmuDroid QA R: set APIC base of vCPU %d failed,"
++                     " hr=%08lx", cs->cpu_index, hr);
++    }
++
++    /* Hyper-V does not apply an APIC state to a vCPU it holds halted (the
++     * call waits for the vCPU to run); an INIT takes it out of the halt. */
++    if (whpx_qa_activity_get(cs, &startup, &halt) && halt) {
++        WHV_INTERRUPT_CONTROL init;
++        memset(&init, 0, sizeof(init));
++        init.Type = WHvX64InterruptTypeInit;
++        init.Destination = s->id;
++        whpx_qa_hv_request(&init, "INIT(reset)");
++    }
++
++    if (whpx_qa_get_ic_state2 && whpx_qa_set_ic_state2) {
++        page = g_new0(WhpxQaLapicPage, 1);
++        hr = whpx_qa_get_ic_state2(whpx_global.partition, cs->cpu_index,
++                                   page, sizeof(*page), &written);
++        if (SUCCEEDED(hr)) {
++            /* Only what QEMU models; the rest keeps the hypervisor's value. */
++            page->r[0x2].data = (uint32_t)s->id << 24;
++            page->r[0x8].data = s->tpr;
++            page->r[0xd].data = (uint32_t)s->log_dest << 24;
++            page->r[0xe].data = (uint32_t)s->dest_mode << 28 | 0x0fffffff;
++            page->r[0xf].data = s->spurious_vec;
++            for (i = 0; i < 8; i++) {
++                page->r[0x10 + i].data = s->isr[i];
++                page->r[0x18 + i].data = s->tmr[i];
++                page->r[0x20 + i].data = s->irr[i];
++            }
++            page->r[0x28].data = s->esr;
++            page->r[0x30].data = s->icr[0];
++            page->r[0x31].data = s->icr[1];
++            for (i = 0; i < APIC_LVT_NB; i++) {
++                page->r[0x32 + i].data = s->lvt[i];
++            }
++            page->r[0x38].data = s->initial_count;
++            page->r[0x3e].data = s->divide_conf;
++            hr = whpx_qa_set_ic_state2(whpx_global.partition, cs->cpu_index,
++                                       page, sizeof(*page));
++        }
++        if (FAILED(hr)) {
++            qa_warn_report("RustEmuDroid QA R: APIC state reset of vCPU %d"
++                           " failed (hr=%08lx), keeping the hypervisor's",
++                           cs->cpu_index, hr);
++        }
++        g_free(page);
++    }
++
++    /* Application processors wait for SIPI inside the hypervisor. */
++    whpx_qa_activity_set(cs, s->wait_for_sipi != 0, false);
++}
++
++static void whpx_qa_apic_set_base(APICCommonState *s, uint64_t val)
++{
++    s->apicbase = val;
++}
++
++static void whpx_qa_apic_set_tpr(APICCommonState *s, uint8_t val)
++{
++    s->tpr = (val & 0x0f) << 4;
++}
++
++static uint8_t whpx_qa_apic_get_tpr(APICCommonState *s)
++{
++    return s->tpr >> 4;
++}
++
++static void whpx_qa_apic_vapic_base_update(APICCommonState *s)
++{
++}
++
++static void whpx_qa_apic_external_nmi(APICCommonState *s)
++{
++    WHV_INTERRUPT_CONTROL ic;
++
++    memset(&ic, 0, sizeof(ic));
++    ic.Type = WHvX64InterruptTypeNmi;
++    ic.Destination = s->id;
++    whpx_qa_hv_request(&ic, "NMI");
++}
++
++static void whpx_qa_send_msi(MSIMessage *msg)
++{
++    const uint64_t addr = msg->address;
++    const uint32_t data = msg->data;
++    const uint32_t vector = data & 0xff;
++    const uint32_t delivery = (data >> MSI_DATA_DELIVERY_MODE_SHIFT) & 7;
++    WHV_INTERRUPT_CONTROL ic;
++
++    /* ExtINT (an IOAPIC pin in virtual-wire mode) is the 8259 output, which
++     * pic_irq_request() injects separately; SMI is not supported. */
++    if (delivery == APIC_DM_EXTINT || delivery == APIC_DM_SMI ||
++        delivery == 3 || (vector < 16 && delivery <= APIC_DM_LOWPRI)) {
++        return;
++    }
++    memset(&ic, 0, sizeof(ic));
++    ic.Type = delivery; /* WHV_INTERRUPT_TYPE values equal the MSI modes */
++    ic.DestinationMode = ((addr >> MSI_ADDR_DEST_MODE_SHIFT) & 1)
++                             ? WHvX64InterruptDestinationModeLogical
++                             : WHvX64InterruptDestinationModePhysical;
++    ic.TriggerMode = ((data >> MSI_DATA_TRIGGER_SHIFT) & 1)
++                         ? WHvX64InterruptTriggerModeLevel
++                         : WHvX64InterruptTriggerModeEdge;
++    ic.Destination = (addr >> MSI_ADDR_DEST_ID_SHIFT) & 0xff;
++    ic.Vector = vector;
++    whpx_qa_hv_request(&ic, "MSI");
++}
++
++static uint64_t whpx_qa_apic_mem_read(void *opaque, hwaddr addr, unsigned size)
++{
++    return ~(uint64_t)0;
++}
++
++static void whpx_qa_apic_mem_write(void *opaque, hwaddr addr, uint64_t data,
++                                   unsigned size)
++{
++    MSIMessage msg = { .address = addr, .data = data };
++
++    whpx_qa_send_msi(&msg);
++}
++
++static const MemoryRegionOps whpx_qa_apic_io_ops = {
++    .read = whpx_qa_apic_mem_read,
++    .write = whpx_qa_apic_mem_write,
++    .endianness = DEVICE_NATIVE_ENDIAN,
++};
++
++static void whpx_qa_apic_reset(APICCommonState *s)
++{
++    run_on_cpu(CPU(s->cpu), whpx_qa_apic_put, RUN_ON_CPU_HOST_PTR(s));
++}
++
++static void whpx_qa_apic_post_load(APICCommonState *s)
++{
++    run_on_cpu(CPU(s->cpu), whpx_qa_apic_put, RUN_ON_CPU_HOST_PTR(s));
++}
++
++static void whpx_qa_apic_realize(DeviceState *dev, Error **errp)
++{
++    APICCommonState *s = APIC_COMMON(dev);
++
++    memory_region_init_io(&s->io_memory, OBJECT(s), &whpx_qa_apic_io_ops, s,
++                          "whpx-apic-msi", APIC_SPACE_SIZE);
++    msi_nonbroken = true;
++}
++
++static void whpx_qa_apic_unrealize(DeviceState *dev, Error **errp)
++{
++}
++
++static void whpx_qa_apic_class_init(ObjectClass *klass, void *data)
++{
++    APICCommonClass *k = APIC_COMMON_CLASS(klass);
++
++    k->realize = whpx_qa_apic_realize;
++    k->unrealize = whpx_qa_apic_unrealize;
++    k->reset = whpx_qa_apic_reset;
++    k->set_base = whpx_qa_apic_set_base;
++    k->set_tpr = whpx_qa_apic_set_tpr;
++    k->get_tpr = whpx_qa_apic_get_tpr;
++    k->post_load = whpx_qa_apic_post_load;
++    k->vapic_base_update = whpx_qa_apic_vapic_base_update;
++    k->external_nmi = whpx_qa_apic_external_nmi;
++    k->send_msi = whpx_qa_send_msi;
++}
++
++static const TypeInfo whpx_qa_apic_info = {
++    .name = "whpx-apic",
++    .parent = TYPE_APIC_COMMON,
++    .instance_size = sizeof(APICCommonState),
++    .class_init = whpx_qa_apic_class_init,
++};
++
++static void whpx_qa_apic_register_types(void)
++{
++    type_register_static(&whpx_qa_apic_info);
++}
++
++type_init(whpx_qa_apic_register_types)
++
++/* An ExtINT pending event does not end a hypervisor HLT by itself. */
++static void whpx_qa_hv_wake_from_halt(CPUState *cpu)
++{
++    bool startup, halt;
++
++    if (whpx_qa_activity_get(cpu, &startup, &halt) && halt) {
++        whpx_qa_activity_set(cpu, startup, false);
++    }
++}
++
  static void whpx_vcpu_pre_run(CPUState *cpu)
  {
      HRESULT hr;
-@@ -905,6 +1797,28 @@ static void whpx_vcpu_pre_run(CPUState *cpu)
+@@ -899,12 +2134,35 @@ static void whpx_vcpu_pre_run(CPUState *cpu)
+     uint8_t tpr;
+     WHV_X64_PENDING_INTERRUPTION_REGISTER new_int;
+     UINT32 reg_count = 0;
+-    WHV_REGISTER_VALUE reg_values[3];
+-    WHV_REGISTER_NAME reg_names[3];
++    WHV_REGISTER_VALUE reg_values[4];
++    WHV_REGISTER_NAME reg_names[4];
++    bool qa_wake = false;
+ 
      memset(&new_int, 0, sizeof(new_int));
      memset(reg_values, 0, sizeof(reg_values));
  
@@ -1274,7 +1703,37 @@ index 42f2b179..61069753 100644
      qemu_mutex_lock_iothread();
  
      /* Inject NMI */
-@@ -947,10 +1861,18 @@ static void whpx_vcpu_pre_run(CPUState *cpu)
+@@ -937,7 +2195,28 @@ static void whpx_vcpu_pre_run(CPUState *cpu)
+     }
+ 
+     /* Get pending hard interruption or replay one that was overwritten */
+-    if (!vcpu->interruption_pending &&
++    if (unlikely(whpx_qa_apic_hv)) {
++        /*
++         * RustEmuDroid QA R: the hypervisor APIC delivers everything except
++         * the 8259 output, which is injected as an ExtINT pending event once
++         * an interrupt-window exit said the guest can take it.
++         */
++        if (vcpu->qa_ready_for_pic_interrupt &&
++            (cpu->interrupt_request & CPU_INTERRUPT_HARD)) {
++            cpu->interrupt_request &= ~CPU_INTERRUPT_HARD;
++            irq = cpu_get_pic_interrupt(env);
++            if (irq >= 0) {
++                memset(&reg_values[reg_count], 0, sizeof(reg_values[0]));
++                reg_values[reg_count].ExtIntEvent.EventPending = 1;
++                reg_values[reg_count].ExtIntEvent.EventType =
++                    WHvX64PendingEventExtInt;
++                reg_values[reg_count].ExtIntEvent.Vector = irq;
++                reg_names[reg_count] = WHvRegisterPendingEvent;
++                reg_count += 1;
++                qa_wake = true;
++            }
++        }
++    } else if (!vcpu->interruption_pending &&
+         vcpu->interruptable && (env->eflags & IF_MASK)) {
+         assert(!new_int.InterruptionPending);
+         if (cpu->interrupt_request & CPU_INTERRUPT_HARD) {
+@@ -947,10 +2226,18 @@ static void whpx_vcpu_pre_run(CPUState *cpu)
                  new_int.InterruptionType = WHvX64PendingInterrupt;
                  new_int.InterruptionPending = 1;
                  new_int.InterruptionVector = irq;
@@ -1293,7 +1752,25 @@ index 42f2b179..61069753 100644
      /* Setup interrupt state if new one was prepared */
      if (new_int.InterruptionPending) {
          reg_values[reg_count].PendingInterruption = new_int;
-@@ -998,6 +1920,11 @@ static void whpx_vcpu_post_run(CPUState *cpu)
+@@ -979,6 +2266,7 @@ static void whpx_vcpu_pre_run(CPUState *cpu)
+     }
+ 
+     qemu_mutex_unlock_iothread();
++    vcpu->qa_ready_for_pic_interrupt = false;
+ 
+     if (reg_count) {
+         hr = whp_dispatch.WHvSetVirtualProcessorRegisters(
+@@ -989,6 +2277,9 @@ static void whpx_vcpu_pre_run(CPUState *cpu)
+                          " hr=%08lx", hr);
+         }
+     }
++    if (qa_wake) {
++        whpx_qa_hv_wake_from_halt(cpu);
++    }
+ 
+     return;
+ }
+@@ -998,6 +2289,11 @@ static void whpx_vcpu_post_run(CPUState *cpu)
      struct whpx_vcpu *vcpu = get_whpx_vcpu(cpu);
      struct CPUX86State *env = (CPUArchState *)(cpu->env_ptr);
      X86CPU *x86_cpu = X86_CPU(cpu);
@@ -1305,7 +1782,7 @@ index 42f2b179..61069753 100644
      env->eflags = vcpu->exit_ctx.VpContext.Rflags;
  
      uint64_t tpr = vcpu->exit_ctx.VpContext.Cr8;
-@@ -1029,6 +1956,9 @@ static void whpx_vcpu_process_async_events(CPUState *cpu)
+@@ -1029,6 +2325,9 @@ static void whpx_vcpu_process_async_events(CPUState *cpu)
          do_cpu_init(x86_cpu);
          cpu->vcpu_dirty = true;
          vcpu->interruptable = true;
@@ -1315,7 +1792,7 @@ index 42f2b179..61069753 100644
      }
  
      if (cpu->interrupt_request & CPU_INTERRUPT_POLL) {
-@@ -1066,8 +1996,18 @@ static int whpx_vcpu_run(CPUState *cpu)
+@@ -1066,10 +2365,22 @@ static int whpx_vcpu_run(CPUState *cpu)
      HRESULT hr;
      struct whpx_state *whpx = &whpx_global;
      struct whpx_vcpu *vcpu = get_whpx_vcpu(cpu);
@@ -1332,9 +1809,14 @@ index 42f2b179..61069753 100644
 +    }
 +
      whpx_vcpu_process_async_events(cpu);
-     if (cpu->halted) {
+-    if (cpu->halted) {
++    /* RustEmuDroid QA R: with the hypervisor APIC, halted vCPUs (and APs
++     * waiting for SIPI) wait inside WHvRunVirtualProcessor. */
++    if (cpu->halted && !whpx_qa_apic_hv) {
          cpu->exception_index = EXCP_HLT;
-@@ -1084,12 +2024,25 @@ static int whpx_vcpu_run(CPUState *cpu)
+         atomic_set(&cpu->exit_request, false);
+         return 0;
+@@ -1084,12 +2395,25 @@ static int whpx_vcpu_run(CPUState *cpu)
              cpu->vcpu_dirty = false;
          }
  
@@ -1360,7 +1842,7 @@ index 42f2b179..61069753 100644
          hr = whp_dispatch.WHvRunVirtualProcessor(
              whpx->partition, cpu->cpu_index,
              &vcpu->exit_ctx, sizeof(vcpu->exit_ctx));
-@@ -1101,10 +2054,59 @@ static int whpx_vcpu_run(CPUState *cpu)
+@@ -1101,10 +2425,59 @@ static int whpx_vcpu_run(CPUState *cpu)
              break;
          }
  
@@ -1420,7 +1902,42 @@ index 42f2b179..61069753 100644
              ret = whpx_handle_mmio(cpu, &vcpu->exit_ctx.MemoryAccess);
              break;
  
-@@ -1147,6 +2149,22 @@ static int whpx_vcpu_run(CPUState *cpu)
+@@ -1114,10 +2487,34 @@ static int whpx_vcpu_run(CPUState *cpu)
+ 
+         case WHvRunVpExitReasonX64InterruptWindow:
+             vcpu->window_registered = 0;
++            if (whpx_qa_apic_hv) {
++                vcpu->qa_ready_for_pic_interrupt = true;
++            }
++            ret = 0;
++            break;
++
++        case WHvRunVpExitReasonX64ApicEoi:
++            /* RustEmuDroid QA R: EOI of a level-triggered interrupt. */
++            qemu_mutex_lock_iothread();
++            ioapic_eoi_broadcast(vcpu->exit_ctx.ApicEoi.InterruptVector);
++            qemu_mutex_unlock_iothread();
++            ret = 0;
++            break;
++
++        case WHvRunVpExitReasonX64ApicInitSipiTrap:
++            /* RustEmuDroid QA R: forward INIT/SIPI to their targets. */
++            whpx_qa_hv_init_sipi(cpu, vcpu->exit_ctx.ApicInitSipi.ApicIcr);
+             ret = 0;
+             break;
+ 
+         case WHvRunVpExitReasonX64Halt:
++            if (whpx_qa_apic_hv) {
++                /* RustEmuDroid QA R: interrupts arrive in the hypervisor
++                 * APIC, so let the hypervisor wait for them. */
++                whpx_qa_activity_set(cpu, false, true);
++                ret = 0;
++                break;
++            }
+             ret = whpx_handle_halt(cpu);
+             break;
+ 
+@@ -1147,6 +2544,22 @@ static int whpx_vcpu_run(CPUState *cpu)
              reg_count = vcpu->exit_ctx.MsrAccess.AccessInfo.IsWrite ?
                          1 : 3;
  
@@ -1443,7 +1960,7 @@ index 42f2b179..61069753 100644
              hr = whp_dispatch.WHvSetVirtualProcessorRegisters(whpx->partition,
                                                   cpu->cpu_index,
                                                   reg_names, reg_count,
-@@ -1177,10 +2195,31 @@ static int whpx_vcpu_run(CPUState *cpu)
+@@ -1177,10 +2590,54 @@ static int whpx_vcpu_run(CPUState *cpu)
                      rcx =
                          vcpu->exit_ctx.CpuidAccess.DefaultResultRcx |
                          CPUID_EXT_HYPERVISOR;
@@ -1455,6 +1972,29 @@ index 42f2b179..61069753 100644
 +                         * this user-mode APIC has no x2APIC, so hide it.
 +                         */
 +                        rcx &= ~(UINT64)CPUID_EXT_X2APIC;
++                    }
++                    if (unlikely(whpx_qa_apic_hv)) {
++                        /*
++                         * RustEmuDroid QA R: the hypervisor APIC runs in
++                         * xAPIC mode; TSC-deadline and MONITOR/MWAIT are
++                         * hidden (as the VirtualBox NEM backend does).
++                         */
++                        static bool logged;
++                        if (!logged) {
++                            logged = true;
++                            qa_info_report("RustEmuDroid QA R: CPUID.1 default"
++                                           " ecx=%08llx edx=%08llx (x2apic=%d"
++                                           " tsc-deadline=%d monitor=%d), hiding"
++                                           " x2APIC, TSC-deadline, MONITOR",
++                                           (unsigned long long)rcx,
++                                           (unsigned long long)vcpu->exit_ctx.CpuidAccess.DefaultResultRdx,
++                                           !!(rcx & CPUID_EXT_X2APIC),
++                                           !!(rcx & CPUID_EXT_TSC_DEADLINE_TIMER),
++                                           !!(rcx & CPUID_EXT_MONITOR));
++                        }
++                        rcx &= ~(UINT64)(CPUID_EXT_X2APIC |
++                                         CPUID_EXT_TSC_DEADLINE_TIMER |
++                                         CPUID_EXT_MONITOR);
 +                    }
  
                      rdx = vcpu->exit_ctx.CpuidAccess.DefaultResultRdx;
@@ -1475,7 +2015,7 @@ index 42f2b179..61069753 100644
                  case 7:
                      rax = vcpu->exit_ctx.CpuidAccess.DefaultResultRax;
                      /* Disable SMAP support*/
-@@ -1193,6 +2232,11 @@ static int whpx_vcpu_run(CPUState *cpu)
+@@ -1193,6 +2650,11 @@ static int whpx_vcpu_run(CPUState *cpu)
                  case WHPX_CPUID_SIGNATURE:
                      memcpy(signature, "WHPXWHPXWHPX", 12);
                      rax = vcpu->exit_ctx.CpuidAccess.DefaultResultRax;
@@ -1487,7 +2027,7 @@ index 42f2b179..61069753 100644
                      rbx = signature[0];
                      rcx = signature[1];
                      rdx = signature[2];
-@@ -1254,6 +2298,17 @@ static int whpx_vcpu_run(CPUState *cpu)
+@@ -1254,6 +2716,17 @@ static int whpx_vcpu_run(CPUState *cpu)
              break;
          }
  
@@ -1505,7 +2045,7 @@ index 42f2b179..61069753 100644
      } while (!ret);
  
      cpu_exec_end(cpu);
-@@ -1280,12 +2335,12 @@ void whpx_qa_synchronize_tsc(const char *phase)
+@@ -1280,12 +2753,12 @@ void whpx_qa_synchronize_tsc(const char *phase)
      /* The post-init/reset caller owns the iothread lock. A parked VP cannot
       * enter WHvRunVirtualProcessor and resume partition time during the batch. */
      if (!qemu_mutex_iothread_locked()) {
@@ -1520,7 +2060,7 @@ index 42f2b179..61069753 100644
                           cpu->cpu_index, phase);
              exit(EXIT_FAILURE);
          }
-@@ -1293,7 +2348,7 @@ void whpx_qa_synchronize_tsc(const char *phase)
+@@ -1293,7 +2766,7 @@ void whpx_qa_synchronize_tsc(const char *phase)
  
      hr = whpx_qa_suspend_partition_time(whpx->partition);
      if (FAILED(hr)) {
@@ -1529,7 +2069,7 @@ index 42f2b179..61069753 100644
          exit(EXIT_FAILURE);
      }
  
-@@ -1304,14 +2359,14 @@ void whpx_qa_synchronize_tsc(const char *phase)
+@@ -1304,14 +2777,14 @@ void whpx_qa_synchronize_tsc(const char *phase)
          hr = whp_dispatch.WHvSetVirtualProcessorRegisters(
              whpx->partition, cpu->cpu_index, &register_name, 1, &value);
          if (FAILED(hr)) {
@@ -1546,7 +2086,7 @@ index 42f2b179..61069753 100644
  }
  
  static void do_whpx_cpu_synchronize_state(CPUState *cpu, run_on_cpu_data arg)
-@@ -1325,6 +2380,10 @@ static void do_whpx_cpu_synchronize_post_reset(CPUState *cpu,
+@@ -1325,6 +2798,10 @@ static void do_whpx_cpu_synchronize_post_reset(CPUState *cpu,
  {
      whpx_set_registers(cpu);
      cpu->vcpu_dirty = false;
@@ -1557,7 +2097,7 @@ index 42f2b179..61069753 100644
  }
  
  static void do_whpx_cpu_synchronize_post_init(CPUState *cpu,
-@@ -1332,6 +2391,10 @@ static void do_whpx_cpu_synchronize_post_init(CPUState *cpu,
+@@ -1332,6 +2809,10 @@ static void do_whpx_cpu_synchronize_post_init(CPUState *cpu,
  {
      whpx_set_registers(cpu);
      cpu->vcpu_dirty = false;
@@ -1568,7 +2108,7 @@ index 42f2b179..61069753 100644
  }
  
  static void do_whpx_cpu_synchronize_pre_loadvm(CPUState *cpu,
-@@ -1372,6 +2435,380 @@ void whpx_cpu_synchronize_pre_loadvm(CPUState *cpu)
+@@ -1372,6 +2853,380 @@ void whpx_cpu_synchronize_pre_loadvm(CPUState *cpu)
  
  // static Error *whpx_migration_blocker;
  
@@ -1949,7 +2489,7 @@ index 42f2b179..61069753 100644
  int whpx_init_vcpu(CPUState *cpu)
  {
      HRESULT hr;
-@@ -1429,6 +2866,8 @@ int whpx_init_vcpu(CPUState *cpu)
+@@ -1429,6 +3284,8 @@ int whpx_init_vcpu(CPUState *cpu)
      cpu->vcpu_dirty = true;
      cpu->whpx_vcpu = vcpu;
  
@@ -1958,7 +2498,7 @@ index 42f2b179..61069753 100644
      return 0;
  }
  
-@@ -1469,6 +2908,13 @@ void whpx_destroy_vcpu(CPUState *cpu)
+@@ -1469,6 +3326,13 @@ void whpx_destroy_vcpu(CPUState *cpu)
  void whpx_vcpu_kick(CPUState *cpu)
  {
      struct whpx_state *whpx = &whpx_global;
@@ -1972,7 +2512,7 @@ index 42f2b179..61069753 100644
      whp_dispatch.WHvCancelRunVirtualProcessor(whpx->partition, cpu->cpu_index, 0);
  }
  
-@@ -1861,7 +3307,7 @@ static int whpx_accel_init(MachineState *ms)
+@@ -1861,7 +3725,7 @@ static int whpx_accel_init(MachineState *ms)
          whpx_qa_suspend_partition_time = (WhpxSuspendPartitionTime)GetProcAddress(
              hWinHvPlatform, "WHvSuspendPartitionTime");
          if (!whpx_qa_suspend_partition_time) {
@@ -1981,7 +2521,77 @@ index 42f2b179..61069753 100644
              exit(EXIT_FAILURE);
          }
      }
-@@ -1939,12 +3385,27 @@ static int whpx_accel_init(MachineState *ms)
+@@ -1923,9 +3787,69 @@ static int whpx_accel_init(MachineState *ms)
+         goto error;
+     }
+ 
++    /* RustEmuDroid QA R: hypervisor local APIC (before partition setup). */
++    {
++        const char *qa_apic = getenv("RUSTEMUDROID_QA_WHPX_APIC");
++
++        if (qa_apic && strcmp(qa_apic, "hv") == 0) {
++            WHV_CAPABILITY features, exits;
++            WHV_X64_LOCAL_APIC_EMULATION_MODE mode =
++                WHvX64LocalApicEmulationModeXApic;
++            UINT32 size = 0;
++            const char *why = NULL;
++
++            memset(&features, 0, sizeof(features));
++            memset(&exits, 0, sizeof(exits));
++            whpx_qa_request_interrupt = (WhpxRequestInterruptFn)GetProcAddress(
++                hWinHvPlatform, "WHvRequestInterrupt");
++            whpx_qa_get_ic_state2 = (WhpxGetIcState2Fn)GetProcAddress(
++                hWinHvPlatform, "WHvGetVirtualProcessorInterruptControllerState2");
++            whpx_qa_set_ic_state2 = (WhpxSetIcState2Fn)GetProcAddress(
++                hWinHvPlatform, "WHvSetVirtualProcessorInterruptControllerState2");
++            if (FAILED(whp_dispatch.WHvGetCapability(
++                    WHvCapabilityCodeFeatures, &features, sizeof(features),
++                    &size)) || !features.Features.LocalApicEmulation) {
++                why = "no LocalApicEmulation capability";
++            } else if (FAILED(whp_dispatch.WHvGetCapability(
++                           WHvCapabilityCodeExtendedVmExits, &exits,
++                           sizeof(exits), &size)) ||
++                       !exits.ExtendedVmExits.X64ApicInitSipiExitTrap) {
++                why = "no X64ApicInitSipiExitTrap capability";
++            } else if (!whpx_qa_request_interrupt) {
++                why = "WHvRequestInterrupt is unavailable";
++            } else {
++                hr = whp_dispatch.WHvSetPartitionProperty(
++                    whpx->partition,
++                    WHvPartitionPropertyCodeLocalApicEmulationMode,
++                    &mode, sizeof(mode));
++                if (FAILED(hr)) {
++                    why = "setting LocalApicEmulationMode=XApic failed";
++                }
++            }
++            if (why) {
++                qa_warn_report("RustEmuDroid QA: WHPX hypervisor local APIC"
++                               " unavailable (%s, hr=%08lx), using the"
++                               " user-mode APIC", why, hr);
++            } else {
++                whpx_qa_apic_hv = true;
++                qa_info_report("RustEmuDroid QA: WHPX local APIC emulated by"
++                               " the hypervisor (xAPIC)%s%s",
++                               whpx_qa_get_ic_state2 ? "" :
++                               " [no InterruptControllerState2: APIC reset"
++                               " state not written]",
++                               getenv("RUSTEMUDROID_QA_KVM_PV_EOI") ?
++                               "; RUSTEMUDROID_QA_KVM_PV_EOI overridden (off)" :
++                               "");
++            }
++        }
++    }
++
+     memset(&prop, 0, sizeof(WHV_PARTITION_PROPERTY));
+     prop.ExtendedVmExits.X64MsrExit = 1;
+     prop.ExtendedVmExits.X64CpuidExit = 1;
++    if (whpx_qa_apic_hv) {
++        prop.ExtendedVmExits.X64ApicInitSipiExitTrap = 1;
++    }
+     hr = whp_dispatch.WHvSetPartitionProperty(
+         whpx->partition,
+         WHvPartitionPropertyCodeExtendedVmExits,
+@@ -1939,12 +3863,31 @@ static int whpx_accel_init(MachineState *ms)
          goto error;
      }
  
@@ -1994,6 +2604,10 @@ index 42f2b179..61069753 100644
 +        const char *qa_o = getenv("RUSTEMUDROID_QA_KVM_PV_EOI");
 +        whpx_qa_prerun_lockless = qa_n && strcmp(qa_n, "1") == 0;
 +        whpx_qa_pv_eoi = qa_o && strcmp(qa_o, "1") == 0;
++        if (whpx_qa_apic_hv) {
++            /* RustEmuDroid QA R: the hypervisor owns the APIC; no PV EOI. */
++            whpx_qa_pv_eoi = false;
++        }
 +        if (whpx_qa_prerun_lockless) {
 +            qa_info_report("RustEmuDroid QA: WHPX pre-run lockless check active");
 +        }
@@ -2011,7 +2625,7 @@ index 42f2b179..61069753 100644
  
      if (FAILED(hr)) {
          error_report("WHPX: Failed to enable partition extended CpuidExitList"
-@@ -1968,6 +3429,28 @@ static int whpx_accel_init(MachineState *ms)
+@@ -1968,6 +3911,28 @@ static int whpx_accel_init(MachineState *ms)
      }
  
      whpx_memory_init();
