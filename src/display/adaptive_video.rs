@@ -177,6 +177,9 @@ impl Reduction {
 pub(super) struct Request {
     generation: u64,
     reduction: Option<Reduction>,
+    // No subscription at all: the panel shows the engine's own window and
+    // nothing in the client needs pixels.
+    paused: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -267,8 +270,32 @@ impl Preference {
         }
     }
 
+    /// Stops or restarts the subscription. Either way the frames received
+    /// before the change stop counting as current.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn set_paused(&mut self, paused: bool) {
+        if self.requested.paused != paused {
+            self.requested.paused = paused;
+            self.requested.reduction = None;
+            self.requested.generation += 1;
+            self.settled = None;
+            self.sender.send_replace(self.requested);
+        }
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn paused(&self) -> bool {
+        self.requested.paused
+    }
+
     pub fn accepts_native(&self, source: Source) -> bool {
         !source.scaled && self.requested.generation == source.generation
+    }
+
+    /// Whether `source` came from the subscription asked for last.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn is_current(&self, source: Source) -> bool {
+        !self.requested.paused && self.requested.generation == source.generation
     }
 
     pub fn update(
@@ -279,7 +306,7 @@ impl Preference {
         native: Option<NativeDisplay>,
         source: Source,
     ) {
-        if !self.enabled {
+        if !self.enabled || self.requested.paused {
             return;
         }
         let layout = if windowed && source.can_adapt {
@@ -477,6 +504,13 @@ pub(super) async fn run(
     };
     loop {
         let mut request = *requests.borrow_and_update();
+        if request.paused {
+            // Nothing is asked of the engine until a feature needs pixels.
+            if requests.changed().await.is_err() {
+                return Ok(());
+            }
+            continue;
+        }
         if fixed_raster.is_none() || reacquire == Some(request.generation) {
             request.reduction = None;
         }
@@ -618,6 +652,45 @@ mod tests {
         assert_eq!(requests.borrow().reduction, Some(dpi_change.reduction));
         preference.update_layout(None, fresh, now + RESIZE_SETTLE * 2);
         assert!(requests.borrow().reduction.is_none());
+    }
+
+    #[test]
+    fn a_pause_and_its_end_make_older_frames_stale_and_ask_for_the_native_picture() {
+        let (mut preference, requests) = Preference::new();
+        let before = Source::default();
+        assert!(preference.accepts_native(before) && preference.is_current(before));
+        preference.set_paused(true);
+        let paused = *requests.borrow();
+        assert!(paused.paused && preference.paused());
+        assert!(!preference.accepts_native(before) && !preference.is_current(before));
+        // No layout becomes a reduction while nothing is subscribed.
+        preference.set_enabled(true);
+        let ctx = egui::Context::default();
+        let native = NativeDisplay {
+            size: [1600, 900],
+            rotation: 0,
+        };
+        let rect = Rect::from_min_size(pos2(0., 0.), vec2(800., 450.));
+        let latest = Source {
+            generation: paused.generation,
+            ..before
+        };
+        preference.update(&ctx, rect, true, Some(native), latest);
+        assert_eq!(requests.borrow().generation, paused.generation);
+        assert!(!preference.is_current(latest));
+
+        preference.set_paused(false);
+        let resumed = *requests.borrow();
+        assert!(!resumed.paused && resumed.reduction.is_none());
+        assert!(!preference.accepts_native(latest));
+        let fresh = Source {
+            generation: resumed.generation,
+            ..before
+        };
+        assert!(preference.accepts_native(fresh) && preference.is_current(fresh));
+        // Asking for the state it is in changes nothing.
+        preference.set_paused(false);
+        assert_eq!(requests.borrow().generation, resumed.generation);
     }
 
     #[test]

@@ -355,6 +355,7 @@ impl Launcher {
                     rpc,
                     avd,
                     adb,
+                    engine_window,
                 } => {
                     if self.stop.load(Ordering::Acquire) {
                         continue;
@@ -364,6 +365,12 @@ impl Launcher {
                     self.controls = Some(controls);
                     let mut display = Display::open(console, rpc, avd, ctx);
                     display.enable_native_texture(gl);
+                    #[cfg(windows)]
+                    if let Some(launcher) = engine_window {
+                        display.watch_engine_window(launcher);
+                    }
+                    #[cfg(not(windows))]
+                    let _ = engine_window;
                     self.display = Some(display);
                 }
                 event => {
@@ -394,6 +401,19 @@ impl Launcher {
         {
             self.output
                 .push_back(transport.describe(self.config.locale));
+            if self.output.len() > 30 {
+                self.output.pop_front();
+            }
+        }
+        // So does what the panel shows: the engine's own window or copied frames.
+        if let Some(path) = self
+            .display
+            .as_mut()
+            .and_then(Display::take_panel_path_change)
+        {
+            let line = path.describe(self.config.locale);
+            println!("{line}");
+            self.output.push_back(line);
             if self.output.len() > 30 {
                 self.output.pop_front();
             }
@@ -474,6 +494,20 @@ impl Launcher {
 }
 
 impl eframe::App for Launcher {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        // The engine's own window shows through the unpainted part of the panel.
+        if self
+            .display
+            .as_ref()
+            .is_some_and(Display::panel_is_transparent)
+        {
+            [0.; 4]
+        } else {
+            // The default of eframe.
+            egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32()
+        }
+    }
+
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let close_requested = ctx.input(|input| input.viewport().close_requested());
         if close_requested && !self.closing {
@@ -597,14 +631,21 @@ impl Launcher {
         {
             display.set_package(controls.foreground_package(ctx));
         }
-        let android_fps = self.config.show_fps && self.config.android_fps;
+        // A panel that shows the engine's own window processes no frames to count.
+        let through = self
+            .display
+            .as_ref()
+            .is_some_and(Display::panel_is_transparent);
+        let android_fps = self.config.show_fps && (self.config.android_fps || through);
         let native_fps = android_fps && self.playing && self.home_ready && !self.stopping();
         if let Some(controls) = &mut self.controls {
             controls.update_surface_fps(native_fps, ctx);
         }
         #[cfg(windows)]
-        self.blue_mirror
-            .update_surface_fps(android_fps && self.blue_mirror.active(), ctx);
+        self.blue_mirror.update_surface_fps(
+            self.config.show_fps && self.config.android_fps && self.blue_mirror.active(),
+            ctx,
+        );
         let toggling_fullscreen = (self.has_player_view() || fullscreen)
             && ctx.input(|i| {
                 i.events.iter().any(|e| {
@@ -738,18 +779,44 @@ impl Launcher {
                 && !egui::Popup::is_id_open(ctx, replay_popup_id())
                 && !self.stopping()
                 && !resizing;
-            let adapt_video = self.config.adaptive_video
-                && self.pending_captures.is_empty()
-                && self.capture.mode().is_none()
-                && !self.capture.replay_armed();
+            let capturing = !self.pending_captures.is_empty()
+                || self.capture.mode().is_some()
+                || self.capture.replay_armed();
+            let adapt_video = self.config.adaptive_video && !capturing;
+            let turned = self.controls.as_mut().is_some_and(Controls::take_rotation);
+            // Windows: the panel stays unpainted where the engine's own window
+            // shows behind it, and paints its own background around it.
+            let fill = if self.home_ready
+                && self
+                    .display
+                    .as_ref()
+                    .is_some_and(Display::panel_is_transparent)
+            {
+                egui::Color32::TRANSPARENT
+            } else {
+                egui::Color32::BLACK
+            };
+            #[cfg(windows)]
+            if let Some(display) = &mut self.display {
+                use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                if let Ok(handle) = _frame.window_handle()
+                    && let RawWindowHandle::Win32(handle) = handle.as_raw()
+                {
+                    display.set_host_window(handle.hwnd.get());
+                }
+            }
             egui::CentralPanel::default()
-                .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
+                .frame(egui::Frame::NONE.fill(fill))
                 .show(ctx, |ui| {
                     if self.home_ready
                         && let Some(display) = &mut self.display
                     {
                         let rotation = display.rotation();
                         display.set_adaptive_video(adapt_video);
+                        display.set_frames_wanted(capturing);
+                        if turned {
+                            display.refresh_geometry();
+                        }
                         display.show(ui, interactive, locale);
                         if let Some(controls) = &mut self.controls {
                             controls.library_wheel(

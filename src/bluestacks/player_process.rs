@@ -600,7 +600,7 @@ fn command_line_from_buffer(
     Some(unsafe { slice::from_raw_parts(text, length / size_of::<u16>()) }.to_vec())
 }
 
-pub(super) fn process_creation_time(process: &OwnedHandle) -> io::Result<u64> {
+pub(crate) fn process_creation_time(process: &OwnedHandle) -> io::Result<u64> {
     let mut created = FILETIME::default();
     let mut exited = FILETIME::default();
     let mut kernel = FILETIME::default();

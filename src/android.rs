@@ -806,7 +806,20 @@ pub enum BootEvent {
         avd: PathBuf,
         #[cfg(feature = "ui")]
         adb: PathBuf,
+        /// Windows: the engine keeps its own window, to be shown by the panel
+        /// through the desktop compositor. The process ID of its launcher.
+        #[cfg(feature = "ui")]
+        engine_window: Option<u32>,
     },
+}
+
+/// `RUSTEMUDROID_PANEL=engine-window` (Windows, off by default): the engine
+/// runs with its own window and the panel shows that window through the
+/// desktop compositor instead of copying every frame.
+pub(crate) const PANEL_ENV: &str = "RUSTEMUDROID_PANEL";
+
+fn engine_window_panel(value: Option<&str>) -> bool {
+    cfg!(windows) && value.is_some_and(|value| value.trim().eq_ignore_ascii_case("engine-window"))
 }
 
 impl std::fmt::Display for BootEvent {
@@ -1219,16 +1232,21 @@ pub fn boot(
     let (port, console, adb_port) = free_port_pair()?;
     let serial = format!("emulator-{port}");
     command.arg("-port").arg(port.to_string());
+    // The stock flag that hides the Qt window also keeps the engine from
+    // creating its render surface, so the window stays and the panel keeps it
+    // out of sight.
+    let engine_window =
+        embedded && runtime.is_none() && engine_window_panel(env::var(PANEL_ENV).ok().as_deref());
     let rpc_socket = if embedded {
         let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         let rpc = socket.local_addr()?.port();
-        let display_mode = if cfg!(target_os = "linux") {
-            "-no-window"
-        } else {
-            "-qt-hide-window"
-        };
+        if cfg!(target_os = "linux") {
+            command.arg("-no-window");
+        } else if !engine_window {
+            command.arg("-qt-hide-window");
+        }
         command
-            .args([display_mode, "-grpc-use-token", "-grpc"])
+            .args(["-grpc-use-token", "-grpc"])
             .arg(rpc.to_string());
         // Linux reads ANDROID_EMULATOR_DISCOVERY_DIR, Windows uses LOCALAPPDATA/Temp.
         command.env("ANDROID_EMULATOR_DISCOVERY_DIR", &profile.user_home);
@@ -1316,6 +1334,8 @@ pub fn boot(
             avd: profile.avd_home.join(format!("{AVD}.avd")),
             #[cfg(feature = "ui")]
             adb: sdk.adb.clone(),
+            #[cfg(feature = "ui")]
+            engine_window: engine_window.then(|| vm.0.id()),
         });
     }
     if let Some(applied) = amd_applied {
@@ -2232,6 +2252,16 @@ mod tests {
         assert!(child.0.try_wait().unwrap().is_none());
         drop(job);
         assert!(super::wait_for_exit(&mut child.0, Duration::from_secs(3)).unwrap());
+    }
+
+    #[test]
+    fn the_engine_window_panel_is_asked_for_by_name_and_only_exists_on_windows() {
+        for off in [None, Some(""), Some("frames"), Some("engine window")] {
+            assert!(!super::engine_window_panel(off));
+        }
+        for on in ["engine-window", " Engine-Window\n"] {
+            assert_eq!(super::engine_window_panel(Some(on)), cfg!(windows));
+        }
     }
 
     #[test]

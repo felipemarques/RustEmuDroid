@@ -2,6 +2,8 @@
 mod adaptive_video;
 #[cfg(all(test, windows))]
 mod dwm_input_lab;
+#[cfg(windows)]
+mod engine_window;
 #[cfg(test)]
 mod live_input_test;
 pub(crate) mod mapping;
@@ -35,6 +37,25 @@ use tonic::{
 };
 
 pub(crate) const TILT_RESTORE_TIMEOUT: Duration = tilt::RESTORE_TIMEOUT;
+/// After a rotation is asked for, frames are requested this long so the panel
+/// learns the new geometry while it shows the engine's own window.
+const GEOMETRY_REFRESH: Duration = Duration::from_secs(3);
+
+#[cfg(windows)]
+pub(crate) use engine_window::PanelPath;
+
+/// What the panel shows, for the boot details. Only Windows has another path
+/// than the copied frames.
+#[cfg(not(windows))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PanelPath {}
+
+#[cfg(not(windows))]
+impl PanelPath {
+    pub(crate) fn describe(&self, _: Locale) -> String {
+        match *self {}
+    }
+}
 
 type DisplayResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -496,6 +517,18 @@ pub struct Display {
     native_display: Option<adaptive_video::NativeDisplay>,
     stream_failed: bool,
     video_transport_seen: u64,
+    // Windows: the engine's own window behind a transparent panel.
+    #[cfg(windows)]
+    engine_window: Option<engine_window::EngineWindow>,
+    // The panel was left unpainted over the engine's window in the last frame.
+    through: bool,
+    // The texture is older than the last pause of the frame stream.
+    stale: bool,
+    // A capture feature needs pixels although the panel does not.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    frames_wanted: bool,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    geometry_until: Option<Instant>,
     // The input coordinate space, independent of the Shot's transport raster.
     size: [usize; 2],
     rotation: i32,
@@ -560,6 +593,12 @@ impl Display {
             native_display: None,
             stream_failed: false,
             video_transport_seen: 0,
+            #[cfg(windows)]
+            engine_window: None,
+            through: false,
+            stale: false,
+            frames_wanted: false,
+            geometry_until: None,
             size: [1, 1],
             rotation: 0,
             contact: None,
@@ -623,6 +662,48 @@ impl Display {
 
     pub(crate) fn stream_available(&self) -> bool {
         !self.stream_failed
+    }
+
+    /// Windows: show the window of the engine started by the launcher process
+    /// `launcher` instead of copying its frames, for as long as that works.
+    #[cfg(windows)]
+    pub(crate) fn watch_engine_window(&mut self, launcher: u32) {
+        self.engine_window = Some(engine_window::EngineWindow::watch(launcher));
+    }
+
+    /// The client's own native window.
+    #[cfg(windows)]
+    pub(crate) fn set_host_window(&mut self, host: isize) {
+        if let Some(engine) = &mut self.engine_window {
+            engine.set_host(host);
+        }
+    }
+
+    /// What the panel shows, once per change (for the boot details).
+    pub(crate) fn take_panel_path_change(&mut self) -> Option<PanelPath> {
+        #[cfg(windows)]
+        return self
+            .engine_window
+            .as_mut()
+            .and_then(engine_window::EngineWindow::take_path_change);
+        #[cfg(not(windows))]
+        None
+    }
+
+    /// The panel is left unpainted where the engine's own window shows, so
+    /// its background must not be filled by the caller either.
+    pub(crate) fn panel_is_transparent(&self) -> bool {
+        self.through
+    }
+
+    /// Screenshot, recording and replay need pixels; the panel itself may not.
+    pub(crate) fn set_frames_wanted(&mut self, wanted: bool) {
+        self.frames_wanted = wanted;
+    }
+
+    /// Android was asked to turn: the frames tell the new geometry.
+    pub(crate) fn refresh_geometry(&mut self) {
+        self.geometry_until = Some(Instant::now() + GEOMETRY_REFRESH);
     }
 
     pub(crate) fn native_shot(&self) -> Option<&Shot> {
@@ -771,6 +852,7 @@ impl Display {
             self.native_display = adaptive_video::NativeDisplay::conventional(&format);
         }
         self.shot_source = source;
+        self.stale = false;
         // Capture the same pixels and orientation sent to the desktop texture.
         self.shot = Some(Shot {
             width: format.width,
@@ -881,6 +963,17 @@ impl Display {
             self.upload(ui.ctx(), frame, source)
         }
         self.stream_failed = error.is_some();
+        // The caller left the panel without a background in this frame.
+        let transparent = std::mem::take(&mut self.through);
+        if error.is_some() || self.texture.is_none() {
+            #[cfg(windows)]
+            if let Some(engine) = &mut self.engine_window {
+                engine.hide();
+            }
+            if transparent {
+                paint_background(ui, None);
+            }
+        }
         if let Some(error) = error {
             ui.colored_label(
                 egui::Color32::LIGHT_RED,
@@ -915,7 +1008,12 @@ impl Display {
         });
         let scale = (viewport.width() / size.x).min(viewport.height() / size.y);
         let rect = Rect::from_center_size(viewport.center(), size * scale);
-        if let Some(preference) = &mut self.video_preference {
+        let texture = texture.id();
+        // Windows: where the engine's own window shows behind the panel.
+        let hole = self.place_engine_window(ui.ctx(), rect);
+        if hole.is_none()
+            && let Some(preference) = &mut self.video_preference
+        {
             preference.update(
                 ui.ctx(),
                 rect,
@@ -924,18 +1022,90 @@ impl Display {
                 self.shot_source,
             );
         }
-        if ui.is_rect_visible(rect)
-            && let (Some(native), Some(shot)) = (&self.native_texture, &self.shot)
-        {
-            native.queue(ui.painter(), rect, texture.id(), shot);
+        if transparent {
+            paint_background(ui, hole);
+        } else if hole.is_some() {
+            // The caller leaves the panel unpainted from the next frame on.
+            ui.ctx().request_repaint();
         }
-        ui.painter().image(
-            texture.id(),
-            rect,
-            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-            egui::Color32::WHITE,
-        );
+        // Over the hole nothing is drawn; a texture from before a pause of the
+        // frame stream is not the screen any more.
+        let draw = if hole.is_some() {
+            !transparent
+        } else {
+            !self.stale
+        };
+        if draw {
+            if ui.is_rect_visible(rect)
+                && let (Some(native), Some(shot)) = (&self.native_texture, &self.shot)
+            {
+                native.queue(ui.painter(), rect, texture, shot);
+            }
+            ui.painter().image(
+                texture,
+                rect,
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+        }
+        self.through = hole.is_some();
         self.game_input(ui, rect, outer, interactive, locale);
+    }
+
+    /// Windows: puts the engine's own window behind `rect` and returns the
+    /// part of the panel to leave unpainted over it. The frame stream runs
+    /// only while the panel or a capture feature needs pixels.
+    #[cfg(windows)]
+    fn place_engine_window(&mut self, ctx: &egui::Context, rect: Rect) -> Option<Rect> {
+        use crate::bluestacks::preview::PreviewRect;
+        use engine_window::Shown;
+        let engine = self.engine_window.as_mut()?;
+        let scale = ctx.pixels_per_point();
+        let slot = PreviewRect::from_points(rect.min.into(), rect.max.into(), scale);
+        let now = Instant::now();
+        let shown = engine.show(slot, now);
+        if engine.active() {
+            // No frame wakes the panel up: it follows the engine's window and
+            // notices a lost one by itself.
+            ctx.request_repaint_after(engine_window::CHECK_INTERVAL);
+        }
+        if self.geometry_until.is_some_and(|until| now >= until) {
+            self.geometry_until = None;
+        }
+        let needed = self.frames_wanted || self.geometry_until.is_some();
+        let paused = shown != Shown::Frames && !needed;
+        if let Some(preference) = &mut self.video_preference {
+            if paused && !preference.paused() {
+                self.stale = true;
+                if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some() {
+                    println!("frame_stream=paused");
+                }
+            } else if !paused && preference.paused() {
+                if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some() {
+                    println!("frame_stream=resumed");
+                }
+            }
+            preference.set_paused(paused);
+            if !paused && !preference.is_current(self.shot_source) {
+                // The first frame of the new subscription is on its way.
+                ctx.request_repaint_after(Duration::from_millis(16));
+            }
+        }
+        if let Some(until) = self.geometry_until {
+            ctx.request_repaint_after(until.saturating_duration_since(now));
+        }
+        match shown {
+            Shown::Through(fitted) => Some(Rect::from_min_max(
+                Pos2::new(fitted.left as f32 / scale, fitted.top as f32 / scale),
+                Pos2::new(fitted.right as f32 / scale, fitted.bottom as f32 / scale),
+            )),
+            Shown::Frames | Shown::Unseen => None,
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn place_engine_window(&mut self, _: &egui::Context, _: Rect) -> Option<Rect> {
+        None
     }
 
     fn game_input(
@@ -1095,6 +1265,35 @@ impl Display {
             2 => (max_x - x, max_y - y),
             3 => (y, max_x - x),
             _ => (x, y),
+        }
+    }
+}
+
+/// Black over the visible panel, except where the engine's window shows.
+fn paint_background(ui: &egui::Ui, hole: Option<Rect>) {
+    let area = ui.clip_rect();
+    let painter = ui.painter();
+    let Some(hole) = hole
+        .map(|hole| hole.intersect(area))
+        .filter(|hole| hole.is_positive())
+    else {
+        painter.rect_filled(area, 0., egui::Color32::BLACK);
+        return;
+    };
+    for band in [
+        Rect::from_min_max(area.min, Pos2::new(area.right(), hole.top())),
+        Rect::from_min_max(Pos2::new(area.left(), hole.bottom()), area.max),
+        Rect::from_min_max(
+            Pos2::new(area.left(), hole.top()),
+            Pos2::new(hole.left(), hole.bottom()),
+        ),
+        Rect::from_min_max(
+            Pos2::new(hole.right(), hole.top()),
+            Pos2::new(area.right(), hole.bottom()),
+        ),
+    ] {
+        if band.is_positive() {
+            painter.rect_filled(band, 0., egui::Color32::BLACK);
         }
     }
 }
@@ -1428,6 +1627,63 @@ mod tests {
                 .collect();
             assert_eq!(distinct.len(), 2, "{ids:?}");
             assert!(distinct.iter().all(|id| ids.contains(&(*id, 0))));
+        }
+    }
+
+    #[test]
+    fn the_background_is_painted_around_the_engines_window_and_never_over_it() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(200., 100.));
+        let pillarboxed = Rect::from_min_max(pos2(11., 0.), pos2(189., 100.));
+        for (hole, bands) in [
+            (None, 1),
+            (Some(pillarboxed), 2),
+            (Some(pillarboxed.shrink(10.)), 4),
+            // Under the bars of a fullscreen window, or outside the panel.
+            (Some(pillarboxed.translate(vec2(0., -40.))), 3),
+            (Some(pillarboxed.translate(vec2(500., 0.))), 1),
+        ] {
+            let mut area = Rect::NOTHING;
+            let out = ctx.run(
+                RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(ctx, |ui| {
+                            area = ui.clip_rect();
+                            paint_background(ui, hole);
+                        });
+                },
+            );
+            let painted: Vec<Rect> = out
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    // Only the black of the background (egui adds its own shapes).
+                    egui::Shape::Rect(shape) if shape.fill == egui::Color32::BLACK => {
+                        Some(shape.rect)
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(painted.len(), bands, "{hole:?}: {painted:?}");
+            let hole = hole
+                .map(|hole| hole.intersect(area))
+                .filter(|hole| hole.is_positive());
+            let covered: f32 = painted.iter().map(|band| band.area()).sum();
+            if let Some(hole) = hole {
+                assert!(
+                    painted
+                        .iter()
+                        .all(|band| !band.intersect(hole).is_positive())
+                );
+                assert!((covered - (area.area() - hole.area())).abs() < 0.01);
+            } else {
+                assert_eq!(painted, [area]);
+            }
         }
     }
 
