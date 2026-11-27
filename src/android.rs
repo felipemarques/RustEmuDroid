@@ -1347,6 +1347,9 @@ pub fn boot(
                 .into());
         }
         faults.poll(&log_path);
+        if let Some(notice) = faults.stall_notice(sdk.locale) {
+            notify(BootEvent::Message(notice));
+        }
         if let Some(error) = faults.frozen_error(&log_path, amd_host, sdk.locale) {
             stop_frozen_vm(sdk, &serial, &expected_avd, &mut vm);
             return Err(error.into());
@@ -1570,6 +1573,9 @@ pub fn boot(
                         break;
                     }
                     faults.poll(&log_path);
+                    if let Some(notice) = faults.stall_notice(sdk.locale) {
+                        notify(BootEvent::Message(notice));
+                    }
                     if let Some(error) = faults.frozen_error(&log_path, amd_host, sdk.locale) {
                         // Android no longer runs although the engine process is alive.
                         confirm(true, &mut notify);

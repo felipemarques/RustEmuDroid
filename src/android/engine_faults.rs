@@ -1,6 +1,9 @@
 //! Failures the engine explains only in its own log: the process ends with a
 //! bare signal after the graphics driver lost the device, or it stays alive
-//! with Android frozen after a KVM error.
+//! with Android frozen after a KVM error. The preload library for AMD graphics
+//! (`amd_linux`) writes there too, when the driver rejected commands and the
+//! library sent them again: a long wait would otherwise look like a freeze
+//! nobody explains.
 
 use std::{
     fmt::Display,
@@ -31,6 +34,64 @@ pub(crate) fn classify(line: &str) -> Option<Fault> {
     } else {
         None
     }
+}
+
+/// One line of the preload library about a submission the driver rejected
+/// with busy pages and the library sent again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Resend {
+    /// The driver took the submission in the end. Otherwise the library gave
+    /// up, and the driver reports the device as lost.
+    accepted: bool,
+    /// How long the submission was held back.
+    waited_ms: u64,
+}
+
+const RESEND_LINE: &str =
+    "RustEmuDroid: userptr guard: the driver rejected a submission (busy pages); ";
+
+/// `... (busy pages); accepted after N more attempts in M ms (K so far)`, or
+/// `still rejected` in place of `accepted`. The library prints the first eight
+/// and then every power of two; `still rejected` always.
+pub(crate) fn parse_resend(line: &str) -> Option<Resend> {
+    let (_, rest) = line.trim_end().split_once(RESEND_LINE)?;
+    let (accepted, rest) = match rest.strip_prefix("accepted after ") {
+        Some(rest) => (true, rest),
+        None => (false, rest.strip_prefix("still rejected after ")?),
+    };
+    let (attempts, rest) = rest.split_once(" more attempts in ")?;
+    let (waited, rest) = rest.split_once(" ms (")?;
+    let count = rest.strip_suffix(" so far)")?;
+    attempts.parse::<u64>().ok()?;
+    count.parse::<u64>().ok()?;
+    Some(Resend {
+        accepted,
+        waited_ms: waited.parse().ok()?,
+    })
+}
+
+/// A wait this long is told to the user while Android runs. Shorter ones stay
+/// silent: they were 5 ms to about 1 s in every measurement.
+const STALL_NOTICE_MS: u64 = 2000;
+
+/// Whether a wait deserves a message: the first one of [`STALL_NOTICE_MS`] or
+/// more, and later only one at least twice as long as the one last told.
+fn stall_is_news(told_ms: Option<u64>, longest_ms: u64) -> bool {
+    match told_ms {
+        None => longest_ms >= STALL_NOTICE_MS,
+        Some(told) => longest_ms >= told.saturating_mul(2),
+    }
+}
+
+/// `3 seconds`, from milliseconds, never less than one second.
+fn seconds(milliseconds: u64, locale: Locale) -> String {
+    let seconds = (milliseconds.saturating_add(500) / 1000).max(1);
+    let unit = if seconds == 1 {
+        locale.pick("segundo", "second", "segundo")
+    } else {
+        locale.pick("segundos", "seconds", "segundos")
+    };
+    format!("{seconds} {unit}")
 }
 
 /// How much of the log is read at a time.
@@ -67,6 +128,14 @@ pub(crate) struct LogWatch {
     line: Vec<u8>,
     device_lost: bool,
     frozen: Option<String>,
+    /// `accepted` lines of the library seen so far.
+    resends: u64,
+    /// The longest wait among them.
+    longest_wait_ms: u64,
+    /// The wait of the last message given by [`LogWatch::stall_notice`].
+    told_wait_ms: Option<u64>,
+    /// The wait in a `still rejected` line: the library gave up.
+    gave_up_ms: Option<u64>,
 }
 
 impl LogWatch {
@@ -79,6 +148,10 @@ impl LogWatch {
             line: Vec::new(),
             device_lost: false,
             frozen: None,
+            resends: 0,
+            longest_wait_ms: 0,
+            told_wait_ms: None,
+            gave_up_ms: None,
         }
     }
 
@@ -174,6 +247,15 @@ impl LogWatch {
             return;
         }
         let line = String::from_utf8_lossy(&self.line);
+        if let Some(resend) = parse_resend(&line) {
+            if resend.accepted {
+                self.resends += 1;
+                self.longest_wait_ms = self.longest_wait_ms.max(resend.waited_ms);
+            } else {
+                self.gave_up_ms = Some(resend.waited_ms);
+            }
+            return;
+        }
         match classify(&line) {
             Some(Fault::DeviceLost) => self.device_lost = true,
             Some(Fault::VmFrozen) if self.frozen.is_none() => {
@@ -181,6 +263,29 @@ impl LogWatch {
             }
             _ => {}
         }
+    }
+
+    /// While Android runs: one message for the boot details when the driver
+    /// held commands back for [`STALL_NOTICE_MS`] or more and the library got
+    /// them accepted. Given once, and again only for a wait at least twice as
+    /// long as the one already told.
+    pub(crate) fn stall_notice(&mut self, locale: Locale) -> Option<String> {
+        if self.resends == 0 || !stall_is_news(self.told_wait_ms, self.longest_wait_ms) {
+            return None;
+        }
+        self.told_wait_ms = Some(self.longest_wait_ms);
+        let waited = seconds(self.longest_wait_ms, locale);
+        Some(match locale {
+            Locale::PtBr => format!(
+                "Placa de vídeo AMD no Linux: o driver gráfico segurou comandos por cerca de {waited} e a proteção da memória de vídeo os reenviou. O Android pode congelar por esse tempo quando isso acontece."
+            ),
+            Locale::EnUs => format!(
+                "AMD graphics on Linux: the graphics driver held commands back for about {waited} and the video memory protection sent them again. Android can freeze for that long when it happens."
+            ),
+            Locale::EsEs => format!(
+                "Gráfica AMD en Linux: el controlador gráfico ha retenido comandos durante aproximadamente {waited} y la protección de la memoria de vídeo los ha reenviado. Android puede quedarse congelado ese tiempo cuando ocurre."
+            ),
+        })
     }
 
     /// The failure to report when the engine printed a KVM error: its process
@@ -240,14 +345,30 @@ impl LogWatch {
         if let Some(error) = self.frozen_error(log, amd, locale) {
             return error;
         }
-        let reason = if self.device_lost {
-            locale.pick(
-                "O driver gráfico perdeu o dispositivo e o motor encerrou",
-                "The graphics driver lost the device and the engine exited",
-                "El controlador gráfico ha perdido el dispositivo y el motor se ha cerrado",
-            )
+        let reason = if let Some(waited) = self.gave_up_ms {
+            // The library's own account of the lost device.
+            let waited = seconds(waited, locale);
+            match locale {
+                Locale::PtBr => format!(
+                    "O driver gráfico continuou rejeitando os comandos por cerca de {waited}, embora a proteção da memória de vídeo os tenha reenviado, e o motor encerrou"
+                ),
+                Locale::EnUs => format!(
+                    "The graphics driver kept rejecting the commands for about {waited} although the video memory protection sent them again, and the engine exited"
+                ),
+                Locale::EsEs => format!(
+                    "El controlador gráfico ha seguido rechazando los comandos durante aproximadamente {waited}, aunque la protección de la memoria de vídeo los ha reenviado, y el motor se ha cerrado"
+                ),
+            }
+        } else if self.device_lost {
+            locale
+                .pick(
+                    "O driver gráfico perdeu o dispositivo e o motor encerrou",
+                    "The graphics driver lost the device and the engine exited",
+                    "El controlador gráfico ha perdido el dispositivo y el motor se ha cerrado",
+                )
+                .to_owned()
         } else {
-            fallback
+            fallback.to_owned()
         };
         format!("{reason} ({status}): {}", log.display())
     }
@@ -638,5 +759,296 @@ mod tests {
         let other = watch.frozen_error(&log, Some(&host), Locale::EnUs).unwrap();
         assert!(other.starts_with("Android stopped: the processor virtualization (KVM) failed"));
         assert!(!other.contains("6.13"), "{other}");
+    }
+
+    // The two lines of the preload library, as it prints them.
+    const RESEND_ACCEPTED: &str = "RustEmuDroid: userptr guard: the driver rejected a submission (busy pages); accepted after 2 more attempts in 1050 ms (8 so far)";
+    const RESEND_GAVE_UP: &str = "RustEmuDroid: userptr guard: the driver rejected a submission (busy pages); still rejected after 187 more attempts in 10012 ms (1 so far)";
+
+    fn accepted_line(waited_ms: u64) -> String {
+        format!(
+            "RustEmuDroid: userptr guard: the driver rejected a submission (busy pages); accepted after 3 more attempts in {waited_ms} ms (4 so far)\n"
+        )
+    }
+
+    #[test]
+    fn the_librarys_resend_lines_are_parsed() {
+        assert_eq!(
+            parse_resend(RESEND_ACCEPTED),
+            Some(Resend {
+                accepted: true,
+                waited_ms: 1050,
+            })
+        );
+        assert_eq!(
+            parse_resend(RESEND_GAVE_UP),
+            Some(Resend {
+                accepted: false,
+                waited_ms: 10012,
+            })
+        );
+        // As the engine log may hold them: after another writer's text, with
+        // a Windows line end, with the smallest numbers.
+        assert_eq!(
+            parse_resend(&format!("INFO | {RESEND_ACCEPTED}\r")),
+            Some(Resend {
+                accepted: true,
+                waited_ms: 1050,
+            })
+        );
+        assert_eq!(
+            parse_resend(
+                "RustEmuDroid: userptr guard: the driver rejected a submission (busy pages); accepted after 1 more attempts in 0 ms (1 so far)"
+            ),
+            Some(Resend {
+                accepted: true,
+                waited_ms: 0,
+            })
+        );
+
+        let start = "RustEmuDroid: userptr guard: the driver rejected a submission (busy pages); ";
+        for malformed in [
+            String::new(),
+            ORDINARY.to_owned(),
+            CS_REJECTED.to_owned(),
+            // The library's other lines.
+            "RustEmuDroid: userptr guard active: 1 buffers registered, 0 closed, 16 MiB now, 16 MiB peak, dontfork_failed=0 populate_failed=0".to_owned(),
+            "RustEmuDroid: userptr guard reports all 8192 MiB of video memory as CPU visible (the window is 256 MiB)".to_owned(),
+            // Cut short, as a line still being written.
+            start.trim_end().to_owned(),
+            format!("{start}accepted after 2 more attempts in 1050 ms"),
+            format!("{start}accepted after 2 more attempts in 1050 ms (8 so far"),
+            // Another outcome, or numbers that are not numbers.
+            format!("{start}ignored after 2 more attempts in 1050 ms (8 so far)"),
+            format!("{start}accepted after two more attempts in 1050 ms (8 so far)"),
+            format!("{start}accepted after 2 more attempts in -5 ms (8 so far)"),
+            format!("{start}accepted after 2 more attempts in 1.5 ms (8 so far)"),
+            format!("{start}accepted after 2 more attempts in  ms (8 so far)"),
+            format!("{start}accepted after 2 more attempts in 1050 ms (many so far)"),
+            format!("{start}accepted after 2 more attempts in 99999999999999999999999 ms (8 so far)"),
+            format!("{start}accepted after 2 more attempts in 1050 ms (8 so far) and more"),
+            format!("{start}still rejected after 2 attempts in 1050 ms (8 so far)"),
+        ] {
+            assert_eq!(parse_resend(&malformed), None, "{malformed}");
+        }
+        // Neither line counts as a lost device or a frozen VM by itself.
+        assert_eq!(classify(RESEND_ACCEPTED), None);
+        assert_eq!(classify(RESEND_GAVE_UP), None);
+    }
+
+    #[test]
+    fn a_wait_is_told_from_two_seconds_and_again_only_when_it_doubles() {
+        for (told, longest, news) in [
+            (None, 0, false),
+            (None, 1050, false),
+            (None, 1999, false),
+            (None, 2000, true),
+            (None, 9000, true),
+            (Some(2000), 2000, false),
+            (Some(2000), 3999, false),
+            (Some(2000), 4000, true),
+            (Some(3500), 6999, false),
+            (Some(3500), 7000, true),
+            (Some(u64::MAX), u64::MAX, true),
+        ] {
+            assert_eq!(stall_is_news(told, longest), news, "{told:?} {longest}");
+        }
+        for (milliseconds, expected) in [
+            (0, "1 second"),
+            (1050, "1 second"),
+            (1499, "1 second"),
+            (1500, "2 seconds"),
+            (2000, "2 seconds"),
+            (2499, "2 seconds"),
+            (3600, "4 seconds"),
+            (10012, "10 seconds"),
+        ] {
+            assert_eq!(seconds(milliseconds, Locale::EnUs), expected);
+        }
+        assert_eq!(seconds(1050, Locale::PtBr), "1 segundo");
+        assert_eq!(seconds(10012, Locale::PtBr), "10 segundos");
+        assert_eq!(seconds(1050, Locale::EsEs), "1 segundo");
+        assert_eq!(seconds(10012, Locale::EsEs), "10 segundos");
+    }
+
+    #[test]
+    fn long_waits_are_told_once_while_android_runs() {
+        let (_folder, log) = log();
+        let mut watch = LogWatch::new(true);
+        // Nothing in the log, and the waits of every measurement so far: silent.
+        watch.poll(&log);
+        assert_eq!(watch.stall_notice(Locale::EnUs), None);
+        for waited in [5, 9, 33, 1050, 1999] {
+            append(&log, &accepted_line(waited));
+        }
+        append(&log, &format!("{ORDINARY}\n"));
+        watch.poll(&log);
+        assert_eq!((watch.resends, watch.longest_wait_ms), (5, 1999));
+        assert_eq!(watch.stall_notice(Locale::EnUs), None);
+        assert_eq!(watch.told_wait_ms, None);
+
+        // The first wait of two seconds or more is told, once.
+        append(&log, &accepted_line(2400));
+        watch.poll(&log);
+        assert_eq!((watch.resends, watch.longest_wait_ms), (6, 2400));
+        assert_eq!(
+            watch.stall_notice(Locale::EnUs).unwrap(),
+            "AMD graphics on Linux: the graphics driver held commands back for about 2 seconds and the video memory protection sent them again. Android can freeze for that long when it happens."
+        );
+        assert_eq!(watch.stall_notice(Locale::EnUs), None);
+        watch.poll(&log);
+        assert_eq!(watch.stall_notice(Locale::EnUs), None);
+
+        // Later waits that are shorter, as long, or less than twice as long: silent.
+        for waited in [40, 2400, 3000, 4799] {
+            append(&log, &accepted_line(waited));
+            watch.poll(&log);
+            assert_eq!(watch.stall_notice(Locale::EnUs), None, "{waited}");
+        }
+        assert_eq!((watch.resends, watch.longest_wait_ms), (10, 4799));
+        assert_eq!(watch.told_wait_ms, Some(2400));
+
+        // At least twice the wait already told: told again, with the new wait.
+        append(&log, &accepted_line(4800));
+        watch.poll(&log);
+        assert_eq!(
+            watch.stall_notice(Locale::PtBr).unwrap(),
+            "Placa de vídeo AMD no Linux: o driver gráfico segurou comandos por cerca de 5 segundos e a proteção da memória de vídeo os reenviou. O Android pode congelar por esse tempo quando isso acontece."
+        );
+        assert_eq!(watch.stall_notice(Locale::PtBr), None);
+        append(&log, &accepted_line(9599));
+        watch.poll(&log);
+        assert_eq!(watch.stall_notice(Locale::EsEs), None);
+        append(&log, &accepted_line(9700));
+        watch.poll(&log);
+        assert_eq!(
+            watch.stall_notice(Locale::EsEs).unwrap(),
+            "Gráfica AMD en Linux: el controlador gráfico ha retenido comandos durante aproximadamente 10 segundos y la protección de la memoria de vídeo los ha reenviado. Android puede quedarse congelado ese tiempo cuando ocurre."
+        );
+        assert_eq!(watch.told_wait_ms, Some(9700));
+
+        // Several long waits between two polls give one message, for the longest.
+        let (_folder, log) = self::log();
+        let mut watch = LogWatch::new(true);
+        append(
+            &log,
+            &format!(
+                "{}{}{}",
+                accepted_line(2100),
+                accepted_line(6400),
+                accepted_line(3000)
+            ),
+        );
+        watch.poll(&log);
+        let notice = watch.stall_notice(Locale::EnUs).unwrap();
+        assert!(notice.contains("for about 6 seconds"), "{notice}");
+        assert_eq!(watch.stall_notice(Locale::EnUs), None);
+
+        // A line still being written is not counted before it is complete, and
+        // a watch that is not enabled says nothing.
+        let (_folder, log) = self::log();
+        let mut watch = LogWatch::new(true);
+        let line = accepted_line(5000);
+        let (first, second) = line.split_at(line.len() - 12);
+        append(&log, first);
+        watch.poll(&log);
+        assert_eq!(watch.stall_notice(Locale::EnUs), None);
+        append(&log, second);
+        watch.poll(&log);
+        assert!(watch.stall_notice(Locale::EnUs).is_some());
+        let mut off = LogWatch::new(false);
+        off.poll(&log);
+        assert_eq!(off.stall_notice(Locale::EnUs), None);
+        assert_eq!(off.resends, 0);
+
+        // The library giving up is not a wait that ended well: no notice for it.
+        let (_folder, log) = self::log();
+        let mut watch = LogWatch::new(true);
+        append(&log, &format!("{RESEND_GAVE_UP}\n"));
+        watch.poll(&log);
+        assert_eq!(watch.gave_up_ms, Some(10012));
+        assert_eq!(watch.stall_notice(Locale::EnUs), None);
+    }
+
+    #[test]
+    fn the_exit_reason_says_when_the_resend_was_rejected_to_the_end() {
+        let (_folder, log) = log();
+        let shown = log.display().to_string();
+        // What the engine log holds when the library gives up: its line, then
+        // the driver's and the engine's.
+        append(
+            &log,
+            &format!(
+                "{ORDINARY}\n{}{RESEND_GAVE_UP}\n{CS_REJECTED}\n{SUBMIT_FAILED}\n{DEVICE_LOST}\n",
+                accepted_line(33)
+            ),
+        );
+        for (locale, fallback, expected) in [
+            (
+                Locale::PtBr,
+                "Motor encerrou",
+                "O driver gráfico continuou rejeitando os comandos por cerca de 10 segundos, embora a proteção da memória de vídeo os tenha reenviado, e o motor encerrou",
+            ),
+            (
+                Locale::EnUs,
+                "Engine exited",
+                "The graphics driver kept rejecting the commands for about 10 seconds although the video memory protection sent them again, and the engine exited",
+            ),
+            (
+                Locale::EsEs,
+                "El motor se cerró",
+                "El controlador gráfico ha seguido rechazando los comandos durante aproximadamente 10 segundos, aunque la protección de la memoria de vídeo los ha reenviado, y el motor se ha cerrado",
+            ),
+        ] {
+            let mut watch = LogWatch::new(true);
+            assert_eq!(
+                watch.exit_error(&log, SIGABRT, fallback, None, locale),
+                format!("{expected} ({SIGABRT}): {shown}")
+            );
+            assert!(watch.device_lost);
+            assert_eq!((watch.resends, watch.gave_up_ms), (1, Some(10012)));
+            // Not enabled (as on Windows): the message is the one from before.
+            let mut off = LogWatch::new(false);
+            assert_eq!(
+                off.exit_error(&log, SIGABRT, fallback, None, locale),
+                format!("{fallback} ({SIGABRT}): {shown}")
+            );
+        }
+
+        // The same when the watch had followed the log while Android ran.
+        let mut watch = LogWatch::new(true);
+        watch.poll(&log);
+        assert!(
+            watch
+                .exit_error(&log, SIGABRT, "Engine exited", None, Locale::EnUs)
+                .starts_with(
+                    "The graphics driver kept rejecting the commands for about 10 seconds"
+                )
+        );
+
+        // Resends that were all accepted do not change the plain reasons.
+        let (_folder, log) = self::log();
+        append(&log, &accepted_line(2400));
+        let mut watch = LogWatch::new(true);
+        assert_eq!(
+            watch.exit_error(&log, "exit status: 1", "Engine exited", None, Locale::EnUs),
+            format!("Engine exited (exit status: 1): {}", log.display())
+        );
+        append(&log, &format!("{CS_REJECTED}\n{DEVICE_LOST}\n"));
+        assert_eq!(
+            watch.exit_error(&log, SIGABRT, "Engine exited", None, Locale::EnUs),
+            format!(
+                "The graphics driver lost the device and the engine exited ({SIGABRT}): {}",
+                log.display()
+            )
+        );
+
+        // A KVM failure still comes first.
+        append(&log, &format!("{KVM_FAILED}\n{RESEND_GAVE_UP}\n"));
+        assert!(
+            watch
+                .exit_error(&log, SIGABRT, "Engine exited", None, Locale::EnUs)
+                .starts_with("Android stopped: the processor virtualization (KVM) failed")
+        );
     }
 }

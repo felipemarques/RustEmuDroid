@@ -130,7 +130,9 @@ _Static_assert(sizeof(struct guard_gem_userptr) == sizeof(struct drm_amdgpu_gem_
  * "pending" until the driver answers with the handle) to before the driver is asked to close it, so the closing
  * of one buffer always sees every other buffer that uses the same addresses.
  */
-#define CAPACITY 16384
+#ifndef GUARD_CAPACITY
+#define GUARD_CAPACITY 16384
+#endif
 struct entry {
     int fd;
     int pending;
@@ -139,7 +141,7 @@ struct entry {
     uint64_t addr;
     uint64_t size;
 };
-static struct entry entries[CAPACITY];
+static struct entry entries[GUARD_CAPACITY];
 static unsigned live;                   /* entries in use; guarded by lock */
 static atomic_uint live_hint;           /* the same number, for the paths that only ask whether there is any */
 static uint64_t next_token;             /* guarded by lock */
@@ -215,9 +217,10 @@ static void remove_entry(unsigned index) {
 
 /* Adds an entry and returns its token, or 0 when the table is full. */
 static uint64_t add_entry(int fd, int pending, uint32_t handle, uint64_t addr, uint64_t size) {
-    if (live == CAPACITY) {
+    if (live == GUARD_CAPACITY) {
         if (dropped++ == 0) {
-            fprintf(stderr, "RustEmuDroid: userptr guard: more than %d buffers, the rest is not tracked\n", CAPACITY);
+            fprintf(stderr, "RustEmuDroid: userptr guard: more than %d buffers, the rest is not protected\n",
+                    GUARD_CAPACITY);
         }
         return 0;
     }
@@ -247,9 +250,10 @@ static int register_buffer(int fd, unsigned long request, struct guard_gem_userp
     const uint64_t addr = user->addr, size = user->size;
     const int saved = errno;
     pthread_mutex_lock(&lock);
-    /* The entry and the mark are made together, so the closing of another buffer on these addresses keeps the mark. */
+    /* The entry and the mark are made together, so the closing of another buffer on these addresses keeps the mark.
+     * A buffer the table has no room for gets no mark: nothing would take it away again. */
     const uint64_t token = add_entry(fd, 1, 0, addr, size);
-    if (!test_allow_fork && madvise((void *)(uintptr_t)addr, size, MADV_DONTFORK) != 0) {
+    if (token != 0 && !test_allow_fork && madvise((void *)(uintptr_t)addr, size, MADV_DONTFORK) != 0) {
         dontfork_failed++;
     }
     pthread_mutex_unlock(&lock);
@@ -269,8 +273,10 @@ static int register_buffer(int fd, unsigned long request, struct guard_gem_userp
         /* A leftover entry with this handle belongs to a buffer that went away without a close call. */
         const int leftover = find_registered(fd, user->handle);
         if (leftover >= 0) {
-            bytes_now -= entries[leftover].size;
+            const struct entry gone = entries[leftover];
+            bytes_now -= gone.size;
             remove_entry((unsigned)leftover);
+            release_range(gone.addr, gone.size);
         }
         const int current = token ? find_token(token) : -1;
         if (current >= 0) {
@@ -290,8 +296,8 @@ static int register_buffer(int fd, unsigned long request, struct guard_gem_userp
     } else {
         if (index >= 0) {
             remove_entry((unsigned)index);
+            release_range(addr, size);
         }
-        release_range(addr, size);
     }
     pthread_mutex_unlock(&lock);
     if (count == 1 || (verbose && count != 0 && count % 64 == 0)) {

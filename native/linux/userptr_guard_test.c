@@ -8,9 +8,9 @@
  */
 #define GUARD_SELFTEST 1
 #define GUARD_RETRY_LIMIT_MS 400
+#define GUARD_CAPACITY 64
 #include "userptr_guard.c"
 
-#include <assert.h>
 #include <sys/wait.h>
 
 #define MIB (1024 * 1024)
@@ -26,7 +26,7 @@
 static atomic_uint next_handle = 1;
 static atomic_int busy_answers;         /* submissions still to be answered with EBUSY; negative: all of them */
 static atomic_int submissions_seen;
-static atomic_int fail_next_register, fail_next_close;
+static atomic_int fail_next_register, fail_next_close, window_covers_memory;
 static struct guard_cs expected_submission;
 
 static int simulated_driver(int fd, unsigned long request, void *argument) {
@@ -76,6 +76,10 @@ static int simulated_driver(int fd, unsigned long request, void *argument) {
             memory->cpu_accessible_vram.total_heap_size = 256ull * MIB;
             memory->cpu_accessible_vram.usable_heap_size = 250ull * MIB;
             memory->cpu_accessible_vram.max_allocation = 200ull * MIB;
+            if (atomic_load(&window_covers_memory)) {
+                memory->cpu_accessible_vram = memory->vram;
+                memory->cpu_accessible_vram.usable_heap_size = 7900ull * MIB;
+            }
         } else if (info->query == GUARD_INFO_VRAM_GTT) {
             struct guard_vram_gtt *sizes = (struct guard_vram_gtt *)(uintptr_t)info->return_pointer;
             sizes->vram_size = 8192ull * MIB;
@@ -212,6 +216,9 @@ static void a_handle_that_comes_back_replaces_its_leftover(void) {
     atomic_store(&next_handle, handle);
     CHECK(register_range(100, second, 2 * MIB) == handle);
     CHECK(live_entries() == 1);
+    /* The memory of the buffer that went away is ordinary memory again. */
+    CHECK(no_page_left_out(first, 2 * MIB));
+    CHECK(whole_range_left_out(second, 2 * MIB));
     CHECK(close_handle(100, handle) == 0);
     CHECK(no_page_left_out(second, 2 * MIB));
     CHECK(live_entries() == 0);
@@ -264,41 +271,94 @@ static void the_memory_queries_report_the_whole_video_memory(void) {
     struct guard_info second = {(uintptr_t)&sizes, sizeof sizes, GUARD_INFO_VRAM_GTT, {0}};
     CHECK(ioctl(100, GUARD_IOCTL_AMDGPU_INFO, &second) == 0);
     CHECK(sizes.vram_cpu_accessible_size == 8192ull * MIB && sizes.gtt_size == 16384ull * MIB);
+    /* A window that already covers the video memory is passed on as the driver reported it. */
+    atomic_store(&window_covers_memory, 1);
+    CHECK(ioctl(100, GUARD_IOCTL_AMDGPU_INFO, &info) == 0);
+    CHECK(memory.cpu_accessible_vram.usable_heap_size == 7900ull * MIB);
+    atomic_store(&window_covers_memory, 0);
 }
 
-/* Several threads register, submit and close buffers on a few shared address ranges, like an allocator that
- * hands freed memory out again at once, some of them closing only after the range was taken again. */
+static void requests_of_others_pass_through(void) {
+    /* A request without an argument, and one that is none of the library's business. */
+    errno = 0;
+    CHECK(ioctl(100, _IO('d', 0x7f), NULL) == -1 && errno == ENOTTY);
+    int value = 0;
+    errno = 0;
+    CHECK(ioctl(100, _IOR('T', 0x1b, int), &value) == -1 && errno == ENOTTY);
+}
+
+static void a_full_table_leaves_the_extra_buffer_unmarked(void) {
+    const size_t piece = 64 * 1024;
+    char *memory = anonymous((GUARD_CAPACITY + 1) * piece);
+    uint32_t handles[GUARD_CAPACITY + 1];
+    for (int index = 0; index <= GUARD_CAPACITY; index++) {
+        handles[index] = register_range(100, memory + index * piece, piece);
+    }
+    CHECK(live_entries() == GUARD_CAPACITY);
+    CHECK(left_out_of_fork(memory + (GUARD_CAPACITY - 1) * piece));
+    /* The driver has the last one, the library does not track it and so put no mark on it. */
+    CHECK(!left_out_of_fork(memory + GUARD_CAPACITY * piece));
+    for (int index = 0; index <= GUARD_CAPACITY; index++) {
+        CHECK(close_handle(100, handles[index]) == 0);
+    }
+    CHECK(live_entries() == 0);
+    CHECK(no_page_left_out(memory, (GUARD_CAPACITY + 1) * piece));
+    munmap(memory, (GUARD_CAPACITY + 1) * piece);
+}
+
+/* Several threads register and close buffers on a few shared address ranges, like an allocator that hands freed
+ * memory out again at once. A quarter of the buffers is closed late: its thread lets go of the range first, so
+ * other threads register the same addresses before that close arrives. After every late close the range must
+ * still be marked exactly when another registration of it is alive. */
 #define SLOTS 6
 #define SLOT_BYTES (1 * MIB)
 static void *slots[SLOTS];
 static pthread_mutex_t slot_locks[SLOTS];
-static atomic_int stress_failures;
+static int owners[SLOTS];               /* registrations alive on the slot; guarded by its lock */
+static atomic_uint registrations[SLOTS];
+static atomic_int stress_failures, late_closes_over_a_live_buffer, threads_running;
 
 static void *stress_thread(void *argument) {
     unsigned seed = (unsigned)(uintptr_t)argument * 2654435761u + 1;
     const int fd = 200 + (int)((uintptr_t)argument % 2);
-    for (int round = 0; round < 1500; round++) {
+    for (int round = 0; round < 600; round++) {
         seed = seed * 1103515245u + 12345u;
         const unsigned slot = (seed >> 16) % SLOTS;
+        const int late_close = (seed >> 8) % 4 == 0;
         pthread_mutex_lock(&slot_locks[slot]);
         const uint32_t handle = register_range(fd, slots[slot], SLOT_BYTES);
+        owners[slot]++;
+        const unsigned mine = atomic_fetch_add(&registrations[slot], 1) + 1;
         if (round % 50 == 0 && !whole_range_left_out(slots[slot], SLOT_BYTES)) {
             atomic_fetch_add(&stress_failures, 1);
         }
-        const int late_close = (seed >> 8) % 4 == 0;
-        if (!late_close) {
-            if (close_handle(fd, handle) != 0) {
+        if (late_close) {
+            pthread_mutex_unlock(&slot_locks[slot]);
+            /* Until another thread registered these addresses, or for 5 ms, or nobody else is left to do it. */
+            for (int naps = 0; naps < 50 && atomic_load(&registrations[slot]) == mine &&
+                               atomic_load(&threads_running) > 1;
+                 naps++) {
+                const struct timespec nap = {0, 100000};
+                nanosleep(&nap, NULL);
+            }
+            pthread_mutex_lock(&slot_locks[slot]);
+        }
+        if (close_handle(fd, handle) != 0) {
+            atomic_fetch_add(&stress_failures, 1);
+        }
+        owners[slot]--;
+        if (late_close) {
+            const int marked = whole_range_left_out(slots[slot], SLOT_BYTES);
+            if (owners[slot] > 0) {
+                atomic_fetch_add(&late_closes_over_a_live_buffer, 1);
+            }
+            if (marked != (owners[slot] > 0)) {
                 atomic_fetch_add(&stress_failures, 1);
             }
         }
         pthread_mutex_unlock(&slot_locks[slot]);
-        if (late_close) {
-            /* Another thread may already have registered the same range. */
-            if (close_handle(fd, handle) != 0) {
-                atomic_fetch_add(&stress_failures, 1);
-            }
-        }
     }
+    atomic_fetch_sub(&threads_running, 1);
     return NULL;
 }
 
@@ -308,6 +368,7 @@ static void threads_sharing_addresses(void) {
         slots[slot] = anonymous(SLOT_BYTES);
         pthread_mutex_init(&slot_locks[slot], NULL);
     }
+    atomic_store(&threads_running, 8);
     for (uintptr_t index = 0; index < 8; index++) {
         CHECK(pthread_create(&threads[index], NULL, stress_thread, (void *)index) == 0);
     }
@@ -315,6 +376,8 @@ static void threads_sharing_addresses(void) {
         pthread_join(threads[index], NULL);
     }
     CHECK(atomic_load(&stress_failures) == 0);
+    /* The case this test exists for did happen. */
+    CHECK(atomic_load(&late_closes_over_a_live_buffer) > 0);
     CHECK(live_entries() == 0);
     for (int slot = 0; slot < SLOTS; slot++) {
         CHECK(no_page_left_out(slots[slot], SLOT_BYTES));
@@ -329,9 +392,13 @@ static void a_child_of_fork_does_not_wait_for_the_lock(void) {
     const pid_t child = fork();
     CHECK(child >= 0);
     if (child == 0) {
+        /* A registration takes the lock; the buffers of the parent are unknown here. */
         struct guard_gem_close close_arg = {handle, 0};
+        struct guard_gem_userptr user = {0, 4096, 0xe, 0};
         alarm(5);
-        _exit(ioctl(100, GUARD_IOCTL_GEM_CLOSE, &close_arg) == 0 ? 0 : 3);
+        user.addr = (uintptr_t)mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        const int registered_in_child = ioctl(100, GUARD_IOCTL_AMDGPU_GEM_USERPTR, &user) == 0 && live == 1;
+        _exit(registered_in_child && ioctl(100, GUARD_IOCTL_GEM_CLOSE, &close_arg) == 0 ? 0 : 3);
     }
     pthread_mutex_unlock(&lock);
     int status = 0;
@@ -353,6 +420,8 @@ int main(void) {
     a_handle_that_comes_back_replaces_its_leftover();
     a_rejected_submission_is_sent_again();
     the_memory_queries_report_the_whole_video_memory();
+    requests_of_others_pass_through();
+    a_full_table_leaves_the_extra_buffer_unmarked();
     threads_sharing_addresses();
     a_child_of_fork_does_not_wait_for_the_lock();
     puts("ok");
