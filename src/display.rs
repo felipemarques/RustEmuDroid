@@ -1,5 +1,7 @@
 //! Android Emulator's EmulatorController protocol (the subset used by this view).
 mod adaptive_video;
+#[cfg(windows)]
+mod audio;
 #[cfg(all(test, windows))]
 mod dwm_input_lab;
 #[cfg(test)]
@@ -285,6 +287,8 @@ pub struct Display {
     since: Instant,
     fps: f32,
     tilt: Option<tilt::Tilt>,
+    #[cfg(windows)]
+    audio: Option<audio::Audio>,
 }
 impl Display {
     pub fn open(console: u16, rpc: u16, avd: PathBuf, ctx: &egui::Context) -> Self {
@@ -347,7 +351,34 @@ impl Display {
             since: Instant::now(),
             fps: 0.0,
             tilt: None,
+            #[cfg(windows)]
+            audio: None,
         }
+    }
+
+    /// Plays Android's sound on a chosen Windows endpoint (the engine runs
+    /// with `-no-audio`). No-op elsewhere and for the system default.
+    pub(crate) fn play_audio(
+        &mut self,
+        console: u16,
+        rpc: u16,
+        avd: PathBuf,
+        endpoint: Option<String>,
+    ) {
+        #[cfg(windows)]
+        if let Some(endpoint) = endpoint {
+            self.audio = Some(audio::start(console, rpc, avd, endpoint));
+        }
+        #[cfg(not(windows))]
+        let _ = (console, rpc, avd, endpoint);
+    }
+
+    /// Why the chosen output stopped, once, after the sound moved to the default.
+    pub(crate) fn take_audio_notice(&mut self) -> Option<String> {
+        #[cfg(windows)]
+        return self.audio.as_ref()?.notice.lock().unwrap().take();
+        #[cfg(not(windows))]
+        None
     }
 
     #[cfg(test)]

@@ -282,6 +282,68 @@ mod tests {
     }
 
     #[test]
+    fn audio_output_defaults_to_the_system_and_round_trips() {
+        let temp = tempfile::tempdir().unwrap();
+        let prefs = temp.path().join("launcher.json");
+        let legacy = LaunchConfig::load(None, temp.path().into(), None, &prefs);
+        assert!(legacy.hardware.audio_output.is_empty());
+        let json = serde_json::to_value(&legacy).unwrap();
+        // The system default writes nothing, so older clients read the file unchanged.
+        assert!(json["hardware"].get("audio_output").is_none());
+        assert!(json["hardware"].get("audio_output_name").is_none());
+
+        let mut chosen = legacy.clone();
+        chosen.hardware.audio_output = "{0.0.0.00000000}.{bbbb}".into();
+        chosen.hardware.audio_output_name = "Headphones (USB)".into();
+        assert!(
+            chosen.boot_changed(&legacy),
+            "a new output restarts Android"
+        );
+        write_json(&prefs, &chosen).unwrap();
+        let restored = LaunchConfig::load(None, temp.path().into(), None, &prefs);
+        assert_eq!(restored.hardware.audio_output, "{0.0.0.00000000}.{bbbb}");
+        assert_eq!(restored.hardware.audio_output_name, "Headphones (USB)");
+        assert!(!restored.boot_changed(&chosen));
+    }
+
+    #[test]
+    fn audio_output_labels_follow_the_listed_devices() {
+        use crate::audio_output::{Device, Inventory};
+        let inventory = Inventory {
+            devices: vec![Device {
+                id: "a".into(),
+                name: "Speakers".into(),
+            }],
+            default: Some("a".into()),
+        };
+        let mut hardware = Hardware::default();
+        assert_eq!(
+            audio_output_label(&hardware, Some(&inventory), Locale::EnUs),
+            ("System default · Speakers".to_string(), false)
+        );
+        assert_eq!(
+            audio_output_label(&hardware, None, Locale::PtBr),
+            ("Padrão do sistema".to_string(), false)
+        );
+        hardware.audio_output = "a".into();
+        assert_eq!(
+            audio_output_label(&hardware, Some(&inventory), Locale::EnUs).0,
+            "Speakers"
+        );
+        hardware.audio_output = "gone".into();
+        hardware.audio_output_name = "Headset".into();
+        assert_eq!(
+            audio_output_label(&hardware, Some(&inventory), Locale::EsEs),
+            ("Headset (no conectada)".to_string(), true)
+        );
+        // Not listed yet: show the saved name without calling it missing.
+        assert_eq!(
+            audio_output_label(&hardware, None, Locale::EnUs),
+            ("Headset".to_string(), false)
+        );
+    }
+
+    #[test]
     fn amd_uma_vulkan_pref_defaults_off_and_is_scoped_to_the_selected_profile() {
         let dir = tempfile::tempdir().unwrap();
         let mut original: LaunchConfig = serde_json::from_value(serde_json::json!({
@@ -626,6 +688,174 @@ impl Drop for AdapterList {
             let _ = child.wait();
         }
     }
+}
+
+/// The computer's audio outputs, listed off the UI thread when Settings opens.
+#[derive(Default)]
+pub(super) struct AudioOutputList {
+    inventory: Option<crate::audio_output::Inventory>,
+    pending: Option<std::sync::mpsc::Receiver<Result<crate::audio_output::Inventory, String>>>,
+    error: bool,
+}
+
+impl AudioOutputList {
+    fn request(&mut self) {
+        if self.pending.is_some() {
+            return;
+        }
+        // Listed again on every open: devices come and go.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(crate::audio_output::inventory());
+        });
+        self.pending = Some(receiver);
+    }
+
+    pub(super) fn poll(&mut self, ctx: &egui::Context) {
+        let Some(pending) = &self.pending else {
+            return;
+        };
+        match pending.try_recv() {
+            Ok(result) => {
+                self.error = result.is_err();
+                self.inventory = result.ok().or(self.inventory.take());
+                self.pending = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint_after(Duration::from_millis(50));
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.error = true;
+                self.pending = None;
+            }
+        }
+    }
+}
+
+fn system_default_label(
+    inventory: Option<&crate::audio_output::Inventory>,
+    locale: Locale,
+) -> String {
+    let label = locale.pick(
+        "Padrão do sistema",
+        "System default",
+        "Predeterminada del sistema",
+    );
+    match inventory.and_then(|inventory| inventory.default_device()) {
+        Some(device) => format!("{label} · {}", device.name),
+        None => label.into(),
+    }
+}
+
+/// The label of the saved choice, and whether it is a device not present now.
+fn audio_output_label(
+    hardware: &Hardware,
+    inventory: Option<&crate::audio_output::Inventory>,
+    locale: Locale,
+) -> (String, bool) {
+    if hardware.audio_output.is_empty() {
+        return (system_default_label(inventory, locale), false);
+    }
+    if let Some(device) = inventory.and_then(|inventory| inventory.find(&hardware.audio_output)) {
+        return (device.name.clone(), false);
+    }
+    let name = if hardware.audio_output_name.is_empty() {
+        &hardware.audio_output
+    } else {
+        &hardware.audio_output_name
+    };
+    match inventory {
+        Some(_) => (
+            format!(
+                "{name} ({})",
+                locale.pick("não conectada", "not connected", "no conectada")
+            ),
+            true,
+        ),
+        None => (name.clone(), false),
+    }
+}
+
+fn audio_output_section(
+    ui: &mut egui::Ui,
+    draft: &mut LaunchConfig,
+    outputs: &AudioOutputList,
+    locale: Locale,
+) {
+    ui.label(RichText::new(locale.pick("Som", "Sound", "Sonido")).strong());
+    let inventory = outputs.inventory.as_ref();
+    let (selected, missing) = audio_output_label(&draft.hardware, inventory, locale);
+    let label = theme::label(
+        ui,
+        locale.pick("Saída de áudio", "Audio output", "Salida de audio"),
+    );
+    theme::select(ui, "audio-output", &selected, |ui| {
+        if ui
+            .selectable_label(
+                draft.hardware.audio_output.is_empty(),
+                system_default_label(inventory, locale),
+            )
+            .clicked()
+        {
+            draft.hardware.audio_output.clear();
+            draft.hardware.audio_output_name.clear();
+        }
+        if missing {
+            let _ = ui.selectable_label(true, &selected);
+        }
+        for device in inventory
+            .map(|inventory| inventory.devices.as_slice())
+            .unwrap_or_default()
+        {
+            if ui
+                .selectable_label(draft.hardware.audio_output == device.id, &device.name)
+                .clicked()
+            {
+                draft.hardware.audio_output = device.id.clone();
+                draft.hardware.audio_output_name = device.name.clone();
+            }
+        }
+    })
+    .labelled_by(label.id);
+    if outputs.pending.is_some() {
+        ui.weak(locale.pick(
+            "Consultando saídas de áudio…",
+            "Searching for audio outputs…",
+            "Buscando salidas de audio…",
+        ));
+    } else if outputs.error {
+        ui.weak(locale.pick(
+            "Consulta às saídas de áudio indisponível. O padrão do sistema continua disponível.",
+            "Audio output detection failed. The system default is still available.",
+            "No se han detectado las salidas de audio. La predeterminada del sistema sigue disponible.",
+        ));
+    }
+    let hint = if missing {
+        locale.pick(
+            "Enquanto esse dispositivo estiver desconectado, o Android usa a saída padrão do sistema.",
+            "While this device is disconnected, Android uses the system default output.",
+            "Mientras ese dispositivo esté desconectado, Android usa la salida predeterminada del sistema.",
+        )
+    } else if draft.hardware.audio_output.is_empty() {
+        locale.pick(
+            "Acompanha a saída padrão do sistema, também quando ela muda com o Android aberto.",
+            "Follows the system default output, also when it changes while Android is open.",
+            "Sigue la salida predeterminada del sistema, también cuando cambia con Android abierto.",
+        )
+    } else if cfg!(windows) {
+        locale.pick(
+            "O RustEmuDroid reproduz o som do Android nesse dispositivo, com um pequeno atraso extra. Salve e reinicie o Android para aplicar.",
+            "RustEmuDroid plays Android sound on this device, with a little extra delay. Save and restart Android to apply.",
+            "RustEmuDroid reproduce el sonido de Android en ese dispositivo, con un pequeño retraso adicional. Guarda y reinicia Android para aplicar el cambio.",
+        )
+    } else {
+        locale.pick(
+            "O motor envia o som do Android para esse dispositivo. Salve e reinicie o Android para aplicar.",
+            "The engine sends Android sound to this device. Save and restart Android to apply.",
+            "El motor envía el sonido de Android a ese dispositivo. Guarda y reinicia Android para aplicar el cambio.",
+        )
+    };
+    theme::label(ui, hint);
 }
 
 fn camera_label(camera: Camera, locale: Locale) -> &'static str {
@@ -1203,6 +1433,7 @@ fn performance_engine_picker(
 impl Launcher {
     pub(super) fn open_settings(&mut self) {
         self.adapters.request();
+        self.audio_outputs.request();
         self.images.sdk = None;
         self.settings = Some(self.config.clone());
     }
@@ -1360,6 +1591,8 @@ impl Launcher {
                         "Respects your system’s reduced-motion setting.",
                         "Respeta la preferencia de movimiento reducido del sistema.",
                     ));
+                    ui.add_space(6.);
+                    audio_output_section(ui, draft, &self.audio_outputs, locale);
                     ui.add_space(6.);
                     ui.label(RichText::new(locale.pick("Câmera", "Camera", "Cámara")).strong());
                     ui.columns(2, |col| {

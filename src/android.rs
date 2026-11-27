@@ -36,7 +36,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use crate::{Engine, Gpu, Result, locale::Locale};
+use crate::{Engine, Gpu, Result, audio_output, locale::Locale};
 
 const AVD: &str = "RustEmuDroid";
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -744,6 +744,25 @@ pub struct Hardware {
     #[arg(long, default_value_t = false)]
     #[cfg_attr(feature = "ui", serde(default))]
     pub arm_lite: bool,
+    /// Saída de áudio do Android: ID ou nome do dispositivo. Vazio segue o padrão do sistema.
+    #[arg(
+        long = "audio-output",
+        value_name = "ID",
+        default_value = "",
+        hide_default_value = true
+    )]
+    #[cfg_attr(
+        feature = "ui",
+        serde(default, skip_serializing_if = "String::is_empty")
+    )]
+    pub audio_output: String,
+    /// Nome mostrado para `audio_output` quando foi salvo, para as mensagens de boot.
+    #[arg(skip)]
+    #[cfg_attr(
+        feature = "ui",
+        serde(default, skip_serializing_if = "String::is_empty")
+    )]
+    pub audio_output_name: String,
 }
 
 impl Hardware {
@@ -799,6 +818,9 @@ pub enum BootEvent {
         avd: PathBuf,
         #[cfg(feature = "ui")]
         adb: PathBuf,
+        /// Windows endpoint the window plays the engine's sound to.
+        #[cfg(feature = "ui")]
+        audio_output: Option<String>,
     },
 }
 
@@ -904,6 +926,18 @@ fn selected_vulkan_is_cpu(log: &str) -> bool {
         .peekable();
     matching_types.peek().is_some()
         && matching_types.all(|kind| kind == "VK_PHYSICAL_DEVICE_TYPE_CPU")
+}
+
+fn apply_audio_plan(command: &mut Command, plan: &audio_output::Plan) {
+    for variable in &plan.remove_env {
+        command.env_remove(variable);
+    }
+    for (variable, value) in &plan.set_env {
+        command.env(variable, value);
+    }
+    if plan.no_audio && !command.get_args().any(|arg| arg == "-no-audio") {
+        command.arg("-no-audio");
+    }
 }
 
 fn matching_kemu_image(root: &Path, system: &Path) -> bool {
@@ -1203,6 +1237,25 @@ pub fn boot(
     } else {
         None
     };
+    // After the window flags, before -qemu: everything after it goes to QEMU.
+    let audio = audio_output::plan(
+        &hardware.audio_output,
+        &hardware.audio_output_name,
+        audio_output::inventory,
+        audio_output::Mode {
+            windows: cfg!(windows),
+            embedded,
+            headless,
+            engine_sound: !command.get_args().any(|arg| arg == "-no-window"),
+        },
+        sdk.locale,
+    );
+    apply_audio_plan(&mut command, &audio);
+    for message in &audio.messages {
+        notify(BootEvent::Message(message.clone()));
+    }
+    #[cfg(feature = "ui")]
+    let audio_output = audio.client_endpoint;
     if compat_egl {
         command.args(["-qemu", "-append", "androidboot.hardwareegl=emulation"]);
     } else if amd_whpx {
@@ -1283,6 +1336,8 @@ pub fn boot(
             avd: profile.avd_home.join(format!("{AVD}.avd")),
             #[cfg(feature = "ui")]
             adb: sdk.adb.clone(),
+            #[cfg(feature = "ui")]
+            audio_output: audio_output.clone(),
         });
     }
     let start = Instant::now();
@@ -1684,6 +1739,45 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     struct TestRoot(PathBuf);
+
+    #[test]
+    fn audio_plan_sets_the_engine_environment_and_flag_once() {
+        use super::{Command, apply_audio_plan, audio_output::Plan};
+        use std::ffi::OsStr;
+        let mut command = Command::new("emulator");
+        command.args(["-avd", "RustEmuDroid"]);
+        apply_audio_plan(
+            &mut command,
+            &Plan {
+                set_env: vec![("QEMU_PA_SINK", "alsa_output.usb".into())],
+                remove_env: vec!["PULSE_TEST_ONLY"],
+                ..Default::default()
+            },
+        );
+        let envs: Vec<_> = command.get_envs().collect();
+        assert!(envs.contains(&(
+            OsStr::new("QEMU_PA_SINK"),
+            Some(OsStr::new("alsa_output.usb"))
+        )));
+        assert!(
+            envs.contains(&(OsStr::new("PULSE_TEST_ONLY"), None)),
+            "removed"
+        );
+        assert!(!command.get_args().any(|arg| arg == "-no-audio"));
+
+        let windows = Plan {
+            no_audio: true,
+            client_endpoint: Some("{0.0.0.00000000}.{bbbb}".into()),
+            ..Default::default()
+        };
+        let count =
+            |command: &Command| command.get_args().filter(|arg| *arg == "-no-audio").count();
+        apply_audio_plan(&mut command, &windows);
+        assert_eq!(count(&command), 1);
+        // A boot check already passes -no-audio; it is not repeated.
+        apply_audio_plan(&mut command, &windows);
+        assert_eq!(count(&command), 1);
+    }
 
     #[test]
     fn display_refresh_override_only_changes_the_selected_boot() {

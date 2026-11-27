@@ -1,4 +1,5 @@
 mod android;
+mod audio_output;
 #[cfg(windows)]
 mod bluestacks;
 #[cfg(feature = "ui")]
@@ -74,6 +75,8 @@ enum Action {
 
     /// Localiza as ferramentas e verifica o hipervisor.
     Doctor,
+    /// Lista as saídas de áudio do computador para boot --audio-output.
+    AudioOutputs,
     /// Prepara o runtime Android gerenciado pelo RustEmuDroid.
     RuntimeSetup(runtime_install::SetupArgs),
 
@@ -214,6 +217,28 @@ fn run(cli: Cli) -> Result<()> {
     if let Action::RuntimeSetup(args) = &cli.command {
         return runtime_install::command(args, language);
     }
+    if matches!(cli.command, Action::AudioOutputs) {
+        let inventory = audio_output::inventory()?;
+        let marker = language.pick(
+            "padrão do sistema",
+            "system default",
+            "predeterminada del sistema",
+        );
+        for device in &inventory.devices {
+            let default = inventory.default.as_deref() == Some(device.id.as_str());
+            println!(
+                "{}\t{}{}",
+                device.id,
+                device.name,
+                if default {
+                    format!("\t({marker})")
+                } else {
+                    String::new()
+                }
+            );
+        }
+        return Ok(());
+    }
     let state = cli.state_dir.unwrap_or_else(default_state_dir);
     let state = absolute(state)?;
     #[cfg(feature = "ui")]
@@ -225,7 +250,7 @@ fn run(cli: Cli) -> Result<()> {
     let profile = Profile::localized(state, language);
 
     match cli.command {
-        Action::RuntimeSetup(_) => unreachable!(),
+        Action::RuntimeSetup(_) | Action::AudioOutputs => unreachable!(),
         #[cfg(windows)]
         Action::BlueStacks { .. } => unreachable!(),
         #[cfg(feature = "ui")]

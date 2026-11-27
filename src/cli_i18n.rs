@@ -103,6 +103,13 @@ fn cli_command(l: Locale) -> Command {
                 "Localiza las herramientas y comprueba el hipervisor.",
             ))
         })
+        .mut_subcommand("audio-outputs", |cmd| {
+            cmd.about(l.pick(
+                "Lista as saídas de áudio do computador para boot --audio-output.",
+                "List this computer's audio outputs for boot --audio-output.",
+                "Enumera las salidas de audio del equipo para boot --audio-output.",
+            ))
+        })
         .mut_subcommand("init", |cmd| {
             init_help(cmd, l).about(l.pick(
                 "Cria um AVD local a partir de uma imagem já instalada.",
@@ -252,6 +259,11 @@ fn boot_help(command: Command, l: Locale) -> Command {
                 "Tradução ARM leve para apps na imagem Android 16 do Kemu com Berberis.",
                 "Light ARM translation for apps on Kemu's Android 16 image with Berberis.",
                 "Traducción ARM ligera para aplicaciones en la imagen Android 16 de Kemu con Berberis.",
+            )),
+            ("audio_output", l.pick(
+                "Saída de áudio do Android: ID ou nome mostrado por audio-outputs. Omita para seguir a saída padrão do sistema. No Windows, um dispositivo específico só funciona na janela do RustEmuDroid.",
+                "Android audio output: an ID or name listed by audio-outputs. Omit to follow the system default output. On Windows, a specific device works only in the RustEmuDroid window.",
+                "Salida de audio de Android: un ID o nombre que muestra audio-outputs. Omítela para seguir la salida predeterminada del sistema. En Windows, un dispositivo concreto solo funciona en la ventana de RustEmuDroid.",
             )),
             ("headless", l.pick(
                 "Executa sem abrir a janela do Android Emulator.",

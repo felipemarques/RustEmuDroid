@@ -157,6 +157,7 @@ struct Launcher {
     settings: Option<LaunchConfig>,
     installer: Option<runtime_setup::Wizard>,
     adapters: settings::AdapterList,
+    audio_outputs: settings::AudioOutputList,
     images: settings::ProfileImages,
     restart: bool,
     home_ready: bool,
@@ -216,6 +217,7 @@ impl Launcher {
             settings: None,
             installer: None,
             adapters: Default::default(),
+            audio_outputs: Default::default(),
             images: Default::default(),
             restart: false,
             task: None,
@@ -355,6 +357,7 @@ impl Launcher {
                     rpc,
                     avd,
                     adb,
+                    audio_output,
                 } => {
                     if self.stop.load(Ordering::Acquire) {
                         continue;
@@ -362,8 +365,9 @@ impl Launcher {
                     let mut controls = Controls::new(adb, console, avd.clone());
                     controls.set_locale(self.config.locale);
                     self.controls = Some(controls);
-                    let mut display = Display::open(console, rpc, avd, ctx);
+                    let mut display = Display::open(console, rpc, avd.clone(), ctx);
                     display.enable_native_texture(gl);
+                    display.play_audio(console, rpc, avd, audio_output);
                     self.display = Some(display);
                 }
                 event => {
@@ -385,6 +389,22 @@ impl Launcher {
                     }
                 }
             }
+        }
+        if let Some(reason) = self.display.as_mut().and_then(Display::take_audio_notice) {
+            let locale = self.config.locale;
+            self.output.push_back(format!(
+                "{} ({reason}). {}",
+                locale.pick(
+                    "A saída de áudio escolhida parou de responder",
+                    "The chosen audio output stopped responding",
+                    "La salida de audio elegida ha dejado de responder",
+                ),
+                locale.pick(
+                    "O som do Android passou para a saída padrão do sistema.",
+                    "Android sound moved to the system default output.",
+                    "El sonido de Android ha pasado a la salida predeterminada del sistema.",
+                ),
+            ));
         }
         if !finished {
             return;
@@ -534,6 +554,7 @@ impl eframe::App for Launcher {
         self.show_main(ctx, frame);
         self.show_capture_notice(ctx);
         self.adapters.poll(ctx);
+        self.audio_outputs.poll(ctx);
         if !self.external_dialog_open() {
             self.show_settings(ctx, Some(frame));
         }

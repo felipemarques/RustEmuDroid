@@ -1038,6 +1038,7 @@ fn closing_waits_for_vm_without_blocking_frames_or_restarting() {
             rpc: 0,
             avd: dir.path().into(),
             adb: Default::default(),
+            audio_output: None,
         })
         .unwrap();
 
