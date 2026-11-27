@@ -812,6 +812,9 @@ pub enum BootEvent {
     Starting(String),
     Ready(String),
     Message(String),
+    /// The saved audio output is not in use. The window shows this where the
+    /// user sees it while Android is on screen.
+    SoundNotice(String),
     Display {
         console: u16,
         rpc: u16,
@@ -820,16 +823,17 @@ pub enum BootEvent {
         adb: PathBuf,
         /// Windows endpoint the window plays the engine's sound to.
         #[cfg(feature = "ui")]
-        audio_output: Option<String>,
+        audio_output: Option<audio_output::Device>,
     },
 }
 
 impl std::fmt::Display for BootEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Starting(message) | Self::Ready(message) | Self::Message(message) => {
-                f.write_str(message)
-            }
+            Self::Starting(message)
+            | Self::Ready(message)
+            | Self::Message(message)
+            | Self::SoundNotice(message) => f.write_str(message),
             Self::Display {
                 console, rpc, avd, ..
             } => write!(
@@ -928,10 +932,30 @@ fn selected_vulkan_is_cpu(log: &str) -> bool {
         && matching_types.all(|kind| kind == "VK_PHYSICAL_DEVICE_TYPE_CPU")
 }
 
-fn apply_audio_plan(command: &mut Command, plan: &audio_output::Plan) {
-    for variable in &plan.remove_env {
-        command.env_remove(variable);
+/// The window flag of the engine under the RustEmuDroid panel. `-no-window`
+/// selects the headless QEMU, which plays no sound on Linux; a hidden Qt
+/// window keeps the engine's sound.
+const fn panel_window_flag() -> &'static str {
+    if cfg!(target_os = "linux") {
+        "-no-window"
+    } else {
+        "-qt-hide-window"
     }
+}
+
+/// Whether an engine started with these arguments can play sound itself.
+fn engine_plays_sound<'a>(args: impl IntoIterator<Item = &'a OsStr>) -> bool {
+    !args.into_iter().any(|arg| arg == "-no-window")
+}
+
+/// Whether Android has the engine's sound in the RustEmuDroid panel. The
+/// settings read it so their text follows how the engine is really started.
+#[cfg(feature = "ui")]
+pub(crate) fn panel_engine_plays_sound() -> bool {
+    engine_plays_sound([OsStr::new(panel_window_flag())])
+}
+
+fn apply_audio_plan(command: &mut Command, plan: &audio_output::Plan) {
     for (variable, value) in &plan.set_env {
         command.env(variable, value);
     }
@@ -1223,13 +1247,8 @@ pub fn boot(
     let rpc_socket = if embedded {
         let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         let rpc = socket.local_addr()?.port();
-        let display_mode = if cfg!(target_os = "linux") {
-            "-no-window"
-        } else {
-            "-qt-hide-window"
-        };
         command
-            .args([display_mode, "-grpc-use-token", "-grpc"])
+            .args([panel_window_flag(), "-grpc-use-token", "-grpc"])
             .arg(rpc.to_string());
         // Linux reads ANDROID_EMULATOR_DISCOVERY_DIR, Windows uses LOCALAPPDATA/Temp.
         command.env("ANDROID_EMULATOR_DISCOVERY_DIR", &profile.user_home);
@@ -1241,18 +1260,21 @@ pub fn boot(
     let audio = audio_output::plan(
         &hardware.audio_output,
         &hardware.audio_output_name,
-        audio_output::inventory,
+        || audio_output::inventory(sdk.locale),
         audio_output::Mode {
             windows: cfg!(windows),
             embedded,
             headless,
-            engine_sound: !command.get_args().any(|arg| arg == "-no-window"),
+            engine_sound: engine_plays_sound(command.get_args()),
         },
         sdk.locale,
     );
     apply_audio_plan(&mut command, &audio);
     for message in &audio.messages {
         notify(BootEvent::Message(message.clone()));
+    }
+    if let Some(notice) = &audio.notice {
+        notify(BootEvent::SoundNotice(notice.clone()));
     }
     #[cfg(feature = "ui")]
     let audio_output = audio.client_endpoint;
@@ -1746,28 +1768,34 @@ mod tests {
         use std::ffi::OsStr;
         let mut command = Command::new("emulator");
         command.args(["-avd", "RustEmuDroid"]);
+        // The system default: the engine's arguments and environment stay as they are.
+        apply_audio_plan(&mut command, &Plan::default());
+        assert_eq!(command.get_envs().count(), 0);
+        assert_eq!(command.get_args().count(), 2);
+
         apply_audio_plan(
             &mut command,
             &Plan {
                 set_env: vec![("QEMU_PA_SINK", "alsa_output.usb".into())],
-                remove_env: vec!["PULSE_TEST_ONLY"],
                 ..Default::default()
             },
         );
         let envs: Vec<_> = command.get_envs().collect();
-        assert!(envs.contains(&(
-            OsStr::new("QEMU_PA_SINK"),
-            Some(OsStr::new("alsa_output.usb"))
-        )));
-        assert!(
-            envs.contains(&(OsStr::new("PULSE_TEST_ONLY"), None)),
-            "removed"
+        assert_eq!(
+            envs,
+            [(
+                OsStr::new("QEMU_PA_SINK"),
+                Some(OsStr::new("alsa_output.usb"))
+            )]
         );
         assert!(!command.get_args().any(|arg| arg == "-no-audio"));
 
         let windows = Plan {
             no_audio: true,
-            client_endpoint: Some("{0.0.0.00000000}.{bbbb}".into()),
+            client_endpoint: Some(super::audio_output::Device {
+                id: "{0.0.0.00000000}.{bbbb}".into(),
+                name: "Headphones (USB)".into(),
+            }),
             ..Default::default()
         };
         let count =
@@ -1777,6 +1805,23 @@ mod tests {
         // A boot check already passes -no-audio; it is not repeated.
         apply_audio_plan(&mut command, &windows);
         assert_eq!(count(&command), 1);
+    }
+
+    #[test]
+    fn engine_sound_follows_the_window_flag_of_the_launch() {
+        use super::engine_plays_sound;
+        use std::ffi::OsStr;
+        let sound =
+            |args: &[&'static str]| engine_plays_sound(args.iter().map(|arg| OsStr::new(*arg)));
+        assert!(!sound(&["-avd", "x", "-no-window"]));
+        assert!(sound(&["-avd", "x", "-qt-hide-window"]));
+        assert!(sound(&["-avd", "x"]));
+        // The settings text reads the same decision as the panel's launch.
+        #[cfg(feature = "ui")]
+        assert_eq!(
+            super::panel_engine_plays_sound(),
+            super::panel_window_flag() != "-no-window"
+        );
     }
 
     #[test]

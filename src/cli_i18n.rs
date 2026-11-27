@@ -261,9 +261,9 @@ fn boot_help(command: Command, l: Locale) -> Command {
                 "Traducción ARM ligera para aplicaciones en la imagen Android 16 de Kemu con Berberis.",
             )),
             ("audio_output", l.pick(
-                "Saída de áudio do Android: ID ou nome mostrado por audio-outputs. Omita para seguir a saída padrão do sistema. No Windows, um dispositivo específico só funciona na janela do RustEmuDroid.",
-                "Android audio output: an ID or name listed by audio-outputs. Omit to follow the system default output. On Windows, a specific device works only in the RustEmuDroid window.",
-                "Salida de audio de Android: un ID o nombre que muestra audio-outputs. Omítela para seguir la salida predeterminada del sistema. En Windows, un dispositivo concreto solo funciona en la ventana de RustEmuDroid.",
+                "Saída de áudio do Android: ID ou nome mostrado por audio-outputs. Omita para seguir a saída padrão do sistema. Termina com erro se o dispositivo não existir, com --headless e no Windows, onde só a janela do RustEmuDroid reproduz o som em outro dispositivo.",
+                "Android audio output: an ID or name listed by audio-outputs. Omit to follow the system default output. Ends with an error if the device does not exist, with --headless, and on Windows, where only the RustEmuDroid window plays the sound on another device.",
+                "Salida de audio de Android: un ID o nombre que muestra audio-outputs. Omítela para seguir la salida predeterminada del sistema. Termina con error si el dispositivo no existe, con --headless y en Windows, donde solo la ventana de RustEmuDroid reproduce el sonido en otro dispositivo.",
             )),
             ("headless", l.pick(
                 "Executa sem abrir a janela do Android Emulator.",

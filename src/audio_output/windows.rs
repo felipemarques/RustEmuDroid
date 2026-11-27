@@ -1,7 +1,11 @@
 //! Windows Core Audio (MMDevice API and WASAPI), called through their
 //! documented COM interfaces. Only the methods used here are declared.
 
+mod route;
+
 use super::{Device, Inventory};
+pub(crate) use route::{Fault, Notice, Status};
+use route::{Router, Step, Target};
 use std::{
     collections::VecDeque,
     ffi::c_void,
@@ -93,9 +97,34 @@ impl Drop for Com {
 
 type Out = *mut *mut c_void;
 
-fn check(hr: i32, what: &str) -> Result<(), String> {
+/// A failed Core Audio call: its name and HRESULT.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Failure {
+    what: &'static str,
+    hr: i32,
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: 0x{:08X}", self.what, self.hr as u32)
+    }
+}
+
+impl From<Failure> for String {
+    fn from(failure: Failure) -> Self {
+        failure.to_string()
+    }
+}
+
+impl From<Failure> for Fault {
+    fn from(failure: Failure) -> Self {
+        Fault::from_call(failure.what, failure.hr)
+    }
+}
+
+fn check(hr: i32, what: &'static str) -> Result<(), Failure> {
     if hr < 0 {
-        Err(format!("{what}: 0x{:08X}", hr as u32))
+        Err(Failure { what, hr })
     } else {
         Ok(())
     }
@@ -139,7 +168,7 @@ fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
 }
 
-fn enumerator() -> Result<Com, String> {
+fn enumerator() -> Result<Com, Failure> {
     let mut raw = std::ptr::null_mut();
     let hr = unsafe {
         CoCreateInstance(
@@ -154,7 +183,7 @@ fn enumerator() -> Result<Com, String> {
     Ok(Com(raw))
 }
 
-unsafe fn device_id(device: &Com) -> Result<String, String> {
+unsafe fn device_id(device: &Com) -> Result<String, Failure> {
     unsafe {
         let get_id: unsafe extern "system" fn(*mut c_void, *mut *mut u16) -> i32 = device.method(5);
         let mut id = std::ptr::null_mut();
@@ -189,7 +218,7 @@ unsafe fn friendly_name(device: &Com) -> Option<String> {
     }
 }
 
-unsafe fn default_endpoint(enumerator: &Com) -> Result<Com, String> {
+unsafe fn default_endpoint(enumerator: &Com) -> Result<Com, Failure> {
     unsafe {
         let get_default: unsafe extern "system" fn(*mut c_void, i32, i32, Out) -> i32 =
             enumerator.method(4);
@@ -304,13 +333,154 @@ pub(crate) fn excess_frames(queued: usize, padding: usize) -> usize {
     }
 }
 
+/// Without an audible sample for this long, the device stream is stopped: a
+/// running stream keeps the computer from sleeping and a wireless device
+/// awake. The engine's stream is no guide here: it pauses when Android's
+/// output goes idle, but an app that keeps a track open delivers zeros.
+const QUIET_TIME: Duration = Duration::from_secs(5);
+
+/// What one pass of the player does with the device.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Feed {
+    /// Frames to move from the front of the queue to the device.
+    pub frames: usize,
+    /// Start the device stream after that write.
+    pub start: bool,
+    /// Stop the device stream: it has played everything it was given.
+    pub stop: bool,
+    /// Frames waiting in the queue and the device while playing (QA stats).
+    pub buffered: Option<usize>,
+}
+
+/// The queue side of the player for one open device: priming, drift and
+/// silence, decided without calling the device.
+#[derive(Debug, Default)]
+pub(crate) struct Feeder {
+    primed: bool,
+    /// Silence is discarded instead of played, up to the next audible frame.
+    resting: bool,
+    /// The device stream is started.
+    running: bool,
+    /// When an audible frame last went to the device.
+    heard: Option<Instant>,
+}
+
+impl Feeder {
+    /// A new device starts on the first audible frame.
+    pub(crate) fn new() -> Self {
+        Self {
+            resting: true,
+            ..Self::default()
+        }
+    }
+
+    fn quiet(&self, now: Instant) -> bool {
+        self.heard
+            .is_none_or(|heard| now.duration_since(heard) >= QUIET_TIME)
+    }
+
+    /// Trims, primes and nudges `samples` for a device holding `padding` of
+    /// its `capacity` frames, and says what to do with the device.
+    pub(crate) fn feed(
+        &mut self,
+        samples: &mut VecDeque<i16>,
+        padding: usize,
+        capacity: usize,
+        now: Instant,
+    ) -> Feed {
+        let (frames, buffered) = self.take(samples, padding, capacity, now);
+        let mut feed = Feed {
+            frames,
+            buffered,
+            ..Feed::default()
+        };
+        if frames > 0 {
+            feed.start = !self.running;
+            self.running = true;
+        } else if self.running && padding == 0 && self.quiet(now) {
+            self.running = false;
+            feed.stop = true;
+        }
+        feed
+    }
+
+    /// How many frames at the front of `samples` go to the device now, and
+    /// the frames buffered while playing.
+    fn take(
+        &mut self,
+        samples: &mut VecDeque<i16>,
+        padding: usize,
+        capacity: usize,
+        now: Instant,
+    ) -> (usize, Option<usize>) {
+        let channels = CHANNELS as usize;
+        if self.resting {
+            let frames = samples.len() / channels;
+            let silent = samples
+                .iter()
+                .position(|&sample| sample != 0)
+                .map_or(frames, |index| index / channels);
+            samples.drain(..silent * channels);
+            if silent == frames {
+                return (0, None);
+            }
+            // The sound starts with its first audible frame, primed as usual.
+            self.resting = false;
+            self.primed = false;
+        }
+        let queued = samples.len() / channels;
+        let drop = excess_frames(queued, padding);
+        samples.drain(..drop * channels);
+        let queued = queued - drop;
+        if !self.primed {
+            if queued < PRIME_FRAMES {
+                return (0, None);
+            }
+            self.primed = true;
+        } else if queued == 0 {
+            self.primed = padding > 0;
+            return (0, Some(padding));
+        }
+        let buffered = queued + padding;
+        let space = capacity.saturating_sub(padding);
+        let next = queued.min(space) * channels;
+        if samples.iter().take(next).any(|&sample| sample != 0) {
+            self.heard = Some(now);
+        } else if next > 0 && self.quiet(now) {
+            // Nothing but silence for a while: stop playing it.
+            self.resting = true;
+            return (0, Some(buffered));
+        }
+        let mut queued = queued;
+        match nudge(buffered) {
+            1 => {
+                let first: Vec<i16> = samples.iter().take(channels).copied().collect();
+                for sample in first.into_iter().rev() {
+                    samples.push_front(sample);
+                }
+                queued += 1;
+            }
+            -1 if queued > 1 => {
+                samples.drain(..channels);
+                queued -= 1;
+            }
+            _ => {}
+        }
+        (queued.min(space), Some(buffered))
+    }
+}
+
 struct Output {
     client: Com,
     render: Com,
     frames: u32,
+    /// The endpoint that was opened; for the system default, the one it was then.
+    endpoint: String,
+    feeder: Feeder,
 }
 
-unsafe fn open_output(enumerator: &Com, endpoint: Option<&str>) -> Result<Output, String> {
+/// Opens `endpoint`, or the system default, without starting its stream.
+unsafe fn open_output(enumerator: &Com, endpoint: Option<&str>) -> Result<Output, Fault> {
     unsafe {
         let device = match endpoint {
             Some(id) => {
@@ -325,11 +495,15 @@ unsafe fn open_output(enumerator: &Com, endpoint: Option<&str>) -> Result<Output
                 let mut state = 0;
                 check(get_state(device.0, &mut state), "IMMDevice::GetState")?;
                 if state != DEVICE_STATE_ACTIVE {
-                    return Err("device not active".into());
+                    return Err(Fault::Gone);
                 }
                 device
             }
             None => default_endpoint(enumerator)?,
+        };
+        let endpoint = match endpoint {
+            Some(id) => id.to_owned(),
+            None => device_id(&device)?,
         };
         let activate: unsafe extern "system" fn(
             *mut c_void,
@@ -392,82 +566,74 @@ unsafe fn open_output(enumerator: &Com, endpoint: Option<&str>) -> Result<Output
             "GetService",
         )?;
         let render = Com(raw);
-        let start: unsafe extern "system" fn(*mut c_void) -> i32 = client.method(10);
-        check(start(client.0), "IAudioClient::Start")?;
+        // The stream starts with the first audible write (`Feeder`).
         Ok(Output {
             client,
             render,
             frames,
+            endpoint,
+            feeder: Feeder::new(),
         })
     }
 }
 
 impl Output {
-    /// Writes what the queue holds and returns the frames waiting in the
-    /// queue and the device buffer while playing. An error means the device
-    /// must be reopened.
-    unsafe fn feed(&self, queue: &Queue, primed: &mut bool) -> Result<Option<usize>, i32> {
+    /// Writes what the queue holds, starts or stops the stream as the
+    /// `Feeder` decides, and returns the frames waiting in the queue and the
+    /// device buffer while playing. An error means the device must be reopened.
+    unsafe fn feed(&mut self, queue: &Queue, now: Instant) -> Result<Option<usize>, Fault> {
         unsafe {
             let padding_fn: unsafe extern "system" fn(*mut c_void, *mut u32) -> i32 =
                 self.client.method(6);
             let mut padding = 0;
-            let hr = padding_fn(self.client.0, &mut padding);
-            if hr < 0 {
-                return Err(hr);
-            }
-            let mut samples = queue.samples.lock().unwrap();
-            let channels = CHANNELS as usize;
-            let queued = samples.len() / channels;
-            let drop = excess_frames(queued, padding as usize);
-            samples.drain(..drop * channels);
-            let queued = queued - drop;
-            if !*primed {
-                if queued < PRIME_FRAMES {
-                    return Ok(None);
-                }
-                *primed = true;
-            } else if queued == 0 {
-                *primed = padding > 0;
-                return Ok(Some(padding as usize));
-            }
-            let buffered = queued + padding as usize;
-            let mut queued = queued;
-            match nudge(buffered) {
-                1 => {
-                    let first: Vec<i16> = samples.iter().take(channels).copied().collect();
-                    for sample in first.into_iter().rev() {
-                        samples.push_front(sample);
+            check(
+                padding_fn(self.client.0, &mut padding),
+                "IAudioClient::GetCurrentPadding",
+            )?;
+            let feed = {
+                let mut samples = queue.samples.lock().unwrap();
+                let feed =
+                    self.feeder
+                        .feed(&mut samples, padding as usize, self.frames as usize, now);
+                if feed.frames > 0 {
+                    let channels = CHANNELS as usize;
+                    let get_buffer: unsafe extern "system" fn(
+                        *mut c_void,
+                        u32,
+                        *mut *mut u8,
+                    ) -> i32 = self.render.method(3);
+                    let release: unsafe extern "system" fn(*mut c_void, u32, u32) -> i32 =
+                        self.render.method(4);
+                    let mut data = std::ptr::null_mut();
+                    check(
+                        get_buffer(self.render.0, feed.frames as u32, &mut data),
+                        "IAudioRenderClient::GetBuffer",
+                    )?;
+                    let target =
+                        std::slice::from_raw_parts_mut(data as *mut i16, feed.frames * channels);
+                    for (slot, sample) in target
+                        .iter_mut()
+                        .zip(samples.drain(..feed.frames * channels))
+                    {
+                        *slot = sample;
                     }
-                    queued += 1;
+                    check(
+                        release(self.render.0, feed.frames as u32, 0),
+                        "IAudioRenderClient::ReleaseBuffer",
+                    )?;
                 }
-                -1 if queued > 1 => {
-                    samples.drain(..channels);
-                    queued -= 1;
-                }
-                _ => {}
+                feed
+            };
+            // Data written to a stopped stream waits there until it starts.
+            if feed.start {
+                let start: unsafe extern "system" fn(*mut c_void) -> i32 = self.client.method(10);
+                check(start(self.client.0), "IAudioClient::Start")?;
             }
-            let frames = queued.min((self.frames - padding) as usize);
-            if frames == 0 {
-                return Ok(Some(buffered));
+            if feed.stop {
+                let stop: unsafe extern "system" fn(*mut c_void) -> i32 = self.client.method(11);
+                check(stop(self.client.0), "IAudioClient::Stop")?;
             }
-            let get_buffer: unsafe extern "system" fn(*mut c_void, u32, *mut *mut u8) -> i32 =
-                self.render.method(3);
-            let release: unsafe extern "system" fn(*mut c_void, u32, u32) -> i32 =
-                self.render.method(4);
-            let mut data = std::ptr::null_mut();
-            let hr = get_buffer(self.render.0, frames as u32, &mut data);
-            if hr < 0 {
-                return Err(hr);
-            }
-            let target = std::slice::from_raw_parts_mut(data as *mut i16, frames * channels);
-            for (slot, sample) in target.iter_mut().zip(samples.drain(..frames * channels)) {
-                *slot = sample;
-            }
-            let hr = release(self.render.0, frames as u32, 0);
-            if hr < 0 {
-                return Err(hr);
-            }
-            Ok(Some(buffered))
+            Ok(feed.buffered)
         }
     }
 }
@@ -515,57 +681,89 @@ impl Stats {
     }
 }
 
-/// Plays `queue` on `endpoint` until `stop` is set. If the endpoint goes away
-/// the sound moves to the current system default and `notice` is called once
-/// with the reason.
+/// Plays `queue` on `endpoint` until `stop` is set. While that device is
+/// unavailable the sound plays on the system default, following its changes,
+/// and returns to the device when it works again (`Router`). `report` gets
+/// every change of where the sound is, with the notice for the user if the
+/// change calls for one.
 pub(crate) fn play(
     endpoint: String,
     queue: Arc<Queue>,
     stop: Arc<AtomicBool>,
-    mut notice: impl FnMut(&str),
+    mut report: impl FnMut(Status, Option<Notice>),
 ) {
     let _com = Apartment::enter();
-    let enumerator = match enumerator() {
-        Ok(enumerator) => enumerator,
-        Err(error) => {
-            eprintln!("RustEmuDroid audio: {error}");
-            return;
-        }
-    };
-    let mut target = Some(endpoint);
+    let mut router = Router::new(Instant::now());
+    let mut status = router.status();
+    let mut enumerator: Option<Com> = None;
+    let mut output: Option<Output> = None;
     // QA only: once a second, how much audio waits in the client while playing.
     let mut stats = std::env::var_os("RUSTEMUDROID_AUDIO_STATS").map(|_| Stats::default());
     while !stop.load(Ordering::Acquire) {
-        let output = match unsafe { open_output(&enumerator, target.as_deref()) } {
-            Ok(output) => output,
-            Err(error) if target.is_some() => {
-                // The chosen device is gone: keep Android audible on the default.
-                target = None;
-                notice(&error);
-                continue;
-            }
-            Err(_) => {
-                std::thread::sleep(Duration::from_millis(500));
-                continue;
-            }
-        };
-        let mut primed = false;
-        let mut retried = Instant::now();
-        while !stop.load(Ordering::Acquire) {
-            let fed = unsafe { output.feed(&queue, &mut primed) };
-            if let (Some(stats), Ok(Some(frames))) = (stats.as_mut(), &fed) {
-                stats.add(*frames);
-            }
-            if fed.is_err() {
-                // Device removed or its format changed: reopen.
-                if retried.elapsed() < Duration::from_millis(100) {
-                    std::thread::sleep(Duration::from_millis(100));
+        let now = Instant::now();
+        match router.step(now) {
+            Step::Wait => {}
+            Step::Open(target) => {
+                if enumerator.is_none() {
+                    match self::enumerator() {
+                        Ok(new) => enumerator = Some(new),
+                        Err(error) => router.failed(target, error.into(), now),
+                    }
                 }
-                retried = Instant::now();
-                break;
+                if let Some(devices) = &enumerator {
+                    let wanted = (target == Target::Chosen).then_some(endpoint.as_str());
+                    match unsafe { open_output(devices, wanted) } {
+                        // Replaces the device that played until now, if any.
+                        Ok(new) => {
+                            output = Some(new);
+                            router.opened(target, now);
+                        }
+                        Err(fault) => {
+                            router.failed(target, fault, now);
+                            if target == Target::Default {
+                                // Ask Windows from scratch on the next attempt.
+                                enumerator = None;
+                            }
+                        }
+                    }
+                }
             }
-            std::thread::sleep(Duration::from_millis(5));
+            Step::CheckDefault => {
+                router.checked(now);
+                // Another device became the default: move there. If it cannot
+                // be opened, the old one keeps playing until the next check.
+                if let (Some(devices), Some(playing)) = (&enumerator, &output)
+                    && let Ok(current) =
+                        unsafe { default_endpoint(devices).and_then(|device| device_id(&device)) }
+                    && current != playing.endpoint
+                    && let Ok(new) = unsafe { open_output(devices, None) }
+                {
+                    output = Some(new);
+                    router.opened(Target::Default, now);
+                }
+            }
         }
+        if let Some(playing) = &mut output {
+            match unsafe { playing.feed(&queue, now) } {
+                Ok(buffered) => {
+                    if let (Some(stats), Some(frames)) = (stats.as_mut(), buffered) {
+                        stats.add(frames);
+                    }
+                }
+                Err(fault) => {
+                    // Device removed or its format changed: reopen or fall back.
+                    output = None;
+                    router.lost(fault, now);
+                }
+            }
+        }
+        let notice = router.notice(now);
+        if notice.is_some() || router.status() != status {
+            status = router.status();
+            report(status.clone(), notice);
+        }
+        let pause = if output.is_some() { 5 } else { 20 };
+        std::thread::sleep(Duration::from_millis(pause));
     }
 }
 
@@ -592,7 +790,7 @@ mod tests {
     }
 
     #[test]
-    fn slow_drift_is_nudged_one_frame_at_a_time() {
+    fn the_drift_dead_band_lies_between_30_and_70_ms() {
         assert_eq!(nudge(LOW_FRAMES - 1), 1);
         assert_eq!(nudge(PRIME_FRAMES), 0);
         assert_eq!(nudge(HIGH_FRAMES), 0);
@@ -600,6 +798,207 @@ mod tests {
         assert!(
             LOW_FRAMES < PRIME_FRAMES && PRIME_FRAMES < HIGH_FRAMES && HIGH_FRAMES < MAX_FRAMES
         );
+    }
+
+    /// The device buffer of the tests: 100 ms, as `open_output` asks for.
+    const CAPACITY: usize = RATE as usize / 10;
+    const MS: usize = RATE as usize / 1000;
+
+    /// `frames` stereo frames whose left samples count up from `first`.
+    fn ramp(first: i16, frames: usize) -> VecDeque<i16> {
+        (0..frames as i16)
+            .flat_map(|frame| [first + frame, -(first + frame)])
+            .collect()
+    }
+
+    /// A feeder in the middle of a sound that was audible at `now`.
+    fn playing(now: Instant) -> Feeder {
+        Feeder {
+            primed: true,
+            resting: false,
+            running: true,
+            heard: Some(now),
+        }
+    }
+
+    #[test]
+    fn slow_drift_is_nudged_one_frame_at_a_time() {
+        let now = Instant::now();
+        // 20 ms buffered, below the band: the first frame goes out twice.
+        let mut samples = ramp(100, 10 * MS);
+        let feed = playing(now).feed(&mut samples, 10 * MS, CAPACITY, now);
+        assert_eq!((feed.frames, feed.buffered), (10 * MS + 1, Some(20 * MS)));
+        assert_eq!(samples.len(), (10 * MS + 1) * 2);
+        assert_eq!(
+            samples.iter().take(6).copied().collect::<Vec<_>>(),
+            [100, -100, 100, -100, 101, -101]
+        );
+
+        // 80 ms buffered, above the band: the first frame is skipped.
+        let mut samples = ramp(100, 10 * MS);
+        let feed = playing(now).feed(&mut samples, 70 * MS, CAPACITY, now);
+        assert_eq!((feed.frames, feed.buffered), (10 * MS - 1, Some(80 * MS)));
+        assert_eq!(
+            samples.iter().take(4).copied().collect::<Vec<_>>(),
+            [101, -101, 102, -102]
+        );
+        // The only queued frame is never skipped.
+        let mut samples = ramp(100, 1);
+        let feed = playing(now).feed(&mut samples, 75 * MS, CAPACITY, now);
+        assert_eq!((feed.frames, samples.len()), (1, 2));
+
+        // 50 ms buffered, inside the band: the queue goes out as it is.
+        let mut samples = ramp(100, 10 * MS);
+        let untouched = samples.clone();
+        let feed = playing(now).feed(&mut samples, 40 * MS, CAPACITY, now);
+        assert_eq!((feed.frames, feed.buffered), (10 * MS, Some(50 * MS)));
+        assert_eq!(samples, untouched);
+        assert!(!feed.start && !feed.stop, "the stream keeps running");
+
+        // A write never exceeds the room left in the device.
+        let mut samples = ramp(100, 30 * MS);
+        let feed = playing(now).feed(&mut samples, CAPACITY - 5 * MS, CAPACITY, now);
+        assert_eq!(feed.frames, 5 * MS);
+    }
+
+    #[test]
+    fn playback_primes_40_ms_and_primes_again_after_running_dry() {
+        let now = Instant::now();
+        let mut feeder = Feeder::new();
+        let mut samples = ramp(1, 39 * MS);
+        assert_eq!(feeder.feed(&mut samples, 0, CAPACITY, now), Feed::default());
+        samples.extend(ramp(5000, MS));
+        let feed = feeder.feed(&mut samples, 0, CAPACITY, now);
+        assert_eq!(
+            feed,
+            Feed {
+                frames: 40 * MS,
+                start: true,
+                stop: false,
+                buffered: Some(40 * MS),
+            }
+        );
+        samples.clear();
+        // Dry with audio still in the device: new samples continue at once.
+        let feed = feeder.feed(&mut samples, 20 * MS, CAPACITY, now);
+        assert_eq!((feed.frames, feed.buffered), (0, Some(20 * MS)));
+        let mut more = ramp(1, 10 * MS);
+        assert_eq!(
+            feeder.feed(&mut more, 20 * MS, CAPACITY, now).frames,
+            10 * MS
+        );
+        // Dry with an empty device: wait for 40 ms again.
+        more.clear();
+        feeder.feed(&mut more, 0, CAPACITY, now);
+        let mut late = ramp(1, 10 * MS);
+        assert_eq!(feeder.feed(&mut late, 0, CAPACITY, now).frames, 0);
+        assert_eq!(late.len(), 10 * MS * 2, "kept for the next write");
+    }
+
+    #[test]
+    fn the_stream_stops_after_silence_and_starts_on_the_first_audible_frame() {
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        let silence = |frames: usize| VecDeque::from(vec![0i16; frames * 2]);
+        let mut feeder = Feeder::new();
+
+        // Android plays silence (an open track): it is dropped and the device stays stopped.
+        let mut samples = silence(60 * MS);
+        assert_eq!(
+            feeder.feed(&mut samples, 0, CAPACITY, at(0)),
+            Feed::default()
+        );
+        assert!(samples.is_empty());
+
+        // A sound begins inside a packet: nothing of it is lost, and the
+        // stream starts once 40 ms of it are queued.
+        samples.extend(silence(3 * MS));
+        samples.extend(ramp(7, 20 * MS));
+        assert_eq!(
+            feeder.feed(&mut samples, 0, CAPACITY, at(10)),
+            Feed::default()
+        );
+        assert_eq!(
+            samples.front(),
+            Some(&7),
+            "starts at the first audible sample"
+        );
+        assert_eq!(samples.len(), 20 * MS * 2);
+        samples.extend(ramp(7, 20 * MS));
+        let feed = feeder.feed(&mut samples, 0, CAPACITY, at(30));
+        assert_eq!((feed.frames, feed.start, feed.stop), (40 * MS, true, false));
+        assert_eq!(samples.front(), Some(&7));
+        samples.clear();
+
+        // Silence inside the sound is played: a pause keeps its length.
+        let mut samples = silence(10 * MS);
+        let feed = feeder.feed(&mut samples, 30 * MS, CAPACITY, at(2_000));
+        assert_eq!(
+            (feed.frames, feed.start, feed.stop),
+            (10 * MS, false, false)
+        );
+        let mut samples = silence(10 * MS);
+        let feed = feeder.feed(&mut samples, 30 * MS, CAPACITY, at(5_029));
+        assert_eq!(feed.frames, 10 * MS, "not yet five seconds");
+
+        // Five seconds without an audible frame: the silence is no longer
+        // played, and the stream stops once the device has played its rest.
+        let mut samples = silence(10 * MS);
+        let feed = feeder.feed(&mut samples, 30 * MS, CAPACITY, at(5_030));
+        assert_eq!((feed.frames, feed.stop), (0, false));
+        let feed = feeder.feed(&mut samples, 20 * MS, CAPACITY, at(5_035));
+        assert_eq!((feed.frames, feed.stop), (0, false));
+        assert!(samples.is_empty(), "silence is dropped while resting");
+        let feed = feeder.feed(&mut samples, 0, CAPACITY, at(5_130));
+        assert_eq!((feed.frames, feed.start, feed.stop), (0, false, true));
+        assert_eq!(
+            feeder.feed(&mut samples, 0, CAPACITY, at(5_135)),
+            Feed::default(),
+            "stopped once"
+        );
+
+        // More silence does not start it; the next sound does, from its first frame.
+        let mut samples = silence(500 * MS);
+        assert_eq!(
+            feeder.feed(&mut samples, 0, CAPACITY, at(60_000)),
+            Feed::default()
+        );
+        samples.extend(ramp(9, 45 * MS));
+        let feed = feeder.feed(&mut samples, 0, CAPACITY, at(60_005));
+        assert_eq!((feed.frames, feed.start, feed.stop), (45 * MS, true, false));
+        assert_eq!(samples.front(), Some(&9));
+    }
+
+    #[test]
+    fn the_stream_also_stops_when_the_engine_sends_nothing() {
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        let mut feeder = Feeder::new();
+        let mut samples = ramp(1, 40 * MS);
+        assert!(feeder.feed(&mut samples, 0, CAPACITY, at(0)).start);
+        samples.clear();
+        // Android's output went idle: no packets at all.
+        for (ms, padding) in [(20, 20 * MS), (100, 0), (4_999, 0)] {
+            let feed = feeder.feed(&mut samples, padding, CAPACITY, at(ms));
+            assert_eq!((feed.frames, feed.stop), (0, false), "at {ms} ms");
+        }
+        assert!(feeder.feed(&mut samples, 0, CAPACITY, at(5_000)).stop);
+        assert!(!feeder.feed(&mut samples, 0, CAPACITY, at(5_005)).stop);
+        // The next sound starts the stream again.
+        let mut samples = ramp(1, 40 * MS);
+        let feed = feeder.feed(&mut samples, 0, CAPACITY, at(9_000));
+        assert_eq!((feed.frames, feed.start), (40 * MS, true));
+    }
+
+    #[test]
+    fn a_backlog_is_trimmed_before_it_is_played() {
+        let now = Instant::now();
+        // One second waited while no device was open: play the newest 40 ms.
+        let mut samples = ramp(1, RATE as usize / 2);
+        samples.extend(ramp(1, RATE as usize / 2));
+        let feed = Feeder::new().feed(&mut samples, 0, CAPACITY, now);
+        assert_eq!((feed.frames, feed.start), (PRIME_FRAMES, true));
+        assert_eq!(samples.len(), PRIME_FRAMES * 2);
     }
 
     #[test]
@@ -776,7 +1175,11 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
         let player = {
             let (queue, stop) = (queue.clone(), stop.clone());
-            std::thread::spawn(move || play(cable.id, queue, stop, |e| panic!("{e}")))
+            std::thread::spawn(move || {
+                play(cable.id, queue, stop, |status, notice| {
+                    assert_eq!((status, notice), (Status::Chosen, None));
+                })
+            })
         };
         let feeder = {
             let (queue, stop) = (queue.clone(), stop.clone());

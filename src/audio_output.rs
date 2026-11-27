@@ -59,14 +59,25 @@ impl Inventory {
     }
 }
 
-/// The active output devices of this computer.
-pub(crate) fn inventory() -> Result<Inventory, String> {
+/// The active output devices of this computer. A failure is described in
+/// `locale`; system call names and their codes stay as the system gives them.
+pub(crate) fn inventory(locale: Locale) -> Result<Inventory, String> {
     #[cfg(windows)]
-    return windows::inventory();
+    {
+        // A Core Audio failure is a call and its code, the same in any language.
+        let _ = locale;
+        return windows::inventory();
+    }
     #[cfg(target_os = "linux")]
-    return linux::inventory();
-    #[allow(unreachable_code)]
-    Err("unsupported operating system".into())
+    return linux::inventory(locale);
+    #[cfg(not(any(windows, target_os = "linux")))]
+    return Err(locale
+        .pick(
+            "sistema operacional sem suporte",
+            "unsupported operating system",
+            "sistema operativo no compatible",
+        )
+        .into());
 }
 
 /// How the engine runs, as far as its sound is concerned.
@@ -85,18 +96,22 @@ pub(crate) struct Mode {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Plan {
     pub set_env: Vec<(&'static str, String)>,
-    pub remove_env: Vec<&'static str>,
     /// Turn off the engine's own output (Windows, played by the window instead).
     pub no_audio: bool,
     /// Windows endpoint the RustEmuDroid window plays the engine's stream to.
-    pub client_endpoint: Option<String>,
+    pub client_endpoint: Option<Device>,
     /// Lines for the boot details.
     pub messages: Vec<String>,
+    /// The saved device is not in use: said where the user sees it while
+    /// Android runs, and not only in the boot details.
+    pub notice: Option<String>,
 }
 
 /// Decides the engine arguments, environment and messages for a saved choice.
-/// `saved` is empty for the system default. `inventory` is only consulted for
-/// a saved device.
+/// `saved` is empty for the system default, which changes nothing: the engine
+/// starts as it did before the setting existed, in the environment the user
+/// launched the client with (an exported `QEMU_PA_SINK` included). `inventory`
+/// is only consulted for a saved device.
 pub(crate) fn plan(
     saved: &str,
     saved_name: &str,
@@ -105,10 +120,6 @@ pub(crate) fn plan(
     locale: Locale,
 ) -> Plan {
     let mut plan = Plan::default();
-    if !mode.windows {
-        // "System default" means the server's default sink, not an inherited override.
-        plan.remove_env.push(PULSE_SINK_VARIABLE);
-    }
     let saved = saved.trim();
     if saved.is_empty() || mode.headless {
         return plan;
@@ -126,7 +137,7 @@ pub(crate) fn plan(
     let inventory = match inventory() {
         Ok(inventory) => inventory,
         Err(error) => {
-            plan.messages.push(format!(
+            plan.notice = Some(format!(
                 "{} ({error}). {fallback}",
                 locale.pick(
                     "Não foi possível listar as saídas de áudio",
@@ -138,7 +149,7 @@ pub(crate) fn plan(
         }
     };
     let Some(device) = inventory.find(saved) else {
-        plan.messages.push(format!(
+        plan.notice = Some(format!(
             "{} “{shown}” {} {fallback}",
             locale.pick(
                 "A saída de áudio salva",
@@ -159,7 +170,6 @@ pub(crate) fn plan(
         device.name
     );
     if !mode.windows {
-        plan.remove_env.clear();
         plan.set_env.push((PULSE_SINK_VARIABLE, device.id.clone()));
         plan.messages.push(format!("{chosen}."));
         if !mode.engine_sound {
@@ -175,7 +185,7 @@ pub(crate) fn plan(
         }
     } else if mode.embedded {
         plan.no_audio = true;
-        plan.client_endpoint = Some(device.id.clone());
+        plan.client_endpoint = Some(device.clone());
         plan.messages.push(format!(
             "{chosen} ({}).",
             locale.pick(
@@ -185,7 +195,7 @@ pub(crate) fn plan(
             )
         ));
     } else {
-        plan.messages.push(format!(
+        plan.notice = Some(format!(
             "{} {fallback}",
             locale.pick(
                 "Uma saída de áudio específica só funciona na janela do RustEmuDroid.",
@@ -195,6 +205,73 @@ pub(crate) fn plan(
         ));
     }
     plan
+}
+
+/// Checks a device named on the command line (`boot --audio-output`). A saved
+/// device that cannot be used falls back and says so (`plan`); one asked for
+/// explicitly is a usage error instead, and the text says why. `Ok` means
+/// `plan` routes the sound to it.
+pub(crate) fn check_explicit(
+    requested: &str,
+    inventory: impl FnOnce() -> Result<Inventory, String>,
+    mode: Mode,
+    locale: Locale,
+) -> Result<(), String> {
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return Ok(());
+    }
+    if mode.headless {
+        return Err(locale
+            .pick(
+                "--audio-output não pode ser usado com --headless: nesse modo o motor roda sem som.",
+                "--audio-output cannot be used with --headless: in that mode the engine runs without sound.",
+                "--audio-output no se puede usar con --headless: en ese modo el motor se ejecuta sin sonido.",
+            )
+            .into());
+    }
+    if mode.windows && !mode.embedded {
+        return Err(locale
+            .pick(
+                "No Windows, boot não aceita --audio-output: o motor só toca na saída padrão do sistema, e apenas a janela do RustEmuDroid reproduz o som em outro dispositivo. Escolha o dispositivo em Configurações → Som → Saída de áudio.",
+                "On Windows, boot does not accept --audio-output: the engine only plays on the system default output, and only the RustEmuDroid window plays the sound on another device. Choose the device in Settings → Sound → Audio output.",
+                "En Windows, boot no admite --audio-output: el motor solo reproduce en la salida predeterminada del sistema, y únicamente la ventana de RustEmuDroid reproduce el sonido en otro dispositivo. Elige el dispositivo en Ajustes → Sonido → Salida de audio.",
+            )
+            .into());
+    }
+    let inventory = inventory().map_err(|error| {
+        format!(
+            "{} ({error}).",
+            locale.pick(
+                "--audio-output não pode ser atendido: não foi possível listar as saídas de áudio",
+                "--audio-output cannot be honoured: the audio outputs could not be listed",
+                "--audio-output no se puede aplicar: no se han podido enumerar las salidas de audio",
+            )
+        )
+    })?;
+    if inventory.find(requested).is_some() {
+        return Ok(());
+    }
+    let mut text = format!(
+        "{} “{requested}”. {}",
+        locale.pick(
+            "--audio-output: nenhuma saída de áudio tem o ID ou o nome",
+            "--audio-output: no audio output has the ID or name",
+            "--audio-output: ninguna salida de audio tiene el ID o el nombre",
+        ),
+        locale.pick(
+            "Saídas disponíveis (ID, nome):",
+            "Available outputs (ID, name):",
+            "Salidas disponibles (ID, nombre):",
+        ),
+    );
+    for device in &inventory.devices {
+        text.push_str(&format!("\n  {}\t{}", device.id, device.name));
+    }
+    if inventory.devices.is_empty() {
+        text.push_str(locale.pick("\n  (nenhuma)", "\n  (none)", "\n  (ninguna)"));
+    }
+    Err(text)
 }
 
 #[cfg(test)]
@@ -251,12 +328,38 @@ mod tests {
     #[test]
     fn system_default_changes_nothing_and_never_lists_devices() {
         let never = || -> Result<Inventory, String> { panic!("listed devices") };
-        let plan = plan("", "", never, WINDOWS_PANEL, Locale::EnUs);
-        assert_eq!(plan, Plan::default());
-        // Linux drops an inherited sink override, so the server's default applies.
-        let plan = super::plan("  ", "", never, LINUX_QT, Locale::EnUs);
-        assert_eq!(plan.remove_env, [PULSE_SINK_VARIABLE]);
-        assert!(plan.set_env.is_empty() && plan.messages.is_empty() && !plan.no_audio);
+        // No argument, no variable set and none removed: on Linux an exported
+        // QEMU_PA_SINK reaches the engine as the user launched it.
+        for mode in [
+            WINDOWS_PANEL,
+            LINUX_QT,
+            Mode {
+                engine_sound: false,
+                ..LINUX_QT
+            },
+            Mode {
+                embedded: false,
+                ..LINUX_QT
+            },
+        ] {
+            for saved in ["", "  "] {
+                assert_eq!(
+                    plan(saved, "", never, mode, Locale::EnUs),
+                    Plan::default(),
+                    "{mode:?}"
+                );
+            }
+        }
+        // Every field of a plan: nothing in it can remove a variable.
+        let Plan {
+            set_env,
+            no_audio,
+            client_endpoint,
+            messages,
+            notice,
+        } = Plan::default();
+        assert!(set_env.is_empty() && !no_audio && client_endpoint.is_none());
+        assert!(messages.is_empty() && notice.is_none());
     }
 
     #[test]
@@ -269,11 +372,8 @@ mod tests {
             Locale::EnUs,
         );
         assert!(plan.no_audio);
-        assert_eq!(
-            plan.client_endpoint.as_deref(),
-            Some("{0.0.0.00000000}.{bbbb}")
-        );
-        assert!(plan.set_env.is_empty() && plan.remove_env.is_empty());
+        assert_eq!(plan.client_endpoint.as_ref(), Some(&devices().devices[1]));
+        assert!(plan.set_env.is_empty() && plan.notice.is_none());
         assert_eq!(
             plan.messages,
             ["Audio output: Headphones (USB) (played by the RustEmuDroid window)."]
@@ -288,11 +388,12 @@ mod tests {
         };
         let plan = plan("Headphones (USB)", "", || Ok(devices()), mode, Locale::PtBr);
         assert!(!plan.no_audio && plan.client_endpoint.is_none());
+        assert!(plan.messages.is_empty());
         assert_eq!(
-            plan.messages,
-            [
+            plan.notice.as_deref(),
+            Some(
                 "Uma saída de áudio específica só funciona na janela do RustEmuDroid. O Android usa a saída padrão do sistema."
-            ]
+            )
         );
     }
 
@@ -319,7 +420,7 @@ mod tests {
                 "alsa_output.usb-headset.analog-stereo".to_string()
             )]
         );
-        assert!(plan.remove_env.is_empty() && !plan.no_audio && plan.client_endpoint.is_none());
+        assert!(!plan.no_audio && plan.client_endpoint.is_none() && plan.notice.is_none());
         assert_eq!(
             plan.messages,
             ["Salida de audio: USB Headset Analog Stereo."]
@@ -341,7 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_device_falls_back_and_says_so() {
+    fn a_missing_saved_device_falls_back_and_tells_the_user() {
         for mode in [WINDOWS_PANEL, LINUX_QT] {
             let plan = plan(
                 "{0.0.0.00000000}.{gone}",
@@ -350,27 +451,29 @@ mod tests {
                 mode,
                 Locale::EnUs,
             );
+            // The engine starts as with the system default.
             assert!(plan.set_env.is_empty() && !plan.no_audio && plan.client_endpoint.is_none());
+            assert!(plan.messages.is_empty());
             assert_eq!(
-                plan.messages,
-                [
+                plan.notice.as_deref(),
+                Some(
                     "The saved audio output “Bluetooth Speaker” is not connected. Android uses the system default output."
-                ]
+                )
             );
         }
         let plan = plan(
             "sink",
             "",
-            || Err("pactl not found".into()),
+            || Err("pactl: No such file or directory (os error 2)".into()),
             LINUX_QT,
             Locale::PtBr,
         );
-        assert_eq!(plan.remove_env, [PULSE_SINK_VARIABLE]);
+        assert!(plan.set_env.is_empty());
         assert_eq!(
-            plan.messages,
-            [
-                "Não foi possível listar as saídas de áudio (pactl not found). O Android usa a saída padrão do sistema."
-            ]
+            plan.notice.as_deref(),
+            Some(
+                "Não foi possível listar as saídas de áudio (pactl: No such file or directory (os error 2)). O Android usa a saída padrão do sistema."
+            )
         );
     }
 
@@ -388,5 +491,77 @@ mod tests {
             Locale::EnUs,
         );
         assert_eq!(plan, Plan::default());
+    }
+
+    const LINUX_BOOT: Mode = Mode {
+        windows: false,
+        embedded: false,
+        headless: false,
+        engine_sound: true,
+    };
+
+    #[test]
+    fn an_explicit_device_must_exist_and_the_error_lists_the_others() {
+        let never = || -> Result<Inventory, String> { panic!("listed devices") };
+        assert_eq!(check_explicit(" ", never, LINUX_BOOT, Locale::EnUs), Ok(()));
+        for known in ["{0.0.0.00000000}.{bbbb}", "headphones (usb)"] {
+            assert_eq!(
+                check_explicit(known, || Ok(devices()), LINUX_BOOT, Locale::EnUs),
+                Ok(())
+            );
+        }
+        assert_eq!(
+            check_explicit("hedphones", || Ok(devices()), LINUX_BOOT, Locale::EnUs).unwrap_err(),
+            "--audio-output: no audio output has the ID or name “hedphones”. Available outputs (ID, name):\n  {0.0.0.00000000}.{aaaa}\tSpeakers (Realtek(R) Audio)\n  {0.0.0.00000000}.{bbbb}\tHeadphones (USB)"
+        );
+        assert!(
+            check_explicit("x", || Ok(Inventory::default()), LINUX_BOOT, Locale::EsEs)
+                .unwrap_err()
+                .ends_with("Salidas disponibles (ID, nombre):\n  (ninguna)")
+        );
+        assert_eq!(
+            check_explicit(
+                "x",
+                || Err("pactl: timeout".into()),
+                LINUX_BOOT,
+                Locale::PtBr
+            )
+            .unwrap_err(),
+            "--audio-output não pode ser atendido: não foi possível listar as saídas de áudio (pactl: timeout)."
+        );
+    }
+
+    #[test]
+    fn an_explicit_device_is_refused_where_it_can_never_apply() {
+        let never = || -> Result<Inventory, String> { panic!("listed devices") };
+        for locale in [Locale::PtBr, Locale::EnUs, Locale::EsEs] {
+            let headless = Mode {
+                headless: true,
+                engine_sound: false,
+                ..LINUX_BOOT
+            };
+            let error = check_explicit("Headphones (USB)", never, headless, locale).unwrap_err();
+            assert!(error.contains("--audio-output") && error.contains("--headless"));
+            // The engine has no device option on Windows and `boot` has no player.
+            let windows = Mode {
+                windows: true,
+                ..LINUX_BOOT
+            };
+            let error = check_explicit("Headphones (USB)", never, windows, locale).unwrap_err();
+            assert!(error.contains("Windows") && error.contains("boot"));
+        }
+        assert_eq!(
+            check_explicit(
+                "Headphones (USB)",
+                never,
+                Mode {
+                    headless: true,
+                    ..WINDOWS_PANEL
+                },
+                Locale::EnUs
+            )
+            .unwrap_err(),
+            "--audio-output cannot be used with --headless: in that mode the engine runs without sound."
+        );
     }
 }

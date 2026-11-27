@@ -263,6 +263,16 @@ async fn stream(
     result
 }
 
+/// A change of Android's sound that the window tells the user about. Only
+/// the Windows player raises them.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) struct AudioNotice {
+    pub text: String,
+    pub details: Option<String>,
+    /// The sound stopped or left the chosen device.
+    pub problem: bool,
+}
+
 pub struct Display {
     pub(crate) mapping: mapping::Mapping,
     state: Arc<Mutex<Shared>>,
@@ -363,7 +373,7 @@ impl Display {
         console: u16,
         rpc: u16,
         avd: PathBuf,
-        endpoint: Option<String>,
+        endpoint: Option<crate::audio_output::Device>,
     ) {
         #[cfg(windows)]
         if let Some(endpoint) = endpoint {
@@ -373,12 +383,30 @@ impl Display {
         let _ = (console, rpc, avd, endpoint);
     }
 
-    /// Why the chosen output stopped, once, after the sound moved to the default.
-    pub(crate) fn take_audio_notice(&mut self) -> Option<String> {
+    /// Where the sound played by this window is right now: on the chosen
+    /// device, on the system default while that device is unavailable, or
+    /// nowhere. `None` when the engine plays its own sound.
+    pub(crate) fn audio_status(&self, locale: Locale) -> Option<String> {
         #[cfg(windows)]
-        return self.audio.as_ref()?.notice.lock().unwrap().take();
+        return Some(self.audio.as_ref()?.status(locale));
+        #[cfg(not(windows))]
+        let _ = locale;
         #[cfg(not(windows))]
         None
+    }
+
+    /// Changes of the sound played by this window since the last call.
+    pub(crate) fn take_audio_notices(&mut self, locale: Locale) -> Vec<AudioNotice> {
+        #[cfg(windows)]
+        return self
+            .audio
+            .as_ref()
+            .map(|audio| audio.take_notices(locale))
+            .unwrap_or_default();
+        #[cfg(not(windows))]
+        let _ = locale;
+        #[cfg(not(windows))]
+        Vec::new()
     }
 
     #[cfg(test)]

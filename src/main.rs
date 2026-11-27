@@ -218,7 +218,7 @@ fn run(cli: Cli) -> Result<()> {
         return runtime_install::command(args, language);
     }
     if matches!(cli.command, Action::AudioOutputs) {
-        let inventory = audio_output::inventory()?;
+        let inventory = audio_output::inventory(language)?;
         let marker = language.pick(
             "padrão do sistema",
             "system default",
@@ -238,6 +238,24 @@ fn run(cli: Cli) -> Result<()> {
             );
         }
         return Ok(());
+    }
+    if let Action::Boot {
+        hardware, headless, ..
+    } = &cli.command
+    {
+        // Asked for on the command line: refuse it rather than boot without it.
+        audio_output::check_explicit(
+            &hardware.audio_output,
+            || audio_output::inventory(language),
+            audio_output::Mode {
+                windows: cfg!(windows),
+                embedded: false,
+                headless: *headless,
+                engine_sound: !*headless,
+            },
+            language,
+        )
+        .map_err(UsageError)?;
     }
     let state = cli.state_dir.unwrap_or_else(default_state_dir);
     let state = absolute(state)?;
@@ -320,6 +338,24 @@ fn run(cli: Cli) -> Result<()> {
     Ok(())
 }
 
+/// An option that parsed but cannot be honoured on this computer or in this
+/// mode. It ends the process like a command-line error.
+#[derive(Debug)]
+struct UsageError(String);
+
+impl std::fmt::Display for UsageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl Error for UsageError {}
+
+/// 2 for a usage error, as for an option Clap rejects; 1 for any other failure.
+fn failure_code(error: &(dyn Error + 'static)) -> u8 {
+    if error.is::<UsageError>() { 2 } else { 1 }
+}
+
 fn main() -> ExitCode {
     let cli = match cli_i18n::parse() {
         Ok(cli) => cli,
@@ -329,7 +365,37 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("RustEmuDroid: {error}");
-            ExitCode::FAILURE
+            ExitCode::from(failure_code(error.as_ref()))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn boot(arguments: &[&str]) -> Cli {
+        Cli::try_parse_from(
+            ["rustemudroid", "--state-dir", "unused", "boot"]
+                .iter()
+                .chain(arguments),
+        )
+        .unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    #[test]
+    fn an_audio_output_that_cannot_be_honoured_is_a_usage_error() {
+        // Refused before the runtime is looked for, with the exit code of a
+        // command-line error. No device needs to be listed for these two.
+        let headless = run(boot(&["--headless", "--audio-output", "Headphones"])).unwrap_err();
+        assert_eq!(failure_code(headless.as_ref()), 2);
+        assert!(headless.to_string().contains("--headless"));
+        if cfg!(windows) {
+            let windows = run(boot(&["--audio-output", "Headphones"])).unwrap_err();
+            assert_eq!(failure_code(windows.as_ref()), 2);
+            assert!(windows.to_string().contains("Windows"));
+        }
+        let other: Box<dyn Error> = "Emulator exited before boot".into();
+        assert_eq!(failure_code(other.as_ref()), 1);
     }
 }

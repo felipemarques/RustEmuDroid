@@ -170,6 +170,7 @@ struct Launcher {
     pending_captures: Vec<Tool>,
     native_frame_wait: Option<std::time::Instant>,
     capture_notice: Option<(CaptureEvent, std::time::Instant)>,
+    sound_notice: Option<SoundNotice>,
     controls: Option<Controls>,
     help_open: bool,
     help_tab: help::HelpTab,
@@ -202,6 +203,20 @@ struct Session {
     worker: thread::JoinHandle<std::result::Result<(), String>>,
 }
 
+/// How long a sound notice stays once Android is on screen.
+const SOUND_NOTICE_TIME: Duration = Duration::from_secs(20);
+
+/// Where Android's sound went, shown in the notice pop-up of the session.
+struct SoundNotice {
+    text: String,
+    details: Option<String>,
+    /// The sound stopped or is not where the user chose.
+    problem: bool,
+    /// When Android was first on screen with this notice. Its time only runs
+    /// from then, so a notice raised while Android starts is not missed.
+    seen: Option<std::time::Instant>,
+}
+
 impl Launcher {
     fn new(
         brand: egui::TextureHandle,
@@ -229,6 +244,7 @@ impl Launcher {
             pending_captures: Vec::new(),
             native_frame_wait: None,
             capture_notice: None,
+            sound_notice: None,
             controls: None,
             help_open: false,
             help_tab: help::HelpTab::About,
@@ -281,6 +297,7 @@ impl Launcher {
         self.checking_boot = check;
         self.status.clear();
         self.output.clear();
+        self.sound_notice = None;
 
         self.stop = Arc::new(AtomicBool::new(false));
         self.stop_after_tilt = None;
@@ -374,6 +391,13 @@ impl Launcher {
                     let line = event.to_string();
                     if matches!(event, BootEvent::Starting(_)) {
                         self.stage = BootStage::Starting;
+                    } else if matches!(event, BootEvent::SoundNotice(_)) {
+                        self.sound_notice = Some(SoundNotice {
+                            text: line.clone(),
+                            details: None,
+                            problem: true,
+                            seen: None,
+                        });
                     } else if matches!(event, BootEvent::Ready(_)) {
                         self.stage = BootStage::Booted;
                         self.status = line.clone();
@@ -390,21 +414,29 @@ impl Launcher {
                 }
             }
         }
-        if let Some(reason) = self.display.as_mut().and_then(Display::take_audio_notice) {
-            let locale = self.config.locale;
-            self.output.push_back(format!(
-                "{} ({reason}). {}",
-                locale.pick(
-                    "A saída de áudio escolhida parou de responder",
-                    "The chosen audio output stopped responding",
-                    "La salida de audio elegida ha dejado de responder",
-                ),
-                locale.pick(
-                    "O som do Android passou para a saída padrão do sistema.",
-                    "Android sound moved to the system default output.",
-                    "El sonido de Android ha pasado a la salida predeterminada del sistema.",
-                ),
-            ));
+        let locale = self.config.locale;
+        let notices = self
+            .display
+            .as_mut()
+            .map(|display| display.take_audio_notices(locale))
+            .unwrap_or_default();
+        // While Android shuts down, the engine's stream ends by design.
+        if !self.stopping() {
+            for notice in notices {
+                self.output.push_back(match &notice.details {
+                    Some(details) => format!("{} {details}", notice.text),
+                    None => notice.text.clone(),
+                });
+                if self.output.len() > 30 {
+                    self.output.pop_front();
+                }
+                self.sound_notice = Some(SoundNotice {
+                    text: notice.text,
+                    details: notice.details,
+                    problem: notice.problem,
+                    seen: None,
+                });
+            }
         }
         if !finished {
             return;
@@ -416,6 +448,7 @@ impl Launcher {
             });
         self.stop_after_tilt = None;
         self.display = None;
+        self.sound_notice = None;
         self.pending_captures.clear();
         self.native_frame_wait = None;
         self.set_replay_armed(false);
@@ -442,6 +475,27 @@ impl Launcher {
                 self.status = error;
                 self.failed = true;
             }
+        }
+    }
+
+    /// Runs the time of the sound notice while Android is on screen and
+    /// removes the notice when that time is over.
+    fn poll_sound_notice(&mut self, ctx: &egui::Context) {
+        let on_screen = self.playing && self.home_ready;
+        let Some(notice) = &mut self.sound_notice else {
+            return;
+        };
+        if on_screen && notice.seen.is_none() {
+            notice.seen = Some(std::time::Instant::now());
+        }
+        let Some(seen) = notice.seen else {
+            return;
+        };
+        let left = SOUND_NOTICE_TIME.saturating_sub(seen.elapsed());
+        if left.is_zero() {
+            self.sound_notice = None;
+        } else {
+            ctx.request_repaint_after(left);
         }
     }
 
@@ -505,6 +559,7 @@ impl eframe::App for Launcher {
         }
         self.poll_stop(ctx);
         self.receive(ctx, frame.gl().map(|gl| gl.as_ref()));
+        self.poll_sound_notice(ctx);
         if self.stop.load(Ordering::Acquire) {
             self.capture.stop();
             if self.closing {
