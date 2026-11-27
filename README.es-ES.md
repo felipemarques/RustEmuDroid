@@ -13,7 +13,7 @@ Los juegos de la captura se instalaron en el perfil de prueba. Un perfil nuevo c
 ## Ejecutar una versión compilada
 
 1. Abre la [última versión en GitHub](https://github.com/felipemarques/RustEmuDroid/releases/latest) y busca **Assets**.
-2. En Windows, extrae `RustEmuDroid-vX.Y.Z-windows-x86_64.zip` en un directorio con permisos de escritura. En Linux, extrae `RustEmuDroid-vX.Y.Z-linux-x86_64.tar.gz` con `tar -xzf` para conservar el permiso de ejecución. El nombre del archivo incluye la versión en lugar de `X.Y.Z`.
+2. En Windows, extrae `RustEmuDroid-vX.Y.Z-windows-x86_64.zip` en un directorio con permisos de escritura. En Linux, extrae `RustEmuDroid-vX.Y.Z-linux-x86_64.tar.gz` con `tar -xzf` para conservar el permiso de ejecución. El nombre del archivo incluye la versión en lugar de `X.Y.Z`. En la versión actual, la v0.24.1, los archivos son `RustEmuDroid-v0.24.1-windows-x86_64.zip` y `RustEmuDroid-v0.24.1-linux-x86_64.tar.gz`.
 3. En Windows, abre `rustemudroid.exe`. En Linux, ejecuta `./rustemudroid` desde la carpeta extraída. En un equipo sin entorno Android, selecciona **Instalar entorno o imagen de Android**.
 
 | Tarea | Windows PowerShell | Linux |
@@ -23,7 +23,7 @@ Los juegos de la captura se instalaron en el perfil de prueba. Un perfil nuevo c
 
 Para descargar una compilación de desarrollo, inicia sesión en GitHub, abre una [ejecución correcta de Desktop builds](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml) y descarga el paquete en **Artifacts**.
 
-El ejecutable incluye el APK de la pantalla de inicio de RustEmuDroid. El motor y la imagen Android se suministran por separado. Para compilar el proyecto también hacen falta Rust y Cargo.
+El ejecutable incluye el APK de la pantalla de inicio de RustEmuDroid. El ejecutable para Linux incluye además la pequeña biblioteca que protege la memoria de vídeo en las gráficas AMD (v0.24.1). El motor y la imagen Android se suministran por separado. Los motores experimentales para Windows, el de caché Vulkan y el de rendimiento, se compilan aparte y no forman parte de la descarga. Para compilar el proyecto también hacen falta Rust y Cargo.
 
 ## Preparar el entorno Android
 
@@ -37,7 +37,7 @@ El ejecutable incluye el APK de la pantalla de inicio de RustEmuDroid. El motor 
 
 1. Elige **Original** para Android 15 AOSP o **Google Play** para Android 17 con Play Store. Pulsa **Revisar descarga** para ver la carpeta de destino, el tamaño máximo y las condiciones de Google.
 2. Si aceptas las condiciones, marca la casilla y pulsa **Descargar e instalar**. RustEmuDroid descarga el emulador, ADB y la imagen directamente de Google y verifica el tamaño y la suma de comprobación de cada archivo. Reserva espacio adicional para la extracción.
-3. Pulsa **Usar e iniciar este perfil**. Para añadir la otra imagen, abre el mismo asistente en Configuración. El instalador reutiliza los componentes que ya ha instalado. Cada perfil tiene sus propios datos de aplicaciones.
+3. Pulsa **Usar e iniciar este perfil**. Para añadir la otra imagen más adelante, abre el mismo asistente en Ajustes. El instalador reutiliza los componentes que ya ha instalado. Cada perfil tiene sus propios datos de aplicaciones.
 
 ![Asistente en español con el tamaño y las condiciones de la descarga](docs/screenshots/es-es/setup.png)
 
@@ -59,17 +59,17 @@ sdkmanager --install "emulator" "platform-tools" "system-images;android-37.0;goo
 
 Otra imagen compatible es `system-images;android-35;google_apis;x86_64`. Consulta los paquetes con `sdkmanager --list`. El cliente también localiza el SDK mediante `ANDROID_HOME`, `ANDROID_SDK_ROOT` y la carpeta predeterminada del sistema. [SDK Manager](https://developer.android.com/tools/sdkmanager) · [Aceleración del emulador](https://developer.android.com/studio/run/emulator-acceleration)
 
-En Ubuntu 24.04 con WSL2, la versión de Linux arrancó Android 17 con Google Play mediante KVM. En WSLg, BombSquad presentó 60 fotogramas/s en una ronda de Death Match con OpenGL ES nativo en la Radeon 780M mediante Mesa D3D12. Vulkan utilizó la CPU en ese equipo. [Configuración, selección del controlador y mediciones, en inglés](docs/linux-runtime.md)
+En Ubuntu 24.04 con WSL2, la versión v0.7.0 para Linux arrancó Android 17 con Google Play mediante KVM. En WSLg, BombSquad presentó 60 fotogramas/s en una ronda de Death Match con OpenGL ES nativo en la Radeon 780M mediante Mesa D3D12. Vulkan utilizó la CPU en ese equipo. [Configuración, selección del controlador y mediciones, en inglés](docs/linux-runtime.md)
 
 ## Elegir un perfil
 
-En la barra de título, abre el engranaje. Cada perfil tiene su propio disco de datos, aplicaciones, cuentas y partidas guardadas.
+En la barra de título, abre el engranaje. Cada perfil tiene su propio disco de datos, aplicaciones, cuentas y partidas guardadas. **Original** es el perfil predeterminado de ese directorio de trabajo. Su versión de Android depende de la imagen elegida.
 
-| Perfil | Primera ejecución |
+| Perfil | Motor y primera ejecución |
 |---|---|
-| Original con Kemu | En Windows, Kemu puede proporcionar una imagen Android 16 / API 36 con su motor QEMU/gfxstream. La configuración probada utiliza ANGLE/Vulkan con la GPU del equipo. Utiliza `RUSTEMUDROID_KEMU_ROOT` para otras ubicaciones. |
+| Original con Kemu | En Windows, una instalación de Kemu puede proporcionar su imagen Android 16 / API 36 y el motor QEMU/gfxstream correspondiente, con la GPU del equipo o la selección automática. La configuración probada utiliza ANGLE/Vulkan. Utiliza `RUSTEMUDROID_KEMU_ROOT` para otras ubicaciones. |
 | Original con el SDK o un entorno portátil | En el primer arranque se buscan, por orden, Google Play API 37.0, Google APIs 36, Google APIs 35 y la imagen AOSP `default` x86-64 más reciente disponible. Para elegir otra imagen, usa `init --image`. |
-| Android 17 con Google Play | Instala la imagen Google Play API 37.0, selecciónala en los ajustes y guarda. Incluye Play Store y los servicios de Google Play. |
+| Android 17 con Google Play | Instala la imagen Google Play API 37.0, selecciona **Android 17** en Ajustes y guarda. Esta imagen del SDK incluye Play Store y los servicios de Google Play. La tarjeta indica cuándo falta la imagen. |
 
 Los perfiles de juego solicitan cuatro vCPU, 8 GiB de RAM y 1600 × 900 a 60 Hz. El perfil genérico del SDK solicita cuatro vCPU, 3 GiB y 1080 × 1920. En Windows, el disco de datos del motor de Kemu está en `gaming/`.
 
@@ -86,7 +86,20 @@ En Windows, abre **Ajustes → Entorno, imagen y perfil → Caché de memoria Vu
 
 </details>
 
-**Ajustes → Entorno, imagen y perfil → Motor de rendimiento (experimental)** selecciona para el perfil un motor de Windows compilado aparte. Usa **Elegir motor de rendimiento…** para seleccionar la carpeta que contiene `rustemudroid-engine.json` y `sdk`, activa las opciones que ofrece el motor, guarda y reinicia Android. En cada inicio, RustEmuDroid comprueba los SHA-256 del motor; si alguno cambia, lo avisa y usa el motor predeterminado. **Quitar el motor de rendimiento** vuelve al motor habitual, y el siguiente inicio restaura el `config.ini` del perfil. Cada perfil usa este motor o la caché de memoria Vulkan, no ambos. En una RTX 5070 Ti con la imagen oficial Android 17 Google Play, el motor y sus ajustes registraron 356 FPS en SuperTuxKart con Vulkan sin límite y el modo de energía Equilibrado de Windows, con el escritorio sin otra carga, frente a 164–176 con el motor original, 325 en Kemu y 376 en BlueStacks. En la Radeon 780M integrada, Cipó Livre mantuvo 59,9 presentaciones/s a 60 Hz en lugar de 57–59. Los motores que incluyen `whpx_apic_hv` dejan que el hipervisor de Windows emule el controlador de interrupciones como parte de los **Ajustes de virtualización del procesador** (v0.24.0); en una serie aparte durante el día, con otros programas abiertos y el modo Mejor rendimiento, eso elevó SuperTuxKart de 345,2 a 380,1 FPS. [Preparar el motor, instrucciones en inglés](experiments/whpx-clock/README.md#4-build-the-performance-engine) · [Mediciones y límites, en inglés](docs/performance-history.md#performance-engine-in-uncapped-mailbox)
+**Ajustes → Entorno, imagen y perfil → Motor de rendimiento (experimental)** selecciona para el perfil un motor de Windows compilado aparte. Usa **Elegir motor de rendimiento…** para seleccionar la carpeta que contiene `rustemudroid-engine.json` y `sdk`, activa las opciones que ofrece el motor, guarda y reinicia Android. En cada inicio, RustEmuDroid comprueba los SHA-256 del motor. Si falta un archivo o ha cambiado, o si el perfil no usa una imagen del SDK con **GPU del equipo** o **Automática**, indica el motivo e inicia Android con el motor predeterminado. **Quitar el motor de rendimiento** vuelve al motor habitual, y el siguiente inicio restaura el `config.ini` del perfil. Cada perfil usa este motor o la caché de memoria Vulkan, no ambos. Antes de volver a la v0.22.0 o a una anterior, quita el motor, guarda e inicia Android una vez. [Preparar el motor, instrucciones en inglés](experiments/whpx-clock/README.md#4-build-the-performance-engine)
+
+Ajustes muestra una opción solo para los ajustes que el motor incluye. Tras el arranque, la **Salida del iniciador**, en Ajustes, indica qué ajustes ha confirmado el motor.
+
+| Opción | Valor inicial | Qué hace |
+|---|---|---|
+| **Ajustes de virtualización del procesador** | Activada | Reloj sincronizado, acceso rápido al APIC y fin de interrupción paravirtualizado. En los motores que incluyen `whpx_apic_hv` (v0.24.0), el propio Windows emula el controlador de interrupciones, lo que sustituye a los dos últimos. Si el equipo no lo permite, el motor los mantiene y Android se inicia con normalidad. |
+| **Memoria Vulkan con caché** | Activada | Los juegos escriben en la memoria gráfica por una ruta con caché. |
+| **Comandos gráficos por memoria compartida** | Activada | Los comandos gráficos pasan por un anillo de memoria compartida, lo que ocupa aproximadamente un núcleo adicional del procesador mientras se ejecuta un juego. Escribe `hw.gltransport=asg` en el `config.ini` del perfil. |
+| **Componer la pantalla con Vulkan** | Activada | El equipo compone la pantalla de Android con Vulkan y Android usa ANGLE para OpenGL ES. |
+| **Núcleos dedicados para Android** | Activada | Cada procesador virtual recibe su propio núcleo físico, nunca el núcleo 0. Disponible cuando el PC tiene más núcleos físicos que los procesadores virtuales del perfil más dos. |
+| **Reducir las protecciones del kernel de Android** | Desactivada | Desactiva las mitigaciones de vulnerabilidades del procesador y la limpieza de memoria dentro de Android. Úsala solo en un perfil dedicado a juegos. |
+
+En el mismo grupo, **Modo de energía de máximo rendimiento de Windows mientras Android esté abierto** activa el modo de energía Máximo rendimiento de Windows mientras Android está abierto y restaura el anterior al cerrarlo. Funciona con cualquier motor, viene desactivada y no se usa con batería. [Medición más reciente con este motor](#benchmark-más-reciente) · [Series anteriores y límites, en inglés](docs/performance-history.md#performance-engine-in-uncapped-mailbox)
 
 ![Ajustes de idioma, perfil, renderizado, GPU y cámara](docs/screenshots/es-es/settings.png)
 
@@ -97,9 +110,9 @@ En Windows, abre **Ajustes → Entorno, imagen y perfil → Caché de memoria Vu
 | Buscar e instalar | Busca en las pestañas de juegos o aplicaciones. Mantén pulsada una tarjeta para cambiarla de categoría. El botón de instalación de la barra lateral acepta un APK y actualiza la biblioteca. |
 | Desplazarse por la biblioteca de Android | Sitúa el puntero sobre las tarjetas de **Juegos** o **Aplicaciones** y usa la rueda del ratón o desliza dos dedos en vertical sobre el panel táctil. |
 | Navegar | El icono de cuatro cuadrados muestra las aplicaciones. La barra de título incluye **Atrás**, **Inicio** y **Aplicaciones recientes**. Inicio vuelve a los juegos. Haz clic para tocar y arrastra para deslizar. |
-| Configurar los controles | Dentro de un juego, pulsa el icono del teclado. Coloca el punto de contacto o el centro del mando virtual sobre el juego. Asigna la tecla o el botón físico y guarda el esquema. Las coordenadas se guardan en relación con la pantalla de Android. |
+| Asignar el teclado o el mando | Abre un juego y pulsa el icono del teclado. Elige **Botón**, haz clic en el punto táctil y pulsa la tecla o el botón físico. Para usar WASD o la palanca izquierda, elige **Control direccional**, haz clic en el centro de la palanca virtual y ajusta su radio. Haz clic derecho en una marca para eliminarla. **Guardar** almacena las coordenadas relativas para ese paquete Android. En Windows, los mandos usan XInput. |
 | Ajustar el sonido | Usa los controles de volumen y silencio de la barra lateral. Mantén pulsado un botón de volumen para cambiar varios niveles. La rotación también se controla desde esta barra. |
-| Usar una cámara web | Elige cámara frontal o trasera del equipo en los ajustes. El índice 0 corresponde a la primera cámara. Guarda y reinicia Android para aplicar el cambio. Concede permiso a la aplicación Android cuando lo pida. |
+| Usar una cámara web | Elige cámara frontal o trasera del equipo en Ajustes. El índice 0 corresponde a la primera cámara. Guarda y reinicia Android para aplicar el cambio. Concede permiso a la aplicación Android cuando lo pida. También hay una cámara frontal simulada. |
 | Pantalla completa y versión | Pulsa **F11**. Acerca el puntero al borde superior o derecho para mostrar los controles. La barra de título y el diálogo **?** indican la versión. |
 
 ![Ventana de información con el logotipo y la versión](docs/screenshots/es-es/about.png)
@@ -107,6 +120,8 @@ En Windows, abre **Ajustes → Entorno, imagen y perfil → Caché de memoria Vu
 **Apagar Android** cierra la VM y vuelve al panel de sesión. Al cerrar la ventana con **X**, RustEmuDroid muestra el progreso del apagado y cierra la ventana al terminar la VM. Esto también funciona durante el arranque. Si el panel está inactivo, se cierra de inmediato.
 
 ![Ventana durante el apagado de Android](docs/screenshots/es-es/shutdown.png)
+
+Después de apagar Android, el panel de sesión permite iniciar de nuevo el mismo perfil.
 
 ![Panel de sesión después de detener Android](docs/screenshots/es-es/idle.png)
 
@@ -126,7 +141,7 @@ Pulsa el icono de cámara o **Ctrl+Mayús+S** en la vista previa de BlueStacks p
 
 Para desplazarte por Android, coloca el puntero sobre la imagen y usa la rueda. Haz clic en la imagen para activar el esquema del juego. A partir de ese momento, cada dirección de la rueda que hayas asignado activa el control correspondiente.
 
-En la vista previa de BlueStacks, abre un juego y pulsa el icono de teclado y elige **Editor de controles**, o pulsa **Ctrl+Shift+A**. Coloca los controles sobre la captura. Android sigue ejecutando el juego mientras editas. Guarda para volver a la vista en directo. **Ctrl+Shift+P** alterna entre los perfiles guardados para ese juego y esa instancia de BlueStacks. Mantén pulsados una dirección y un botón de acción a la vez para enviar dos toques. El editor muestra las marcas de las teclas. En la sesión Android nativa también puedes verlas mientras juegas y asignar el sensor de inclinación.
+En la vista previa de BlueStacks, abre un juego y pulsa el icono de teclado y elige **Editor de controles**, o pulsa **Ctrl+Mayús+A**. Coloca los controles sobre la captura. Android sigue ejecutando el juego mientras editas. Guarda para volver a la vista en directo. **Ctrl+Mayús+P** alterna entre los perfiles guardados para ese juego y esa instancia de BlueStacks. Mantén pulsados una dirección y un botón de acción a la vez para enviar dos toques. El editor muestra las marcas de las teclas. En la sesión Android nativa también puedes verlas mientras juegas y asignar el sensor de inclinación.
 
 ![Controles de SuperTuxKart en la vista previa de BlueStacks](docs/screenshots/es-es/bluestacks-editor.png)
 
@@ -292,35 +307,66 @@ cargo run --locked --release --features ui -- --state-dir .rustemudroid/kemu ui
 
 Usa el mismo `--state-dir` para inicializar, arrancar y abrir la interfaz. El directorio predeterminado es `.rustemudroid/windows/` o `.rustemudroid/linux/`, relativo al directorio de trabajo. `launcher.json` conserva las preferencias. En el perfil activo encontrarás el AVD y `boot-*.log`. El comando `boot --check` espera a `sys.boot_completed=1` y detiene esa VM. `--timeout` establece el límite en segundos y `--engine sdk` selecciona el motor del SDK. El cliente elige puertos libres y comprueba la ruta del AVD antes de apagarlo.
 
+En Windows, `boot --vulkan-cache-runtime <carpeta>` inicia el perfil con un motor de caché Vulkan preparado, y `boot --performance-engine <carpeta>` lo inicia con un motor de rendimiento y sus opciones predeterminadas, sin la opción del kernel. No se pueden combinar. El motor de rendimiento escribe `hw.gltransport` en el `config.ini` del perfil y guarda las líneas originales en `rustemudroid-performance.json`, junto a él. El siguiente inicio sin el motor las restaura.
+
+```powershell
+.\rustemudroid.exe --state-dir 'D:\Android\MyProfile' boot --gpu host --performance-engine 'D:\Android\PerformanceEngine'
+```
+
+En Linux con una gráfica AMD, define `RUSTEMUDROID_AMD_LINUX` antes de abrir el cliente para diagnosticar la gestión de la memoria de vídeo: `off` inicia el motor como antes de la v0.24.1, y `stock`, `full-size` o `all-types` fuerza ese modo de memoria.
+
 ## Rendimiento y diagnóstico
+
+### Benchmark más reciente
+
+**SuperTuxKart 1.5 con Vulkan sin límite en la RTX 5070 Ti · 26 de noviembre de 2026 · cliente RustEmuDroid v0.22.0.** BlueStacks quedó por delante en los dos modos de energía de Windows.
+
+| Modo de energía de Windows | RustEmuDroid, motor de rendimiento | BlueStacks 5 Pie64 | Ventaja de BlueStacks |
+|---|---:|---:|---:|
+| Equilibrado | 392,9 FPS (2 vueltas) | **402,5 FPS** (4 vueltas) | 2,4 % |
+| Máximo rendimiento | 393,6 FPS (8 vueltas) | **419,3 FPS** (4 vueltas) | 6,5 % |
+
+Los dos ejecutaron la repetición integrada Black Forest del juego en calidad alta, con Vulkan y el VSync del juego desactivado (Mailbox, sin límite), a 1600 × 900 y 90 Hz en Android, en el PC de pruebas con Windows (Ryzen 9 8945HS, GeForce RTX 5070 Ti). Los FPS proceden del informe de fotogramas del propio juego. Los dos emuladores se alternaron en una sola sesión, entre las 16:06 y las 16:47, con otros programas usando 0,54–0,68 núcleos del equipo durante las vueltas de RustEmuDroid. RustEmuDroid ejecutó la imagen oficial Android 17 Google Play en el motor de rendimiento compilado aparte, con los ajustes de las seis opciones, incluida **Reducir las protecciones del kernel de Android**, y con el controlador de interrupciones emulado por Windows, en un panel de 800 × 450. BlueStacks ejecutó Android 9 en su propio reproductor.
+
+La ventana Rust era el cliente **v0.22.0**, y un operador de pruebas aplicó los ajustes del motor alrededor de él. Es una comparación histórica con un cliente antiguo. Las versiones v0.23.0 y v0.24.0 añadieron la forma propia del cliente de aplicar esos ajustes, y la v0.24.1 solo cambió el comportamiento en Linux; ninguna de ellas se midió aquí. El motor de rendimiento se compila a partir del kit de fuentes publicado y no forma parte de la descarga. El motor predeterminado y Kemu no se midieron en esta serie. El valor de RustEmuDroid en Equilibrado procede de un solo arranque, porque una ejecución se rechazó al empezar y un segundo arranque se perdió cuando adb no respondió a tiempo. [Registro completo, en inglés: valores por vuelta, identidades y qué falló](benchmarks/stk-1.5/windows-rtx-mailbox-hypervisor-apic-bluestacks.md)
+
+### Mediciones anteriores
+
+Las cifras siguientes se midieron en versiones anteriores y se conservan aquí como historial. Cuando el informe indica la versión del cliente, aparece en el texto. [Evolución del rendimiento desde el primer prototipo, en inglés](docs/performance-history.md)
 
 Las pruebas en Windows comparan las transiciones de menú y el campo de entrenamiento de PUBG, además de la repetición de SuperTuxKart, en las GPU dedicada e integrada. Cada resultado indica la escena, el contador de fotogramas y los ajustes gráficos. [Tabla comparativa de FPS](docs/game-testing.md#fps-comparisons-on-the-windows-test-pc)
 
 Para comparar PUBG en tu PC, mide la misma escena en RustEmuDroid y BlueStacks. La herramienta indica cuántos fotogramas nuevos presentó Android por segundo y cuánto duró la pausa más larga entre ellos. [Comandos y método de medición, en inglés](docs/game-testing.md#record-a-game-scene-on-your-own-pc)
 
+El [benchmark de la Radeon 780M, en inglés](benchmarks/stk-1.5/radeon-780m/README.md), compara la gráfica integrada en RustEmuDroid, Kemu y BlueStacks. Incluye las mediciones de cada carrera y la verificación de la GPU del equipo.
+
 Para comparar las tarjetas gráficas en Windows, abre **FPS WW2 URP → Start Game → Level 1**. Activa **Settings → Display FPS** para ver el contador del juego. Para probar otra escena con Vulkan, abre **andar → Continue → Begin → Skip** y mira hacia la verja bajo la lluvia. Medimos las dos escenas en la Radeon 780M y la RTX 5070 Ti. [Resultados de FPS WW2 URP](docs/game-testing.md#radeon-780m-vulkan-compatibility) · [Resultados y descarga de ANDAR](docs/game-testing.md#andar) · [Todas las pruebas, en inglés](docs/game-testing.md)
 
+**PUBG y SuperTuxKart en Windows, v0.18.0 y v0.21.1.** A 1600 × 900 con la RTX 5070 Ti, el recorrido entre el vestíbulo y el inventario de PUBG en Balanced/High registró una media de 25,20 FPS en RustEmuDroid 0.18.0 y 29,58 en BlueStacks Pie64, medidos en Android. Al cerrar el inventario por primera vez, la pausa fue de 1,60–1,68 s en Android 17 y de 0,17 s en Pie64. A 90 Hz en la RTX, la misma versión x86-64 de SuperTuxKart registró 85,62 FPS en RustEmuDroid 0.21.1, 90,02 en Kemu 0.7.1 y 89,99 en BlueStacks. Se hicieron dos carreras por emulador en calidad alta con Vulkan FIFO. En la Radeon 780M integrada, en una serie anterior cuyo informe no indica la versión del cliente, SuperTuxKart en calidad alta, con un límite de 60 FPS, registró 59,71 FPS en el perfil Android 17 con Vulkan, 59,87 en Kemu y 59,99 en BlueStacks. Los dos últimos usaron OpenGL ES. [Tiempos por fotograma de PUBG](docs/game-testing.md#pubg-inventory-retest-with-rustemudroid-v0180) · [Ajustes y resultados de SuperTuxKart](benchmarks/stk-1.5/radeon-780m/README.md) · [Carreras a 90 Hz con la v0.21.1](benchmarks/stk-1.5/windows-current-three-players.md)
+
+### Diagnóstico
+
 - **FPS.** En **Ajustes → Contador de FPS**, elige **Panel Rust** (predeterminado) para contar los fotogramas procesados por el panel o **Superficie del juego en Android** para contar los fotogramas que Android presenta para el juego en primer plano. Pulsa **Guardar** para aplicar el cambio al instante. La segunda opción también funciona en la vista previa de BlueStacks con ADB conectado. Un guion indica que la medición está comenzando o que Android no ha identificado la superficie del juego. Una escena estática puede marcar cero. El contador interno de cada juego mide su propia tasa de renderizado.
-- **PUBG y SuperTuxKart en Windows.** A 1600 × 900 con la RTX 5070 Ti, el recorrido entre el vestíbulo y el inventario de PUBG en Balanced/High registró una media de 25,20 FPS en RustEmuDroid 0.18.0 y 29,58 en BlueStacks Pie64, medidos en Android. Al cerrar el inventario por primera vez, la pausa fue de 1,60–1,68 s en Android 17 y de 0,17 s en Pie64. A 90 Hz en la RTX, la misma versión x86-64 de SuperTuxKart registró 85,62 FPS en RustEmuDroid 0.21.1, 90,02 en Kemu 0.7.1 y 89,99 en BlueStacks. Se hicieron dos carreras por emulador en calidad alta con Vulkan FIFO. En la Radeon 780M integrada, SuperTuxKart en calidad alta, con un límite de 60 FPS, registró 59,71 FPS en el perfil Android 17 con Vulkan, 59,87 en Kemu y 59,99 en BlueStacks. Los dos últimos usaron OpenGL ES. [Tiempos por fotograma de PUBG](docs/game-testing.md#pubg-inventory-retest-with-rustemudroid-v0180) · [Ajustes y resultados de SuperTuxKart](benchmarks/stk-1.5/radeon-780m/README.md) · [Carreras actuales a 90 Hz](benchmarks/stk-1.5/windows-current-three-players.md)
-- **Pantalla en negro.** Ejecuta `doctor`, comprueba el adaptador Vulkan y prueba el modo de GPU del equipo o automático. El modo por software permite aislar fallos del controlador.
+- **Pantalla en negro o gráficos lentos.** Ejecuta `doctor`, comprueba el adaptador Vulkan y prueba el modo de GPU del equipo o automático. En Linux, la opción **Automática** termina por ahora en el renderizador por software del emulador; elige **GPU del equipo** para usar la tarjeta gráfica. El modo por software (Software/SwiftShader) permite aislar fallos del controlador. En Linux, el motor del SDK usa una ruta de compatibilidad GLES con la imagen de Kemu.
 - **Probar la gráfica integrada en un PC Windows con dos GPU.** Elige la integrada en **Tarjeta gráfica Vulkan**. El compositor de pantalla de Android puede seguir usando la otra GPU para OpenGL. Para usar la integrada en ambos casos, localiza el `qemu-system-x86_64.exe` en ejecución en el Administrador de tareas, añade ese ejecutable en **Configuración → Sistema → Pantalla → Gráficos** y selecciona la opción con el nombre de la GPU integrada. Reinicia Android. La preferencia de Windows también se aplica a otras instancias que usen el mismo ejecutable. [Cómo verificamos ambos renderizadores](docs/game-testing.md#inventory-on-the-radeon-780m)
 - **Fallos de asignación de memoria Vulkan en la Radeon 780M.** En Windows, selecciona el perfil **Android 17 Google Play**, elige **GPU del equipo** o **Automática** y selecciona explícitamente **AMD Radeon 780M Graphics**. Activa **Memoria Vulkan compartida (Radeon 780M)** en **Gráficos**, guarda y reinicia Android. Esta opción experimental está desactivada de forma predeterminada, se aplica por perfil y se verificó con Android Emulator SDK 37.3.10.
-- **Los juegos se cierran o congelan Android en Linux con una gráfica AMD.** Elige **GPU del equipo**: en Linux, la opción **Automática** termina por ahora en el renderizador por software del emulador, porque el cliente inicia el motor con `-no-window`. Desde la v0.24.1 el cliente prepara una protección de la memoria de vídeo para el motor y, con la GPU del equipo, muestra a Android toda la memoria de vídeo de la tarjeta, en lugar de la ventana pequeña que alcanza el procesador. Los **Detalles técnicos** muestran la línea `Gráfica AMD en Linux: …`. Si Android se detiene con un mensaje sobre la virtualización del procesador y la memoria gráfica, activar **Above 4G Decoding** y **Resizable BAR** en el firmware o usar Linux 6.13 o posterior debería evitarlo; ninguna de las dos opciones se ha medido. `doctor` muestra el mismo consejo cuando corresponde. [Mediciones y límites, en inglés](docs/linux-runtime.md#amd-graphics-on-bare-metal-linux)
-- **Varios dispositivos ADB.** Usa `adb devices -l` y dirige cada comando al dispositivo correcto con `adb -s <serial>`. El panel de diagnóstico indica el identificador de la sesión.
+- **Los juegos se cierran o congelan Android en Linux con una gráfica AMD.** Elige **GPU del equipo**: en Linux, la opción **Automática** termina por ahora en el renderizador por software del emulador, porque el cliente inicia el motor con `-no-window`. Desde la v0.24.1 el cliente prepara una protección de la memoria de vídeo para el motor y, con la GPU del equipo, muestra a Android toda la memoria de vídeo de la tarjeta, en lugar de la ventana pequeña que alcanza el procesador. Los **Detalles técnicos** muestran la línea `Gráfica AMD en Linux: …`. Si aun así el controlador pierde el dispositivo, el fallo aparece ahora como `El controlador gráfico ha perdido el dispositivo y el motor se ha cerrado (…)`, con la ruta del registro. Si Android se detiene con un mensaje sobre la virtualización del procesador y la memoria gráfica, activar **Above 4G Decoding** y **Resizable BAR** en el firmware o usar Linux 6.13 o posterior debería evitarlo; ninguna de las dos opciones se ha medido. `doctor` muestra el mismo consejo cuando corresponde. Todo esto se midió en un solo PC, con una Radeon RX 580 y Linux 6.8. [Mediciones y límites, en inglés](docs/linux-runtime.md#amd-graphics-on-bare-metal-linux)
+- **Varios dispositivos ADB.** Usa `adb devices -l` y dirige cada comando al dispositivo correcto con `adb -s <serial>`. La salida del iniciador indica el identificador de la sesión.
 - **PUBG MOBILE se cierra al iniciar en Android 17 Google Play.** Desde la v0.2.1, el lanzador selecciona el controlador ANGLE integrado para `com.tencent.ig` en esta imagen x86-64 con Vulkan y renderizado automático o mediante la GPU del equipo. Se respeta una preferencia previa para el juego. En Linux, desde la v0.13.3 el lanzador omite la selección automática de ANGLE cuando el registro confirma que Vulkan seleccionó un dispositivo de CPU. En una RTX 5070 Ti, esto solucionó el fallo del controlador EGL al presentar un fotograma. [Selección de controlador por aplicación en Android](https://developer.android.com/games/develop/vulkan/overview)
 - **PUBG se queda en los logotipos iniciales en Android 16 de Kemu.** Abre **Ajustes → Compatibilidad de juegos**, activa **Traducción ARM ligera para PUBG** y guarda el cambio. Si Android está en marcha, selecciona **Guardar y reiniciar Android**. En el perfil Original de RustEmuDroid, la compilación 21718 mostró el aviso de actualización a los 56 segundos y después la pantalla de bienvenida. En un perfil nuevo de Kemu Qt 0.7.1, la misma compilación se cerró antes de llegar al vestíbulo con ambos modos de traducción. El ajuste se aplica a todas las aplicaciones ARM durante ese arranque. [Prueba en el perfil Original](docs/game-testing.md#pubg-startup-on-kemu-android-16) · [Prueba en Kemu Qt](benchmarks/pubg-mobile/windows-kemu-qt-21718.md)
-- **Faltan juegos.** Vuelve al perfil donde se instalaron.
+- **Faltan juegos después de cambiar de perfil.** Vuelve al perfil donde se instalaron. Una copia recién clonada del repositorio no contiene juegos instalados ni cuentas.
 
 ## Arquitectura y verificación
 
 | Componente | Función |
 |---|---|
-| [Cliente de escritorio](src/ui.rs) | Rust con eframe/egui y Glow. Gestiona la ventana, ajustes, controles y apagado. |
+| [Cliente de escritorio](src/ui.rs) | Rust con eframe/egui y Glow. Gestiona la ventana nativa, los controles, los ajustes y la pantalla de apagado. |
 | [Prototipo con GPUI](experiments/README.md) | Una ventana independiente de Rust muestra Android en directo. Al reproducir la misma grabación del kart con ambos visores publicados en la Radeon 780M, Windows registró 71,18 presentaciones/s con GPUI y 82,50 con Glow, el renderizador actual. [Mediciones](experiments/results/windows-viewers-stk-presentmon.md#published-gpui-lab-v011) · [Ver la interfaz](experiments/screenshots/gpui-es-ES.png) |
-| [Ciclo de vida](src/android.rs) | Descubre SDK e imágenes, prepara AVD, inicia el motor y espera a que salga. |
-| [Vídeo y entrada](src/display.rs) | Recibe fotogramas RGBA mediante gRPC local autenticado y reenvía los eventos táctiles y de teclado. |
-| [Pantalla de inicio](android/home) | Actividad Android que consulta las aplicaciones instaladas y muestra sus iconos o imágenes de portada. Se instala mediante ADB. |
+| [Ciclo de vida de la VM](src/android.rs) | Descubre el SDK y las imágenes, crea los AVD, inicia el motor elegido y espera a que termine. En Windows también comprueba e inicia el motor de caché o de rendimiento elegido para el perfil. En Linux prepara la protección de la memoria de vídeo en gráficas AMD y lee el registro del motor para detectar la pérdida del dispositivo gráfico o una VM congelada. |
+| [Protección de la memoria de vídeo AMD](native/linux/userptr_guard.c) | Pequeña biblioteca en C para Linux, compilada con el cliente y cargada en el motor cuando el equipo tiene una gráfica AMD. |
+| [Vídeo y entrada](src/display.rs) | Recibe fotogramas mediante gRPC local autenticado desde `EmulatorController.streamScreenshot`, conserva el fotograma RGBA pendiente más reciente y reenvía los eventos táctiles y de teclado. |
+| [Pantalla de inicio](android/home) | Actividad nativa de Android que consulta el PackageManager y muestra las imágenes de portada o los iconos de las aplicaciones. El cliente instala mediante ADB el APK de desarrollo incluido. |
 
-Ejecuta `cargo test --locked --features ui` para las pruebas locales. [GitHub Actions](.github/workflows/build.yml) prueba y compila versiones para Windows y Ubuntu x86-64. Para probar la ventana real en Windows, configura `RUSTEMUDROID_TEST_STATE` con la ruta absoluta de un perfil inactivo y ejecuta `cargo test --locked --features ui real_window_paints_until_android_exits -- --ignored --nocapture`.
+Ejecuta `cargo test --locked --features ui` para las pruebas sin conexión. En Linux también compilan y ejecutan la prueba propia de la biblioteca de protección AMD, lo que requiere un compilador de C. [GitHub Actions](.github/workflows/build.yml) prueba y compila los ejecutables de versión para Windows y Ubuntu x86-64 en cada push, pull request y ejecución manual. Las pruebas con Android real necesitan un AVD local. Para repetir la prueba de cierre de la ventana nativa en Windows, configura `RUSTEMUDROID_TEST_STATE` con la ruta absoluta de un perfil inactivo y ejecuta `cargo test --locked --features ui real_window_paints_until_android_exits -- --ignored --nocapture`.
 
-Para reconstruir la pantalla de inicio necesitas un JDK, `android.jar` y las herramientas de compilación de Android. Ejecuta `python android/home/build.py <android.jar> <build-tools-dir>`. Se admite `--keystore` y `--alias`. Para actualizar instalaciones existentes, conserva la identidad de firma y actualiza el código de versión en el manifiesto y en la [comprobación de instalación](src/controls.rs).
+Para reconstruir la pantalla de inicio necesitas un JDK, el `android.jar` de una plataforma y las herramientas de compilación de Android. Ejecuta `python android/home/build.py <android.jar> <build-tools-dir>`. El script usa `~/.android/debug.keystore` de forma predeterminada y admite `--keystore` y `--alias`. Para actualizar instalaciones existentes, conserva la identidad de firma y actualiza el código de versión en el manifiesto y en la [comprobación de instalación](src/controls.rs).

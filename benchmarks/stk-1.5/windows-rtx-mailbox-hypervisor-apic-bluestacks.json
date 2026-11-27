@@ -1,0 +1,1258 @@
+{
+  "schema_version": "1",
+  "title": "SuperTuxKart 1.5 uncapped Vulkan Mailbox: RustEmuDroid performance engine with the hypervisor local APIC and BlueStacks 5 Pie64, alternated in one session",
+  "date_local": "2026-11-26",
+  "window_local": "16:06-16:47",
+  "utc_offset": "-03:00",
+  "host": {
+    "cpu_model_seen_by_both_guests": "AMD Ryzen 9 8945HS w/ Radeon 780M Graphics",
+    "gpu": "NVIDIA GeForce RTX 5070 Ti",
+    "windows_build_in_engine_log": "10.0.26300"
+  },
+  "workload": {
+    "game": "SuperTuxKart 1.5",
+    "scene": "Black Forest built-in benchmark replay",
+    "preset": "High/Vulkan",
+    "guest_px": [
+      1600,
+      900
+    ],
+    "guest_refresh_hz": 90,
+    "game_vsync": false,
+    "configured_max_fps": 90,
+    "vk_present_mode": "VK_PRESENT_MODE_MAILBOX_KHR (1)",
+    "warmups_per_boot": 1,
+    "timed_laps_per_boot": 2,
+    "measurement_source": "frame count and profiled duration of the game's own frame report"
+  },
+  "graphics_settings": {
+    "Resolution width": "1600",
+    "Resolution height": "900",
+    "Render resolution": "1",
+    "Dynamic lighting": "1",
+    "Particle effects": "2",
+    "Animated characters": "1",
+    "Geometry Detail": "4",
+    "Bloom": "1",
+    "Glow": "1",
+    "Light Shaft": "1",
+    "Anti-Aliasing (MLAA)": "0",
+    "SSAO": "1",
+    "Anisotropic Filtering": "16",
+    "Shadow Resolution": "1024",
+    "Light scattering": "0",
+    "Degraded IBL": "0",
+    "Motion Blur": "0",
+    "Depth of Field": "0",
+    "Texture compression": "1",
+    "HD Textures": "0",
+    "HQ Mipmap": "0"
+  },
+  "rustemudroid": {
+    "client_version": "0.22.0",
+    "client_sha256": "226e6b0b69b10092d42674b6e256f00f02796b07662fcd6b4fef785feadf10cb",
+    "emulator_exe_sha256": "7476c5d7cf249182b7310d45e5304778bd5a337e8d6d11890edb27954b0f9717",
+    "emulator_version_line": "Android emulator version 37.3.10.0 (build_id qa-whpx-16970787) (CL:N/A)",
+    "qemu_sha256": "fc990b45532c16008327a15e07a15297963716d7dadb9e46ecab4acf3c1cb94f",
+    "gfxstream_backend_sha256": "7d01cde7d9450e050effb4805c87dcf4c0cfaa274a290ac8f526f192eac085fe",
+    "engine_gate_strings_in_binaries": {
+      "qemu": {
+        "RUSTEMUDROID_QA_ASG_SPIN_US": false,
+        "RUSTEMUDROID_QA_KVM_PV_EOI": true,
+        "RUSTEMUDROID_QA_LAPIC_FASTPATH": true,
+        "RUSTEMUDROID_QA_VCPU_PLACEMENT": true,
+        "RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL": false,
+        "RUSTEMUDROID_QA_VULKAN_CACHED_HOST": true,
+        "RUSTEMUDROID_QA_WHPX_APIC": true,
+        "RUSTEMUDROID_QA_WHPX_SYNC_TSC": true
+      },
+      "backend": {
+        "RUSTEMUDROID_QA_ASG_SPIN_US": true,
+        "RUSTEMUDROID_QA_KVM_PV_EOI": false,
+        "RUSTEMUDROID_QA_LAPIC_FASTPATH": false,
+        "RUSTEMUDROID_QA_VCPU_PLACEMENT": false,
+        "RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL": true,
+        "RUSTEMUDROID_QA_VULKAN_CACHED_HOST": true,
+        "RUSTEMUDROID_QA_WHPX_APIC": false,
+        "RUSTEMUDROID_QA_WHPX_SYNC_TSC": false
+      }
+    },
+    "apk": {
+      "package": "org.rustemudroid.qa.stkvulkan",
+      "version_name": "1.5",
+      "version_code": 328,
+      "sha256": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e",
+      "signing_certificate_sha256": "4ee9e02425d4ed6d6f3fac9b736ae606f1db20c2aa1d5edf9eff5425c64e60c3",
+      "abi": "x86_64",
+      "mode": "scoped",
+      "jni_namespace": "org/rustemudroid/qa/stkvulkan",
+      "storage_leaf": "stk-vulkan-qa",
+      "storage_evidence": "x86_64_short_string_immediates",
+      "sdl_elf_dependency": true,
+      "sdl_main_export": true,
+      "compiled_marker_count": 8,
+      "present_mode_log": true
+    },
+    "apk_asset_sha256": {
+      "files.txt": "f05b6dec903035d26e35e025e48e9ab8735383296d07952dfa9b8d0baa812472",
+      "has_assets.txt": "13e1a9e050efbf9b445df8ba35550672cccda4cadb761881a648556cc6164b3d",
+      "data/supertuxkart.1.5": "8e723d3696c6f8329255004cd19c7c2585c29b72f31efbd5adc609c2113ab34d",
+      "data/replay/benchmark_black_forest.replay": "0049a18428049c02dcfdb6e2944c7ba7196f2a0017f239d0305ed12fb15614df",
+      "data/tracks/black_forest/track.xml": "ee166beacdaacc48762018eaf7fb2b45e8a0c387d34c2f3f8c01e5c21bba454e"
+    },
+    "avd_config_sha256_before_and_after": "f5590dd5dd1d32e22385947a1ec9c8ef68b585071752739f307a088666a16b1f",
+    "avd_config_sha256_during_boot": "77978a37ea96ad8d1b266da0a1963fc356f0835c5d16cbc08043f49c775d12cb",
+    "client_note": "Official v0.22.0 Windows executable. A test operator started it and applied the engine environment, AVD keys and power mode. That client has no performance engine setting of its own.",
+    "android_image": "system-images;android-37.0;google_apis_playstore;x86_64 (package revision not recorded in these receipts)",
+    "power_modes": {
+      "Balanced": "no power mode overlay requested by the plan",
+      "Best performance": "overlay ded574b5-45a0-4f42-8737-46345c09c238 active, previous overlay 00000000-0000-0000-0000-000000000000"
+    },
+    "panel_px_requested": [
+      800,
+      450
+    ],
+    "boots": [
+      {
+        "run": "stk-arms-mailbox-idleb2",
+        "boot": "hb1",
+        "power_mode": "Balanced",
+        "completed": true,
+        "seconds_to_android_home": 22.9,
+        "android_fingerprint": "google/sdk_gphone64_x86_64/emu64xa:17/CE2A.260420.051.A2/16418371:user/release-keys",
+        "vulkan_device_line": "Selecting Vulkan device: NVIDIA GeForce RTX 5070 Ti, Version: 1.4.341",
+        "guest_refresh_property": "90",
+        "guest_size": "Physical size: 1600x900",
+        "online_cpus": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "engine_log_has_hypervisor_apic_proof_line": true,
+        "engine_log_has_spin_placement_and_cache_lines": true,
+        "tsc_sync_markers": [
+          "synchronized init vcpus=4",
+          "synchronized reset vcpus=4"
+        ],
+        "feature_overrides": [
+          "Feature 'VulkanNativeSwapchain' (37) is overridden to 'enabled'"
+        ],
+        "engine_log_sha256": "674a1438fd8d3f016a41b89d91c0c136a6b2e169a613dfbddc925c41f4a137ad",
+        "guest_props": {
+          "ro.boot.hardware.gltransport": "asg",
+          "ro.hardware.egl": "angle",
+          "debug.hwui.renderer": "skiagl",
+          "debug.renderengine.backend": "skiaglthreaded",
+          "ro.boot.qemu.gltransport.name": "asg"
+        },
+        "avd_overrides": {
+          "hw.gltransport": "asg",
+          "kernel.parameters": "mitigations=off init_on_alloc=0 transparent_hugepage=always"
+        },
+        "guest_kernel_cmdline_has_parameters": true,
+        "settle_seconds": 20.0,
+        "settled_below_0_6_core": true,
+        "avd_config_restored_sha256": "f5590dd5dd1d32e22385947a1ec9c8ef68b585071752739f307a088666a16b1f",
+        "qemu_sha256": "fc990b45532c16008327a15e07a15297963716d7dadb9e46ecab4acf3c1cb94f",
+        "emulator_sha256": "7476c5d7cf249182b7310d45e5304778bd5a337e8d6d11890edb27954b0f9717",
+        "gfxstream_backend_sha256": "7d01cde7d9450e050effb4805c87dcf4c0cfaa274a290ac8f526f192eac085fe",
+        "engine_environment": {
+          "ANDROID_EMULATOR_FEATURES": "VulkanNativeSwapchain",
+          "RUSTEMUDROID_QA_ASG_SPIN_US": "3000",
+          "RUSTEMUDROID_QA_KVM_PV_EOI": "1",
+          "RUSTEMUDROID_QA_LAPIC_FASTPATH": "1",
+          "RUSTEMUDROID_QA_VCPU_PLACEMENT": "sets-high",
+          "RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL": "2",
+          "RUSTEMUDROID_QA_VULKAN_CACHED_HOST": "1",
+          "RUSTEMUDROID_QA_WHPX_APIC": "hv",
+          "RUSTEMUDROID_QA_WHPX_SYNC_TSC": "1"
+        },
+        "warmup_lap_not_counted": {
+          "game_fps": 411.6659672681494,
+          "game_frames": 15696,
+          "profiled_duration_ms": 38128
+        }
+      },
+      {
+        "run": "stk-arms-mailbox-idleb2",
+        "boot": "hb2",
+        "power_mode": "Balanced",
+        "completed": false,
+        "error": "TimeoutExpired: adb 'emu avd path' did not answer within 15 seconds while the new boot was being identified",
+        "owned_vm_closed": true
+      },
+      {
+        "run": "stk-arms-mailbox-idleo1",
+        "boot": "h1",
+        "power_mode": "Best performance",
+        "completed": true,
+        "seconds_to_android_home": 22.7,
+        "android_fingerprint": "google/sdk_gphone64_x86_64/emu64xa:17/CE2A.260420.051.A2/16418371:user/release-keys",
+        "vulkan_device_line": "Selecting Vulkan device: NVIDIA GeForce RTX 5070 Ti, Version: 1.4.341",
+        "guest_refresh_property": "90",
+        "guest_size": "Physical size: 1600x900",
+        "online_cpus": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "engine_log_has_hypervisor_apic_proof_line": true,
+        "engine_log_has_spin_placement_and_cache_lines": true,
+        "tsc_sync_markers": [
+          "synchronized init vcpus=4",
+          "synchronized reset vcpus=4"
+        ],
+        "feature_overrides": [
+          "Feature 'VulkanNativeSwapchain' (37) is overridden to 'enabled'"
+        ],
+        "engine_log_sha256": "e1388d0515bea5b443606ec1d1789ad65401c4f3aa326264d8dd8bd1a48bd73b",
+        "guest_props": {
+          "ro.boot.hardware.gltransport": "asg",
+          "ro.hardware.egl": "angle",
+          "debug.hwui.renderer": "skiagl",
+          "debug.renderengine.backend": "skiaglthreaded",
+          "ro.boot.qemu.gltransport.name": "asg"
+        },
+        "avd_overrides": {
+          "hw.gltransport": "asg",
+          "kernel.parameters": "mitigations=off init_on_alloc=0 transparent_hugepage=always"
+        },
+        "guest_kernel_cmdline_has_parameters": true,
+        "settle_seconds": 20.0,
+        "settled_below_0_6_core": true,
+        "avd_config_restored_sha256": "f5590dd5dd1d32e22385947a1ec9c8ef68b585071752739f307a088666a16b1f",
+        "qemu_sha256": "fc990b45532c16008327a15e07a15297963716d7dadb9e46ecab4acf3c1cb94f",
+        "emulator_sha256": "7476c5d7cf249182b7310d45e5304778bd5a337e8d6d11890edb27954b0f9717",
+        "gfxstream_backend_sha256": "7d01cde7d9450e050effb4805c87dcf4c0cfaa274a290ac8f526f192eac085fe",
+        "engine_environment": {
+          "ANDROID_EMULATOR_FEATURES": "VulkanNativeSwapchain",
+          "RUSTEMUDROID_QA_ASG_SPIN_US": "3000",
+          "RUSTEMUDROID_QA_KVM_PV_EOI": "1",
+          "RUSTEMUDROID_QA_LAPIC_FASTPATH": "1",
+          "RUSTEMUDROID_QA_VCPU_PLACEMENT": "sets-high",
+          "RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL": "2",
+          "RUSTEMUDROID_QA_VULKAN_CACHED_HOST": "1",
+          "RUSTEMUDROID_QA_WHPX_APIC": "hv",
+          "RUSTEMUDROID_QA_WHPX_SYNC_TSC": "1"
+        },
+        "warmup_lap_not_counted": {
+          "game_fps": 426.7054843024628,
+          "game_frames": 16269,
+          "profiled_duration_ms": 38127
+        }
+      },
+      {
+        "run": "stk-arms-mailbox-idleo1",
+        "boot": "h2",
+        "power_mode": "Best performance",
+        "completed": true,
+        "seconds_to_android_home": 21.8,
+        "android_fingerprint": "google/sdk_gphone64_x86_64/emu64xa:17/CE2A.260420.051.A2/16418371:user/release-keys",
+        "vulkan_device_line": "Selecting Vulkan device: NVIDIA GeForce RTX 5070 Ti, Version: 1.4.341",
+        "guest_refresh_property": "90",
+        "guest_size": "Physical size: 1600x900",
+        "online_cpus": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "engine_log_has_hypervisor_apic_proof_line": true,
+        "engine_log_has_spin_placement_and_cache_lines": true,
+        "tsc_sync_markers": [
+          "synchronized init vcpus=4",
+          "synchronized reset vcpus=4"
+        ],
+        "feature_overrides": [
+          "Feature 'VulkanNativeSwapchain' (37) is overridden to 'enabled'"
+        ],
+        "engine_log_sha256": "d3930aaee02b43ccf396e7115a40746bc31461ddd329f1c2a360674e6adfe371",
+        "guest_props": {
+          "ro.boot.hardware.gltransport": "asg",
+          "ro.hardware.egl": "angle",
+          "debug.hwui.renderer": "skiagl",
+          "debug.renderengine.backend": "skiaglthreaded",
+          "ro.boot.qemu.gltransport.name": "asg"
+        },
+        "avd_overrides": {
+          "hw.gltransport": "asg",
+          "kernel.parameters": "mitigations=off init_on_alloc=0 transparent_hugepage=always"
+        },
+        "guest_kernel_cmdline_has_parameters": true,
+        "settle_seconds": 20.0,
+        "settled_below_0_6_core": true,
+        "avd_config_restored_sha256": "f5590dd5dd1d32e22385947a1ec9c8ef68b585071752739f307a088666a16b1f",
+        "qemu_sha256": "fc990b45532c16008327a15e07a15297963716d7dadb9e46ecab4acf3c1cb94f",
+        "emulator_sha256": "7476c5d7cf249182b7310d45e5304778bd5a337e8d6d11890edb27954b0f9717",
+        "gfxstream_backend_sha256": "7d01cde7d9450e050effb4805c87dcf4c0cfaa274a290ac8f526f192eac085fe",
+        "engine_environment": {
+          "ANDROID_EMULATOR_FEATURES": "VulkanNativeSwapchain",
+          "RUSTEMUDROID_QA_ASG_SPIN_US": "3000",
+          "RUSTEMUDROID_QA_KVM_PV_EOI": "1",
+          "RUSTEMUDROID_QA_LAPIC_FASTPATH": "1",
+          "RUSTEMUDROID_QA_VCPU_PLACEMENT": "sets-high",
+          "RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL": "2",
+          "RUSTEMUDROID_QA_VULKAN_CACHED_HOST": "1",
+          "RUSTEMUDROID_QA_WHPX_APIC": "hv",
+          "RUSTEMUDROID_QA_WHPX_SYNC_TSC": "1"
+        },
+        "warmup_lap_not_counted": {
+          "game_fps": 420.9836065573771,
+          "game_frames": 16050,
+          "profiled_duration_ms": 38125
+        }
+      },
+      {
+        "run": "stk-arms-mailbox-idleo2",
+        "boot": "h1",
+        "power_mode": "Best performance",
+        "completed": true,
+        "seconds_to_android_home": 23.0,
+        "android_fingerprint": "google/sdk_gphone64_x86_64/emu64xa:17/CE2A.260420.051.A2/16418371:user/release-keys",
+        "vulkan_device_line": "Selecting Vulkan device: NVIDIA GeForce RTX 5070 Ti, Version: 1.4.341",
+        "guest_refresh_property": "90",
+        "guest_size": "Physical size: 1600x900",
+        "online_cpus": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "engine_log_has_hypervisor_apic_proof_line": true,
+        "engine_log_has_spin_placement_and_cache_lines": true,
+        "tsc_sync_markers": [
+          "synchronized init vcpus=4",
+          "synchronized reset vcpus=4"
+        ],
+        "feature_overrides": [
+          "Feature 'VulkanNativeSwapchain' (37) is overridden to 'enabled'"
+        ],
+        "engine_log_sha256": "c7837738c27f2073f0ddeac72fe07983689c2542fd3a12f5b3b2fd2eda588790",
+        "guest_props": {
+          "ro.boot.hardware.gltransport": "asg",
+          "ro.hardware.egl": "angle",
+          "debug.hwui.renderer": "skiagl",
+          "debug.renderengine.backend": "skiaglthreaded",
+          "ro.boot.qemu.gltransport.name": "asg"
+        },
+        "avd_overrides": {
+          "hw.gltransport": "asg",
+          "kernel.parameters": "mitigations=off init_on_alloc=0 transparent_hugepage=always"
+        },
+        "guest_kernel_cmdline_has_parameters": true,
+        "settle_seconds": 20.0,
+        "settled_below_0_6_core": true,
+        "avd_config_restored_sha256": "f5590dd5dd1d32e22385947a1ec9c8ef68b585071752739f307a088666a16b1f",
+        "qemu_sha256": "fc990b45532c16008327a15e07a15297963716d7dadb9e46ecab4acf3c1cb94f",
+        "emulator_sha256": "7476c5d7cf249182b7310d45e5304778bd5a337e8d6d11890edb27954b0f9717",
+        "gfxstream_backend_sha256": "7d01cde7d9450e050effb4805c87dcf4c0cfaa274a290ac8f526f192eac085fe",
+        "engine_environment": {
+          "ANDROID_EMULATOR_FEATURES": "VulkanNativeSwapchain",
+          "RUSTEMUDROID_QA_ASG_SPIN_US": "3000",
+          "RUSTEMUDROID_QA_KVM_PV_EOI": "1",
+          "RUSTEMUDROID_QA_LAPIC_FASTPATH": "1",
+          "RUSTEMUDROID_QA_VCPU_PLACEMENT": "sets-high",
+          "RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL": "2",
+          "RUSTEMUDROID_QA_VULKAN_CACHED_HOST": "1",
+          "RUSTEMUDROID_QA_WHPX_APIC": "hv",
+          "RUSTEMUDROID_QA_WHPX_SYNC_TSC": "1"
+        },
+        "warmup_lap_not_counted": {
+          "game_fps": 430.9282136019094,
+          "game_frames": 16430,
+          "profiled_duration_ms": 38127
+        }
+      },
+      {
+        "run": "stk-arms-mailbox-idleo2",
+        "boot": "h2",
+        "power_mode": "Best performance",
+        "completed": true,
+        "seconds_to_android_home": 21.8,
+        "android_fingerprint": "google/sdk_gphone64_x86_64/emu64xa:17/CE2A.260420.051.A2/16418371:user/release-keys",
+        "vulkan_device_line": "Selecting Vulkan device: NVIDIA GeForce RTX 5070 Ti, Version: 1.4.341",
+        "guest_refresh_property": "90",
+        "guest_size": "Physical size: 1600x900",
+        "online_cpus": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "engine_log_has_hypervisor_apic_proof_line": true,
+        "engine_log_has_spin_placement_and_cache_lines": true,
+        "tsc_sync_markers": [
+          "synchronized init vcpus=4",
+          "synchronized reset vcpus=4"
+        ],
+        "feature_overrides": [
+          "Feature 'VulkanNativeSwapchain' (37) is overridden to 'enabled'"
+        ],
+        "engine_log_sha256": "61f371c48f0b1cbcdd76c6368a38597767296efed26f199a490c86e4bf5b23cb",
+        "guest_props": {
+          "ro.boot.hardware.gltransport": "asg",
+          "ro.hardware.egl": "angle",
+          "debug.hwui.renderer": "skiagl",
+          "debug.renderengine.backend": "skiaglthreaded",
+          "ro.boot.qemu.gltransport.name": "asg"
+        },
+        "avd_overrides": {
+          "hw.gltransport": "asg",
+          "kernel.parameters": "mitigations=off init_on_alloc=0 transparent_hugepage=always"
+        },
+        "guest_kernel_cmdline_has_parameters": true,
+        "settle_seconds": 20.0,
+        "settled_below_0_6_core": true,
+        "avd_config_restored_sha256": "f5590dd5dd1d32e22385947a1ec9c8ef68b585071752739f307a088666a16b1f",
+        "qemu_sha256": "fc990b45532c16008327a15e07a15297963716d7dadb9e46ecab4acf3c1cb94f",
+        "emulator_sha256": "7476c5d7cf249182b7310d45e5304778bd5a337e8d6d11890edb27954b0f9717",
+        "gfxstream_backend_sha256": "7d01cde7d9450e050effb4805c87dcf4c0cfaa274a290ac8f526f192eac085fe",
+        "engine_environment": {
+          "ANDROID_EMULATOR_FEATURES": "VulkanNativeSwapchain",
+          "RUSTEMUDROID_QA_ASG_SPIN_US": "3000",
+          "RUSTEMUDROID_QA_KVM_PV_EOI": "1",
+          "RUSTEMUDROID_QA_LAPIC_FASTPATH": "1",
+          "RUSTEMUDROID_QA_VCPU_PLACEMENT": "sets-high",
+          "RUSTEMUDROID_QA_VULKAN_CACHED_DEVICE_LOCAL": "2",
+          "RUSTEMUDROID_QA_VULKAN_CACHED_HOST": "1",
+          "RUSTEMUDROID_QA_WHPX_APIC": "hv",
+          "RUSTEMUDROID_QA_WHPX_SYNC_TSC": "1"
+        },
+        "warmup_lap_not_counted": {
+          "game_fps": 395.1054453887315,
+          "game_frames": 15063,
+          "profiled_duration_ms": 38124
+        }
+      }
+    ]
+  },
+  "bluestacks": {
+    "instance": "Pie64_1",
+    "android_api": 28,
+    "android_fingerprint": "samsung/b0qxxx/b0q:9/TP1A.220624.014/S908EXXS2BWA2:user/release-keys",
+    "guest_size": "1600x900",
+    "vcpus": 4,
+    "surfaceflinger_hz": 90.0000009,
+    "player_renderer_line": "GL_RENDERER = NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2",
+    "apk_sha256": "f0ef0810317ec667e93a5d79dbaea67bc7849964463508508b71deee483427de",
+    "base_apk_sha256": "dbde91eb1451e5f165cbc09b8d1144d13d35283d5f6752cec52704e3e696ff8e",
+    "apk_flagged_debuggable_by_android": true,
+    "player_version": "not recorded in these receipts",
+    "power_modes": {
+      "Balanced": "no overlay set by the operator",
+      "Best performance": "overlay ded574b5-45a0-4f42-8737-46345c09c238 set before the run and restored to 00000000-0000-0000-0000-000000000000 after it"
+    },
+    "boots": [
+      {
+        "run": "stk-blue-profile-idleb1",
+        "power_mode": "Balanced",
+        "receipt_status": "failed",
+        "shutdown_error": "Another HWND covers the Rust client",
+        "forced_cleanup": [
+          "terminated hd-player.exe",
+          "wrapper stop",
+          "transaction restore"
+        ],
+        "host_fps_setting_restored": true,
+        "host_config_byte_identical_after": false,
+        "wrapper_preferences_restored": true,
+        "qa_package_removed": true,
+        "stock_config_and_package_preserved": true,
+        "remaining_processes": [],
+        "warmup_lap_not_counted": {
+          "game_fps": 404.2229508196721,
+          "game_frames": 15411,
+          "profiled_duration_ms": 38125
+        }
+      },
+      {
+        "run": "stk-blue-profile-ov-idle1",
+        "power_mode": "Best performance",
+        "receipt_status": "failed",
+        "shutdown_error": "Another HWND covers the Rust client",
+        "forced_cleanup": [
+          "terminated hd-player.exe",
+          "wrapper stop",
+          "transaction restore"
+        ],
+        "host_fps_setting_restored": true,
+        "host_config_byte_identical_after": false,
+        "wrapper_preferences_restored": true,
+        "qa_package_removed": true,
+        "stock_config_and_package_preserved": true,
+        "remaining_processes": [],
+        "warmup_lap_not_counted": {
+          "game_fps": 448.05245901639347,
+          "game_frames": 17082,
+          "profiled_duration_ms": 38125
+        }
+      },
+      {
+        "run": "stk-blue-profile-idleb2",
+        "power_mode": "Balanced",
+        "receipt_status": "failed",
+        "shutdown_error": "Another HWND covers the Rust client",
+        "forced_cleanup": [
+          "terminated hd-player.exe",
+          "wrapper stop",
+          "transaction restore"
+        ],
+        "host_fps_setting_restored": true,
+        "host_config_byte_identical_after": false,
+        "wrapper_preferences_restored": true,
+        "qa_package_removed": true,
+        "stock_config_and_package_preserved": true,
+        "remaining_processes": [],
+        "warmup_lap_not_counted": {
+          "game_fps": 399.3704918032787,
+          "game_frames": 15226,
+          "profiled_duration_ms": 38125
+        }
+      },
+      {
+        "run": "stk-blue-profile-ov-idle2",
+        "power_mode": "Best performance",
+        "receipt_status": "failed",
+        "shutdown_error": "Another HWND covers the Rust client",
+        "forced_cleanup": [
+          "terminated hd-player.exe",
+          "wrapper stop",
+          "transaction restore"
+        ],
+        "host_fps_setting_restored": true,
+        "host_config_byte_identical_after": false,
+        "wrapper_preferences_restored": true,
+        "qa_package_removed": true,
+        "stock_config_and_package_preserved": true,
+        "remaining_processes": [],
+        "warmup_lap_not_counted": {
+          "game_fps": 425.9409836065574,
+          "game_frames": 16239,
+          "profiled_duration_ms": 38125
+        }
+      }
+    ]
+  },
+  "session_steps_in_order": [
+    {
+      "label": "stk-arms-mailbox-idleb1",
+      "started_local": "16:06:04",
+      "finished_local": "16:06:08",
+      "seconds": 3.5,
+      "operator_exit_status": 1,
+      "host_cores_busy_in_10_s_before": 0.871,
+      "of_which_everyday_android_vm_and_its_client": 0.25,
+      "timing_authorization_sha256_of_preflight": null
+    },
+    {
+      "label": "stk-blue-profile-idleb1",
+      "started_local": "16:07:03",
+      "finished_local": "16:11:03",
+      "seconds": 240.5,
+      "operator_exit_status": 1,
+      "host_cores_busy_in_10_s_before": 0.727,
+      "of_which_everyday_android_vm_and_its_client": 0.206,
+      "timing_authorization_sha256_of_preflight": "08b9126eaa9d643fc98e25d9fa8bf755e4bf1977a43a610646d9121f358ba1ab"
+    },
+    {
+      "label": "stk-arms-mailbox-idleo1",
+      "started_local": "16:11:58",
+      "finished_local": "16:19:19",
+      "seconds": 440.7,
+      "operator_exit_status": 0,
+      "host_cores_busy_in_10_s_before": 0.837,
+      "of_which_everyday_android_vm_and_its_client": 0.369,
+      "timing_authorization_sha256_of_preflight": "362a49fab20fdd0a0708ecfe20b74537267c97bf35c4b7517b4906bb36d1686a"
+    },
+    {
+      "label": "stk-blue-profile-ov-idle1",
+      "started_local": "16:20:14",
+      "finished_local": "16:24:01",
+      "seconds": 227.3,
+      "operator_exit_status": 1,
+      "host_cores_busy_in_10_s_before": 0.81,
+      "of_which_everyday_android_vm_and_its_client": 0.42,
+      "timing_authorization_sha256_of_preflight": "6db3be0ed3d3a3343728fa34940d8757e710cac29f1ed83728a8183977543af1"
+    },
+    {
+      "label": "stk-arms-mailbox-idleb2",
+      "started_local": "16:24:56",
+      "finished_local": "16:29:35",
+      "seconds": 279.1,
+      "operator_exit_status": 1,
+      "host_cores_busy_in_10_s_before": 0.877,
+      "of_which_everyday_android_vm_and_its_client": 0.429,
+      "timing_authorization_sha256_of_preflight": "2bd31cb9e8f41dcc263c64b5071800717b70c1ed44f5ff3a81e700c931f8c759"
+    },
+    {
+      "label": "stk-blue-profile-idleb2",
+      "started_local": "16:30:30",
+      "finished_local": "16:34:24",
+      "seconds": 234.0,
+      "operator_exit_status": 1,
+      "host_cores_busy_in_10_s_before": 0.755,
+      "of_which_everyday_android_vm_and_its_client": 0.422,
+      "timing_authorization_sha256_of_preflight": "bc84cb93506493b52f5957a7ff6d14cc6fddec6362bf3ea97ff096f020b8de16"
+    },
+    {
+      "label": "stk-arms-mailbox-idleo2",
+      "started_local": "16:35:19",
+      "finished_local": "16:42:38",
+      "seconds": 439.2,
+      "operator_exit_status": 0,
+      "host_cores_busy_in_10_s_before": 0.844,
+      "of_which_everyday_android_vm_and_its_client": 0.364,
+      "timing_authorization_sha256_of_preflight": "4c44b1a37125569cafcea7d5e4ef33231fe84f0b37d1fc86367d5d7f58d54ac9"
+    },
+    {
+      "label": "stk-blue-profile-ov-idle2",
+      "started_local": "16:43:33",
+      "finished_local": "16:47:22",
+      "seconds": 228.6,
+      "operator_exit_status": 1,
+      "host_cores_busy_in_10_s_before": 0.861,
+      "of_which_everyday_android_vm_and_its_client": 0.34,
+      "timing_authorization_sha256_of_preflight": "503bda3389931486567e6c05b1ee385e2e98dbe4f21463d83bc806c7507159ac"
+    }
+  ],
+  "laps": [
+    {
+      "player": "BlueStacks",
+      "power_mode": "Balanced",
+      "run": "stk-blue-profile-idleb1",
+      "boot": "blue",
+      "lap": 1,
+      "started_local": "2026-11-26T16:08:43-03:00",
+      "finished_local": "2026-11-26T16:09:36-03:00",
+      "game_frames": 15104,
+      "profiled_duration_ms": 38121,
+      "game_fps": 396.21206159334747,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "NVIDIA GeForce RTX 5070 Ti",
+      "guest_refresh_hz": 90.0000009,
+      "game_report_sha256": "d5dd4a694e93c8b8e24c7a31b444d39bfd2c7bab27eec22f0bc81f3e3030de60",
+      "frame_profile_sha256": "55201a0ddbfda36d84188a007bb717d207bf770d197e5de0f3f6591abd429eb8",
+      "host": {
+        "other_processes_cores": 0.592,
+        "processor_performance_percent_mean_first_eight_logical": 85.5,
+        "processor_performance_percent_max_logical_mean": 103.8,
+        "sample_window_s": 21.06,
+        "player_cores": 1.556,
+        "player_web_helper_cores": 0.182,
+        "busiest_player_thread_cores": 0.318
+      }
+    },
+    {
+      "player": "BlueStacks",
+      "power_mode": "Balanced",
+      "run": "stk-blue-profile-idleb1",
+      "boot": "blue",
+      "lap": 2,
+      "started_local": "2026-11-26T16:09:37-03:00",
+      "finished_local": "2026-11-26T16:10:29-03:00",
+      "game_frames": 14912,
+      "profiled_duration_ms": 38126,
+      "game_fps": 391.1241672349578,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "NVIDIA GeForce RTX 5070 Ti",
+      "guest_refresh_hz": 90.0000009,
+      "game_report_sha256": "d7a38750247570d73260082382e8ea61bf3f8fdb78a8611f8167f0b21be5e1fb",
+      "frame_profile_sha256": "36570c89305782d0bf8b1afb0872619d75cf90501233ad63dc728b0c0d55c97d",
+      "host": {
+        "other_processes_cores": 0.596,
+        "processor_performance_percent_mean_first_eight_logical": 85.0,
+        "processor_performance_percent_max_logical_mean": 101.9,
+        "sample_window_s": 21.07,
+        "player_cores": 1.639,
+        "player_web_helper_cores": 0.291,
+        "busiest_player_thread_cores": 0.322
+      }
+    },
+    {
+      "player": "RustEmuDroid",
+      "power_mode": "Best performance",
+      "run": "stk-arms-mailbox-idleo1",
+      "boot": "h1",
+      "lap": 1,
+      "started_local": "2026-11-26T16:13:46-03:00",
+      "finished_local": "2026-11-26T16:14:34-03:00",
+      "game_frames": 14874,
+      "profiled_duration_ms": 38126,
+      "game_fps": 390.12747206630644,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "main_loop_ms_per_frame": 2.5632689256420598,
+      "draw_all_ms_per_frame": 1.8818425440365738,
+      "vulkan_acquire_ms_per_frame": 0.08494971090493479,
+      "android_presentations": 1801,
+      "android_sample_s": 20.0150275,
+      "android_presentations_per_second": 89.98238948210289,
+      "android_p99_interval_ms": 12.789417,
+      "rust_panel_verified": false,
+      "rust_panel_exclusion": "Expected preview Windows foreground",
+      "game_report_sha256": "eda26707512982145bc16d81a0210c0370105b492ceb121ed6e1da00efbbc234",
+      "frame_profile_sha256": "cd1f110f6a5795f34945923687704375358c2361506bf58e21ac74d4fd7fc20c",
+      "host": {
+        "other_processes_cores": 0.614,
+        "processor_performance_percent_mean_first_eight_logical": 109.0,
+        "processor_performance_percent_max_logical_mean": 119.8,
+        "sample_window_s": 30.94,
+        "qemu_cores": 2.613,
+        "client_cores": 0.259,
+        "busiest_qemu_thread_cores": 0.896
+      }
+    },
+    {
+      "player": "RustEmuDroid",
+      "power_mode": "Best performance",
+      "run": "stk-arms-mailbox-idleo1",
+      "boot": "h1",
+      "lap": 2,
+      "started_local": "2026-11-26T16:14:34-03:00",
+      "finished_local": "2026-11-26T16:15:22-03:00",
+      "game_frames": 13838,
+      "profiled_duration_ms": 38127,
+      "game_fps": 362.94489469404886,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "main_loop_ms_per_frame": 2.7552835669894495,
+      "draw_all_ms_per_frame": 2.0156805174158112,
+      "vulkan_acquire_ms_per_frame": 0.09147767018355253,
+      "android_presentations": 1801,
+      "android_sample_s": 20.01572125,
+      "android_presentations_per_second": 89.97927066954932,
+      "android_p99_interval_ms": 12.789137,
+      "rust_panel_verified": false,
+      "rust_panel_exclusion": "Expected preview Windows foreground",
+      "game_report_sha256": "506e1c5056bbdc678781171e135616784fad130ea2ea4b278b9f9dc8d00a1fc8",
+      "frame_profile_sha256": "d334fc6da732655d8e1eeae87ba5c2474fd46656fa09f71b992e3a0a7c9b4d65",
+      "host": {
+        "other_processes_cores": 0.558,
+        "processor_performance_percent_mean_first_eight_logical": 108.2,
+        "processor_performance_percent_max_logical_mean": 120.9,
+        "sample_window_s": 30.89,
+        "qemu_cores": 2.427,
+        "client_cores": 0.223,
+        "busiest_qemu_thread_cores": 0.982
+      }
+    },
+    {
+      "player": "RustEmuDroid",
+      "power_mode": "Best performance",
+      "run": "stk-arms-mailbox-idleo1",
+      "boot": "h2",
+      "lap": 1,
+      "started_local": "2026-11-26T16:17:07-03:00",
+      "finished_local": "2026-11-26T16:17:55-03:00",
+      "game_frames": 15413,
+      "profiled_duration_ms": 38128,
+      "game_fps": 404.24360050356694,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "main_loop_ms_per_frame": 2.4737952377862844,
+      "draw_all_ms_per_frame": 1.8201075715305262,
+      "vulkan_acquire_ms_per_frame": 0.07913222604295077,
+      "android_presentations": 1801,
+      "android_sample_s": 20.01548135,
+      "android_presentations_per_second": 89.9803491360951,
+      "android_p99_interval_ms": 12.63608,
+      "rust_panel_verified": false,
+      "rust_panel_exclusion": "Expected preview Windows foreground",
+      "game_report_sha256": "4a5e031618d925d11d4de79e5527a3ea88c6eda5cc5ba4629584860afa93c185",
+      "frame_profile_sha256": "06e34416ed5a31634c418e6b1df5be12b8a14ff9287cd692b8f0755f1cd43e47",
+      "host": {
+        "other_processes_cores": 0.537,
+        "processor_performance_percent_mean_first_eight_logical": 108.7,
+        "processor_performance_percent_max_logical_mean": 119.0,
+        "sample_window_s": 30.91,
+        "qemu_cores": 2.595,
+        "client_cores": 0.263,
+        "busiest_qemu_thread_cores": 0.897
+      }
+    },
+    {
+      "player": "RustEmuDroid",
+      "power_mode": "Best performance",
+      "run": "stk-arms-mailbox-idleo1",
+      "boot": "h2",
+      "lap": 2,
+      "started_local": "2026-11-26T16:17:55-03:00",
+      "finished_local": "2026-11-26T16:18:43-03:00",
+      "game_frames": 15721,
+      "profiled_duration_ms": 38127,
+      "game_fps": 412.3324678049676,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "main_loop_ms_per_frame": 2.4252732014502896,
+      "draw_all_ms_per_frame": 1.7731514534698811,
+      "vulkan_acquire_ms_per_frame": 0.08049049042681763,
+      "android_presentations": 1803,
+      "android_sample_s": 20.01508095,
+      "android_presentations_per_second": 90.08207383742807,
+      "android_p99_interval_ms": 12.818647,
+      "rust_panel_verified": false,
+      "rust_panel_exclusion": "Expected preview Windows foreground",
+      "game_report_sha256": "1dfaa60838e69017103ffd1c3a5cd9391586e6d75f3c8e3a7e1f8355c9502135",
+      "frame_profile_sha256": "1c85fbbf77bcba5e77c892483f17615b7422836a45a0bf4c6848d3230dcb7f90",
+      "host": {
+        "other_processes_cores": 0.659,
+        "processor_performance_percent_mean_first_eight_logical": 108.3,
+        "processor_performance_percent_max_logical_mean": 118.8,
+        "sample_window_s": 30.94,
+        "qemu_cores": 2.598,
+        "client_cores": 0.262,
+        "busiest_qemu_thread_cores": 0.891
+      }
+    },
+    {
+      "player": "BlueStacks",
+      "power_mode": "Best performance",
+      "run": "stk-blue-profile-ov-idle1",
+      "boot": "blue",
+      "lap": 1,
+      "started_local": "2026-11-26T16:21:43-03:00",
+      "finished_local": "2026-11-26T16:22:35-03:00",
+      "game_frames": 16494,
+      "profiled_duration_ms": 38122,
+      "game_fps": 432.66355385341797,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "NVIDIA GeForce RTX 5070 Ti",
+      "guest_refresh_hz": 90.0000009,
+      "game_report_sha256": "e51efdf08594c287388cdb0785ee2a464fdd9638f11dd273f70cb39802f42fa7",
+      "frame_profile_sha256": "8aaaa5bf10d1299e2ad550038400b1352d29593e678e303512bc29700b8a75c1",
+      "host": {
+        "other_processes_cores": 0.557,
+        "processor_performance_percent_mean_first_eight_logical": 103.6,
+        "processor_performance_percent_max_logical_mean": 112.0,
+        "sample_window_s": 21.08,
+        "player_cores": 1.576,
+        "player_web_helper_cores": 0.16,
+        "busiest_player_thread_cores": 0.318
+      }
+    },
+    {
+      "player": "BlueStacks",
+      "power_mode": "Best performance",
+      "run": "stk-blue-profile-ov-idle1",
+      "boot": "blue",
+      "lap": 2,
+      "started_local": "2026-11-26T16:22:36-03:00",
+      "finished_local": "2026-11-26T16:23:29-03:00",
+      "game_frames": 16324,
+      "profiled_duration_ms": 38126,
+      "game_fps": 428.1592613964224,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "NVIDIA GeForce RTX 5070 Ti",
+      "guest_refresh_hz": 90.0000009,
+      "game_report_sha256": "c8347c9cf2aa4c91e0b434dcd4fd36e211060097a4cc0979c76ec44a99fc8a59",
+      "frame_profile_sha256": "6d3c4a530c9f4b4b892f81f2d8b540193fce1193d01135c4257ec0ef75d16296",
+      "host": {
+        "other_processes_cores": 0.56,
+        "processor_performance_percent_mean_first_eight_logical": 103.3,
+        "processor_performance_percent_max_logical_mean": 111.7,
+        "sample_window_s": 21.07,
+        "player_cores": 1.569,
+        "player_web_helper_cores": 0.25,
+        "busiest_player_thread_cores": 0.31
+      }
+    },
+    {
+      "player": "RustEmuDroid",
+      "power_mode": "Balanced",
+      "run": "stk-arms-mailbox-idleb2",
+      "boot": "hb1",
+      "lap": 1,
+      "started_local": "2026-11-26T16:26:44-03:00",
+      "finished_local": "2026-11-26T16:27:32-03:00",
+      "game_frames": 14930,
+      "profiled_duration_ms": 38126,
+      "game_fps": 391.59628599905574,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "main_loop_ms_per_frame": 2.5536724715338246,
+      "draw_all_ms_per_frame": 1.862701406563965,
+      "vulkan_acquire_ms_per_frame": 0.0892569323509712,
+      "android_presentations": 1803,
+      "android_sample_s": 20.01595465,
+      "android_presentations_per_second": 90.07814173879535,
+      "android_p99_interval_ms": 12.88737,
+      "rust_panel_verified": false,
+      "rust_panel_exclusion": "Expected preview Windows foreground",
+      "game_report_sha256": "5a8dcf1387bd8ddd0dbe193acad064ff7bfbd04838a24e07889688478848f1a5",
+      "frame_profile_sha256": "c0b330a388ebda27d8e13b14c414391202b47c35a218c0eb3e2adaf6338122e9",
+      "host": {
+        "other_processes_cores": 0.681,
+        "processor_performance_percent_mean_first_eight_logical": 95.8,
+        "processor_performance_percent_max_logical_mean": 116.6,
+        "sample_window_s": 30.95,
+        "qemu_cores": 2.781,
+        "client_cores": 0.277,
+        "busiest_qemu_thread_cores": 0.896
+      }
+    },
+    {
+      "player": "RustEmuDroid",
+      "power_mode": "Balanced",
+      "run": "stk-arms-mailbox-idleb2",
+      "boot": "hb1",
+      "lap": 2,
+      "started_local": "2026-11-26T16:27:33-03:00",
+      "finished_local": "2026-11-26T16:28:20-03:00",
+      "game_frames": 15033,
+      "profiled_duration_ms": 38128,
+      "game_fps": 394.2771716323961,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "main_loop_ms_per_frame": 2.53628803299408,
+      "draw_all_ms_per_frame": 1.8473832900951241,
+      "vulkan_acquire_ms_per_frame": 0.0891579857646511,
+      "android_presentations": 1802,
+      "android_sample_s": 20.0191438,
+      "android_presentations_per_second": 90.01383965282271,
+      "android_p99_interval_ms": 12.981595,
+      "rust_panel_verified": false,
+      "rust_panel_exclusion": "Expected preview Windows foreground",
+      "game_report_sha256": "d5c4ce0d70cf3e0ce48c4d35a7b315fd045a86801853bb892bb66170aeb82823",
+      "frame_profile_sha256": "bca520fa875e692ea6bc69f14bd92b6a2114942ef47c58f367b307b9109242ed",
+      "host": {
+        "other_processes_cores": 0.67,
+        "processor_performance_percent_mean_first_eight_logical": 95.3,
+        "processor_performance_percent_max_logical_mean": 120.5,
+        "sample_window_s": 30.91,
+        "qemu_cores": 2.729,
+        "client_cores": 0.248,
+        "busiest_qemu_thread_cores": 0.98
+      }
+    },
+    {
+      "player": "BlueStacks",
+      "power_mode": "Balanced",
+      "run": "stk-blue-profile-idleb2",
+      "boot": "blue",
+      "lap": 1,
+      "started_local": "2026-11-26T16:32:05-03:00",
+      "finished_local": "2026-11-26T16:32:57-03:00",
+      "game_frames": 15429,
+      "profiled_duration_ms": 38123,
+      "game_fps": 404.7163129869108,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "NVIDIA GeForce RTX 5070 Ti",
+      "guest_refresh_hz": 90.0000009,
+      "game_report_sha256": "5aac2934144466dbbb9163b251658d3790e537ab79003b75ab9d6a0f5e11238f",
+      "frame_profile_sha256": "ced613502b99650ca16203cd9cf57fc03c803e60fe3d2a57f639286807491ebc",
+      "host": {
+        "other_processes_cores": 0.616,
+        "processor_performance_percent_mean_first_eight_logical": 86.0,
+        "processor_performance_percent_max_logical_mean": 103.3,
+        "sample_window_s": 21.07,
+        "player_cores": 1.577,
+        "player_web_helper_cores": 0.16,
+        "busiest_player_thread_cores": 0.314
+      }
+    },
+    {
+      "player": "BlueStacks",
+      "power_mode": "Balanced",
+      "run": "stk-blue-profile-idleb2",
+      "boot": "blue",
+      "lap": 2,
+      "started_local": "2026-11-26T16:32:58-03:00",
+      "finished_local": "2026-11-26T16:33:51-03:00",
+      "game_frames": 15928,
+      "profiled_duration_ms": 38123,
+      "game_fps": 417.8055242242216,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "NVIDIA GeForce RTX 5070 Ti",
+      "guest_refresh_hz": 90.0000009,
+      "game_report_sha256": "9797d205fd60c1c6e400cf70136c1529d81b6169ad55f8906be11d5fece65122",
+      "frame_profile_sha256": "ed95593734f523b98be83313672c1e7674046faca537a530dbdc4fd1dc56225e",
+      "host": {
+        "other_processes_cores": 0.601,
+        "processor_performance_percent_mean_first_eight_logical": 84.0,
+        "processor_performance_percent_max_logical_mean": 102.5,
+        "sample_window_s": 21.05,
+        "player_cores": 1.538,
+        "player_web_helper_cores": 0.081,
+        "busiest_player_thread_cores": 0.317
+      }
+    },
+    {
+      "player": "RustEmuDroid",
+      "power_mode": "Best performance",
+      "run": "stk-arms-mailbox-idleo2",
+      "boot": "h1",
+      "lap": 1,
+      "started_local": "2026-11-26T16:37:07-03:00",
+      "finished_local": "2026-11-26T16:37:54-03:00",
+      "game_frames": 15352,
+      "profiled_duration_ms": 38127,
+      "game_fps": 402.6542869882236,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "main_loop_ms_per_frame": 2.4835706096925483,
+      "draw_all_ms_per_frame": 1.8200307451797813,
+      "vulkan_acquire_ms_per_frame": 0.0831748957790516,
+      "android_presentations": 1802,
+      "android_sample_s": 20.0150176,
+      "android_presentations_per_second": 90.0323964741355,
+      "android_p99_interval_ms": 12.921947,
+      "rust_panel_verified": false,
+      "rust_panel_exclusion": "Expected preview Windows foreground",
+      "game_report_sha256": "051a3be5a818ac85b756ae217e34d10b9e08a14164b384e25dbb0f5687eb1ee2",
+      "frame_profile_sha256": "06a17d8ecfca9566a32b8c5a81c18a280474b2c07ec5598b05bf3ea82fc3f0c3",
+      "host": {
+        "other_processes_cores": 0.61,
+        "processor_performance_percent_mean_first_eight_logical": 108.3,
+        "processor_performance_percent_max_logical_mean": 119.0,
+        "sample_window_s": 30.92,
+        "qemu_cores": 2.744,
+        "client_cores": 0.259,
+        "busiest_qemu_thread_cores": 0.903
+      }
+    },
+    {
+      "player": "RustEmuDroid",
+      "power_mode": "Best performance",
+      "run": "stk-arms-mailbox-idleo2",
+      "boot": "h1",
+      "lap": 2,
+      "started_local": "2026-11-26T16:37:55-03:00",
+      "finished_local": "2026-11-26T16:38:42-03:00",
+      "game_frames": 15070,
+      "profiled_duration_ms": 38126,
+      "game_fps": 395.26832083092904,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "main_loop_ms_per_frame": 2.5299472461844728,
+      "draw_all_ms_per_frame": 1.8708967485069674,
+      "vulkan_acquire_ms_per_frame": 0.08153324485733245,
+      "android_presentations": 1802,
+      "android_sample_s": 20.0147989,
+      "android_presentations_per_second": 90.03338025045058,
+      "android_p99_interval_ms": 12.667143,
+      "rust_panel_verified": false,
+      "rust_panel_exclusion": "Expected preview Windows foreground",
+      "game_report_sha256": "10507131bed07c7806001da262a5ce16c21a4e67c99b5a83f7debf1707cac33c",
+      "frame_profile_sha256": "2c5928e973ea71597cc940079c158cc50ccd5c48bbee4d303aab43dc1d6f05da",
+      "host": {
+        "other_processes_cores": 0.604,
+        "processor_performance_percent_mean_first_eight_logical": 107.7,
+        "processor_performance_percent_max_logical_mean": 120.5,
+        "sample_window_s": 30.92,
+        "qemu_cores": 2.665,
+        "client_cores": 0.263,
+        "busiest_qemu_thread_cores": 0.992
+      }
+    },
+    {
+      "player": "RustEmuDroid",
+      "power_mode": "Best performance",
+      "run": "stk-arms-mailbox-idleo2",
+      "boot": "h2",
+      "lap": 1,
+      "started_local": "2026-11-26T16:40:27-03:00",
+      "finished_local": "2026-11-26T16:41:14-03:00",
+      "game_frames": 13996,
+      "profiled_duration_ms": 38130,
+      "game_fps": 367.06005769735117,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "main_loop_ms_per_frame": 2.7243928979708487,
+      "draw_all_ms_per_frame": 2.023227422120606,
+      "vulkan_acquire_ms_per_frame": 0.08441326093169477,
+      "android_presentations": 1802,
+      "android_sample_s": 20.0151938,
+      "android_presentations_per_second": 90.03160389084017,
+      "android_p99_interval_ms": 12.809191,
+      "rust_panel_verified": false,
+      "rust_panel_exclusion": "Expected preview Windows foreground",
+      "game_report_sha256": "0fb1840ea8e27324c8aa08e2352bdf5e2f76d1e0ed5c5a2ef2345bababdb00b4",
+      "frame_profile_sha256": "c96a34166e1305426e77577c7793cf0e451b6e3c64eceeedd0b8e6f659f7f6b4",
+      "host": {
+        "other_processes_cores": 0.65,
+        "processor_performance_percent_mean_first_eight_logical": 108.1,
+        "processor_performance_percent_max_logical_mean": 118.6,
+        "sample_window_s": 30.92,
+        "qemu_cores": 2.606,
+        "client_cores": 0.268,
+        "busiest_qemu_thread_cores": 0.885
+      }
+    },
+    {
+      "player": "RustEmuDroid",
+      "power_mode": "Best performance",
+      "run": "stk-arms-mailbox-idleo2",
+      "boot": "h2",
+      "lap": 2,
+      "started_local": "2026-11-26T16:41:15-03:00",
+      "finished_local": "2026-11-26T16:42:02-03:00",
+      "game_frames": 15788,
+      "profiled_duration_ms": 38123,
+      "game_fps": 414.1332004301865,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "Goldfish GFXStream (NVIDIA GeForce RTX 5070 Ti)",
+      "main_loop_ms_per_frame": 2.414700342031923,
+      "draw_all_ms_per_frame": 1.7546689257664048,
+      "vulkan_acquire_ms_per_frame": 0.08150912085127945,
+      "android_presentations": 1800,
+      "android_sample_s": 20.01433055,
+      "android_presentations_per_second": 89.93555869896433,
+      "android_p99_interval_ms": 12.99663,
+      "rust_panel_verified": false,
+      "rust_panel_exclusion": "Expected preview Windows foreground",
+      "game_report_sha256": "3ac8268cd20ee28d9cd6133d7235d9614a5df76546f11702f7eb383df846539f",
+      "frame_profile_sha256": "8a6e8917507b4b54ab3f48108c98aff9301e7424d3de32eb651a70c7b9ca9872",
+      "host": {
+        "other_processes_cores": 0.568,
+        "processor_performance_percent_mean_first_eight_logical": 108.7,
+        "processor_performance_percent_max_logical_mean": 119.6,
+        "sample_window_s": 30.97,
+        "qemu_cores": 2.675,
+        "client_cores": 0.258,
+        "busiest_qemu_thread_cores": 0.888
+      }
+    },
+    {
+      "player": "BlueStacks",
+      "power_mode": "Best performance",
+      "run": "stk-blue-profile-ov-idle2",
+      "boot": "blue",
+      "lap": 1,
+      "started_local": "2026-11-26T16:45:03-03:00",
+      "finished_local": "2026-11-26T16:45:56-03:00",
+      "game_frames": 15232,
+      "profiled_duration_ms": 38124,
+      "game_fps": 399.53834854684715,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "NVIDIA GeForce RTX 5070 Ti",
+      "guest_refresh_hz": 90.0000009,
+      "game_report_sha256": "5ff5c64058343ba146eb65465d7ac3c0cc7da64482bf3aac72d6c4ee3bb57219",
+      "frame_profile_sha256": "e95909baef2fa978d2b65cd9ddc9e91895ac8327895509ed4bcb8e27d009fec9",
+      "host": {
+        "other_processes_cores": 0.946,
+        "processor_performance_percent_mean_first_eight_logical": 103.3,
+        "processor_performance_percent_max_logical_mean": 111.3,
+        "sample_window_s": 21.07,
+        "player_cores": 1.563,
+        "player_web_helper_cores": 0.226,
+        "busiest_player_thread_cores": 0.33
+      }
+    },
+    {
+      "player": "BlueStacks",
+      "power_mode": "Best performance",
+      "run": "stk-blue-profile-ov-idle2",
+      "boot": "blue",
+      "lap": 2,
+      "started_local": "2026-11-26T16:45:57-03:00",
+      "finished_local": "2026-11-26T16:46:49-03:00",
+      "game_frames": 15885,
+      "profiled_duration_ms": 38124,
+      "game_fps": 416.6666666666667,
+      "vk_present_mode": "MAILBOX",
+      "game_renderer": "NVIDIA GeForce RTX 5070 Ti",
+      "guest_refresh_hz": 90.0000009,
+      "game_report_sha256": "7ffadbf502efe3b4a28a6e8de92e82548ae5c6ff01f79fbd132110ee28d12b64",
+      "frame_profile_sha256": "180770e6a09ca2600a635f19a9d18a72fcc75b77bc805325e1b86c672a0b19da",
+      "host": {
+        "other_processes_cores": 0.764,
+        "processor_performance_percent_mean_first_eight_logical": 103.6,
+        "processor_performance_percent_max_logical_mean": 112.5,
+        "sample_window_s": 21.13,
+        "player_cores": 1.558,
+        "player_web_helper_cores": 0.204,
+        "busiest_player_thread_cores": 0.326
+      }
+    }
+  ],
+  "summary": [
+    {
+      "player": "RustEmuDroid",
+      "power_mode": "Balanced",
+      "laps": 2,
+      "boots": 1,
+      "game_fps_by_lap": [
+        391.59628599905574,
+        394.2771716323961
+      ],
+      "mean_of_laps": 392.9367288157259,
+      "pooled_frames_over_duration": 392.9367639730375,
+      "min": 391.59628599905574,
+      "max": 394.2771716323961,
+      "sample_standard_deviation": 1.8956724109205756
+    },
+    {
+      "player": "BlueStacks",
+      "power_mode": "Balanced",
+      "laps": 4,
+      "boots": 2,
+      "game_fps_by_lap": [
+        396.21206159334747,
+        391.1241672349578,
+        404.7163129869108,
+        417.8055242242216
+      ],
+      "mean_of_laps": 402.46451650985944,
+      "pooled_frames_over_duration": 402.4643754139534,
+      "min": 391.1241672349578,
+      "max": 417.8055242242216,
+      "sample_standard_deviation": 11.66353032927791
+    },
+    {
+      "player": "RustEmuDroid",
+      "power_mode": "Best performance",
+      "laps": 8,
+      "boots": 4,
+      "game_fps_by_lap": [
+        390.12747206630644,
+        362.94489469404886,
+        404.24360050356694,
+        412.3324678049676,
+        402.6542869882236,
+        395.26832083092904,
+        367.06005769735117,
+        414.1332004301865
+      ],
+      "mean_of_laps": 393.59553762694753,
+      "pooled_frames_over_duration": 393.59504809615294,
+      "min": 362.94489469404886,
+      "max": 414.1332004301865,
+      "sample_standard_deviation": 19.371295474803123
+    },
+    {
+      "player": "BlueStacks",
+      "power_mode": "Best performance",
+      "laps": 4,
+      "boots": 2,
+      "game_fps_by_lap": [
+        432.66355385341797,
+        428.1592613964224,
+        399.53834854684715,
+        416.6666666666667
+      ],
+      "mean_of_laps": 419.25695761583853,
+      "pooled_frames_over_duration": 419.2568985416011,
+      "min": 399.53834854684715,
+      "max": 432.66355385341797,
+      "sample_standard_deviation": 14.770702827967117
+    }
+  ],
+  "comparison": {
+    "Balanced": {
+      "bluestacks_over_rustemudroid_minus_one": 0.024247638348416478,
+      "rustemudroid_below_bluestacks_fraction": 0.023673609233325066
+    },
+    "Best performance": {
+      "bluestacks_over_rustemudroid_minus_one": 0.06519743629109187,
+      "rustemudroid_below_bluestacks_fraction": 0.06120690312408439
+    }
+  },
+  "not_measured": [
+    "Kemu",
+    "the v0.24.1 client",
+    "the settings applied by a client's own Settings preset",
+    "the Rust panel frame rate (the preview window was not in the Windows foreground)"
+  ]
+}

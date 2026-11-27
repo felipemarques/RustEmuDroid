@@ -11,7 +11,7 @@ RustEmuDroid runs Android games and apps in one desktop window on x86-64 Windows
 ## Run a prebuilt version
 
 1. Open the [latest GitHub Release](https://github.com/felipemarques/RustEmuDroid/releases/latest) and find **Assets**.
-2. On Windows, extract `RustEmuDroid-vX.Y.Z-windows-x86_64.zip` into a writable directory. On Linux, extract `RustEmuDroid-vX.Y.Z-linux-x86_64.tar.gz` with `tar -xzf` to keep the execute permission. The filename includes the release version in place of `X.Y.Z`.
+2. On Windows, extract `RustEmuDroid-vX.Y.Z-windows-x86_64.zip` into a writable directory. On Linux, extract `RustEmuDroid-vX.Y.Z-linux-x86_64.tar.gz` with `tar -xzf` to keep the execute permission. The filename includes the release version in place of `X.Y.Z`. For the current release, v0.24.1, the files are `RustEmuDroid-v0.24.1-windows-x86_64.zip` and `RustEmuDroid-v0.24.1-linux-x86_64.tar.gz`.
 3. On Windows, open `rustemudroid.exe`. On Linux, run `./rustemudroid` in the extracted directory. On a PC without a runtime, choose **Install Android runtime or image**.
 
 | Task | Windows PowerShell | Linux shell |
@@ -21,7 +21,7 @@ RustEmuDroid runs Android games and apps in one desktop window on x86-64 Windows
 
 For a development build, sign in to GitHub, open a successful [Desktop builds run](https://github.com/felipemarques/RustEmuDroid/actions/workflows/build.yml) and download the package under **Artifacts**.
 
-The executable includes the RustEmuDroid Home APK. The runtime and Android image are supplied separately. A source build also requires Rust and Cargo.
+The executable includes the RustEmuDroid Home APK. The Linux executable also carries the small library that protects the video memory on AMD graphics cards (v0.24.1). The runtime and Android image are supplied separately. The experimental Vulkan cache and performance engines for Windows are built separately and are not part of the download. A source build also requires Rust and Cargo.
 
 ## Prepare the Android runtime
 
@@ -57,7 +57,7 @@ sdkmanager --install "emulator" "platform-tools" "system-images;android-37.0;goo
 
 For a Google APIs image, another supported package is `system-images;android-35;google_apis;x86_64`. `sdkmanager --list` shows the available packages. Existing SDK installations can be located through `ANDROID_HOME`, `ANDROID_SDK_ROOT` or the default SDK location. [SDK Manager](https://developer.android.com/tools/sdkmanager) · [Emulator acceleration](https://developer.android.com/studio/run/emulator-acceleration)
 
-On Ubuntu 24.04 under WSL2, the Linux release booted Android 17 Google Play with KVM. In WSLg, BombSquad presented 60 frames/s in a Death Match using native OpenGL ES on the Radeon 780M through Mesa D3D12. Guest Vulkan used a CPU renderer on this machine. [Setup, driver selection and game measurements](docs/linux-runtime.md)
+On Ubuntu 24.04 under WSL2, the v0.7.0 Linux release booted Android 17 Google Play with KVM. In WSLg, BombSquad presented 60 frames/s in a Death Match using native OpenGL ES on the Radeon 780M through Mesa D3D12. Guest Vulkan used a CPU renderer on this machine. [Setup, driver selection and game measurements](docs/linux-runtime.md)
 
 ## Choose a profile
 
@@ -84,7 +84,20 @@ On Windows, open **Settings → Runtime, image, and profile → Vulkan memory ca
 
 </details>
 
-**Settings → Runtime, image, and profile → Performance engine (experimental)** selects a separately built Windows engine for the profile. Choose the folder that holds `rustemudroid-engine.json` and `sdk` with **Choose performance engine…**, turn on the options the engine offers, then save and restart Android. The desktop checks the engine's SHA-256 digests at every start and uses the default engine, with a message, if they differ. **Remove performance engine** switches back; the next start restores the profile's `config.ini`. A profile uses either this engine or the Vulkan memory cache. On an RTX 5070 Ti with the official Android 17 Google Play image, the engine and its settings measured 356 game FPS in uncapped SuperTuxKart Vulkan with the Windows Balanced power mode on an otherwise idle desktop, compared with 164–176 for the stock engine, 325 for Kemu and 376 for BlueStacks. On the integrated Radeon 780M, Cipó Livre held 59.9 presentations/s at 60 Hz instead of 57–59. Engines that list `whpx_apic_hv` let the Windows hypervisor emulate the interrupt controller as part of **CPU virtualization tuning** (v0.24.0); in a separate daytime series with other programs running and Best performance, that raised SuperTuxKart from 345.2 to 380.1 FPS. [Build the engine](experiments/whpx-clock/README.md#4-build-the-performance-engine) · [Measurements and limits](docs/performance-history.md#performance-engine-in-uncapped-mailbox)
+**Settings → Runtime, image, and profile → Performance engine (experimental)** selects a separately built Windows engine for the profile. Choose the folder that holds `rustemudroid-engine.json` and `sdk` with **Choose performance engine…**, turn on the options the engine offers, then save and restart Android. The desktop checks the engine's SHA-256 digests at every start. If a file is missing or changed, or the profile does not use an SDK image with the **Host GPU** or **Automatic** mode, it says why and starts Android with the default engine. **Remove performance engine** switches back; the next start restores the profile's `config.ini`. A profile uses either this engine or the Vulkan memory cache. Before going back to v0.22.0 or older, remove the engine, save and start Android once. [Build the engine](experiments/whpx-clock/README.md#4-build-the-performance-engine)
+
+Settings shows a switch only for the options the engine lists. After startup, **Launcher output** in Settings names the options the engine confirmed.
+
+| Switch | Default | What it does |
+|---|---|---|
+| **CPU virtualization tuning** | On | Synchronized clock, fast APIC access and paravirtualized end of interrupt. With engines that list `whpx_apic_hv` (v0.24.0), Windows itself emulates the interrupt controller, which replaces the last two. If the computer does not allow that, the engine keeps them and Android starts normally. |
+| **Cached Vulkan memory** | On | Games write graphics memory through a cached path. |
+| **Graphics commands through shared memory** | On | Graphics commands go through a shared-memory ring, which keeps about one extra processor core busy while a game runs. Writes `hw.gltransport=asg` to the profile's `config.ini`. |
+| **Compose the screen with Vulkan** | On | The computer composes Android's screen with Vulkan, and Android uses ANGLE for OpenGL ES. |
+| **Dedicated cores for Android** | On | Each virtual processor gets its own physical core, never core 0. Available when the PC has more physical cores than the profile's virtual processors plus two. |
+| **Reduce Android kernel protections** | Off | Turns off processor vulnerability mitigations and memory clearing inside Android. Use it only on a profile dedicated to games. |
+
+In the same group, **Windows best performance power mode while Android runs** turns on the Windows Best performance power mode while Android is open and restores the previous mode when it closes. It works with any engine, is off by default and is not used on battery power. [Latest measurement with this engine](#latest-benchmark) · [Earlier series and limits](docs/performance-history.md#performance-engine-in-uncapped-mailbox)
 
 ![Settings with profile selection, rendering mode, Vulkan adapter and webcam](docs/screenshots/en-us/settings.png)
 
@@ -295,7 +308,32 @@ cargo run --locked --release --features ui -- --state-dir .rustemudroid/kemu ui
 
 Use the same `--state-dir` for initialization, boot and UI. The default is `.rustemudroid/windows/` or `.rustemudroid/linux/` relative to the working directory. `launcher.json` holds preferences. The active profile contains the AVD and `boot-*.log`. `boot --check` waits for `sys.boot_completed=1` and stops that VM. `--timeout` sets the boot deadline in seconds and `--engine sdk` explicitly selects the SDK engine. The client selects free ports and verifies the AVD path before sending shutdown commands.
 
+On Windows, `boot --vulkan-cache-runtime <folder>` starts the profile with a prepared Vulkan cache engine, and `boot --performance-engine <folder>` starts it with a performance engine and its default options, without the kernel option. The two cannot be combined. The performance engine writes `hw.gltransport` to the profile's `config.ini` and records the original lines in `rustemudroid-performance.json` beside it. The next start without the engine restores them.
+
+```powershell
+.\rustemudroid.exe --state-dir 'D:\Android\MyProfile' boot --gpu host --performance-engine 'D:\Android\PerformanceEngine'
+```
+
+On Linux with an AMD card, set `RUSTEMUDROID_AMD_LINUX` before starting the client to diagnose the video memory handling: `off` starts the engine as before v0.24.1, and `stock`, `full-size` or `all-types` forces that memory mode.
+
 ## Performance and troubleshooting
+
+### Latest benchmark
+
+**SuperTuxKart 1.5 in uncapped Vulkan on the RTX 5070 Ti · November 26, 2026 · RustEmuDroid client v0.22.0.** BlueStacks was ahead in both Windows power modes.
+
+| Windows power mode | RustEmuDroid, performance engine | BlueStacks 5 Pie64 | BlueStacks ahead by |
+|---|---:|---:|---:|
+| Balanced | 392.9 FPS (2 laps) | **402.5 FPS** (4 laps) | 2.4% |
+| Best performance | 393.6 FPS (8 laps) | **419.3 FPS** (4 laps) | 6.5% |
+
+Both players ran the game's built-in Black Forest replay at High with Vulkan and game VSync off (Mailbox, uncapped), at 1600 × 900 and 90 Hz in Android, on the Windows test PC (Ryzen 9 8945HS, GeForce RTX 5070 Ti). FPS comes from the game's own frame report. The players took turns in one session between 16:06 and 16:47, with other programs using 0.54–0.68 host core during RustEmuDroid's laps. RustEmuDroid ran the official Android 17 Google Play image on the separately built performance engine, with the settings of all six switches, including **Reduce Android kernel protections**, and with the interrupt controller emulated by Windows, in an 800 × 450 panel. BlueStacks ran Android 9 in its own player.
+
+The Rust window was the **v0.22.0** client, and a test operator applied the engine settings around it. This is a historical comparison on an older client. Releases v0.23.0 and v0.24.0 added the client's own way of applying these settings, and v0.24.1 changed Linux behaviour only; none of them was timed here. The performance engine is built from the published source kit and is not part of the download. The default engine and Kemu were not measured in this series. RustEmuDroid's Balanced figure comes from one boot, because one run was refused at start and a second boot was lost to an adb timeout. [Full record: per-lap values, identities and what failed](benchmarks/stk-1.5/windows-rtx-mailbox-hypervisor-apic-bluestacks.md)
+
+### Earlier measurements
+
+The figures below were measured on earlier releases and stay here as history. Where a report names the client version, it is given. [Performance history from the first prototype](docs/performance-history.md)
 
 The Windows benchmarks compare PUBG menu transitions and Training Grounds with the SuperTuxKart replay on the dedicated and integrated GPUs. Each result identifies the scene, frame counter and graphics settings. [FPS comparison table](docs/game-testing.md#fps-comparisons-on-the-windows-test-pc)
 
@@ -305,12 +343,15 @@ The [Radeon 780M benchmark](benchmarks/stk-1.5/radeon-780m/README.md) compares i
 
 For a repeatable graphics test on Windows, try **FPS WW2 URP → Start Game → Level 1**. Enable **Settings → Display FPS** to see the game's counter. For a second Vulkan workload, open **andar → Continue → Begin → Skip** and face the gate in the rain. Both scenes have measurements on the Radeon 780M and RTX 5070 Ti. [FPS WW2 URP results](docs/game-testing.md#radeon-780m-vulkan-compatibility) · [ANDAR results and download](docs/game-testing.md#andar) · [All game tests](docs/game-testing.md)
 
+**PUBG and SuperTuxKart on Windows, v0.18.0 and v0.21.1.** At 1600 × 900 on the RTX 5070 Ti, PUBG's Lobby and Inventory route at Balanced/High averaged 25.20 Android presentations/s on RustEmuDroid 0.18.0 and 29.58 on BlueStacks Pie64. The first Inventory close took 1.60–1.68 s on Android 17 and 0.17 s on Pie64. At 90 Hz on the RTX, the same x86-64 build of SuperTuxKart averaged 85.62 game FPS on RustEmuDroid 0.21.1, 90.02 on Kemu 0.7.1 and 89.99 on BlueStacks in two High/Vulkan FIFO replays per player. On the integrated Radeon 780M, in an earlier series whose report does not name the client version, SuperTuxKart High averaged 59.71 game FPS on the Android 17 Vulkan profile, 59.87 on Kemu and 59.99 on BlueStacks, both using OpenGL ES, with a 60 FPS cap. [PUBG results and frame times](docs/game-testing.md#pubg-inventory-retest-with-rustemudroid-v0180) · [SuperTuxKart graphics settings and results](benchmarks/stk-1.5/radeon-780m/README.md) · [90 Hz replays on v0.21.1](benchmarks/stk-1.5/windows-current-three-players.md)
+
+### Troubleshooting
+
 - **FPS.** In **Settings → FPS counter**, choose **Rust panel** (the default) to count frames processed for drawing, or **Android game surface** to count new presentations of the foreground game. Click **Save** to apply immediately. The Android counter also works in a connected BlueStacks preview with ADB enabled. A dash means the counter is warming up or Android has no identifiable game surface. A stationary surface can show zero. The game’s own profiler measures its internal render rate.
-- **PUBG and SuperTuxKart on Windows.** At 1600 × 900 on the RTX 5070 Ti, PUBG's Lobby and Inventory route at Balanced/High averaged 25.20 Android presentations/s on RustEmuDroid 0.18.0 and 29.58 on BlueStacks Pie64. The first Inventory close took 1.60–1.68 s on Android 17 and 0.17 s on Pie64. At 90 Hz on the RTX, the same x86-64 build of SuperTuxKart averaged 85.62 game FPS on RustEmuDroid 0.21.1, 90.02 on Kemu 0.7.1 and 89.99 on BlueStacks in two High/Vulkan FIFO replays per player. On the integrated Radeon 780M, SuperTuxKart High averaged 59.71 game FPS on the Android 17 Vulkan profile, 59.87 on Kemu and 59.99 on BlueStacks, both using OpenGL ES, with a 60 FPS cap. [PUBG results and frame times](docs/game-testing.md#pubg-inventory-retest-with-rustemudroid-v0180) · [SuperTuxKart graphics settings and results](benchmarks/stk-1.5/radeon-780m/README.md) · [Current 90 Hz replays](benchmarks/stk-1.5/windows-current-three-players.md)
-- **Black screen or slow graphics.** Run `doctor`, check the selected Vulkan adapter and try Host or Auto. Software/SwiftShader can help isolate driver issues. The SDK engine uses a GLES compatibility path with the Kemu image on Linux.
+- **Black screen or slow graphics.** Run `doctor`, check the selected Vulkan adapter and try Host or Auto. On Linux, **Automatic** currently ends in the emulator's software renderer, so choose **Host GPU** to use the graphics card. Software/SwiftShader can help isolate driver issues. The SDK engine uses a GLES compatibility path with the Kemu image on Linux.
 - **Testing integrated graphics on a Windows PC with two GPUs.** Select the integrated adapter under **Vulkan graphics card**. Android's display compositor can still use the other GPU for OpenGL. To match both, locate the running `qemu-system-x86_64.exe` in Task Manager, add that specific executable in **Settings → System → Display → Graphics**, and choose the option that names the integrated GPU. Restart Android. This Windows preference applies to other instances using the same executable. [How we verified both renderers](docs/game-testing.md#inventory-on-the-radeon-780m)
 - **Vulkan memory allocation crashes on the Radeon 780M.** On Windows, select the **Android 17 Google Play** profile, choose **Host GPU** or **Automatic**, and explicitly select **AMD Radeon 780M Graphics**. Turn on **Shared Vulkan memory (Radeon 780M)** under **Graphics**, then save and restart Android. This experimental setting is off by default, applies per profile, and was verified with Android Emulator SDK 37.3.10.
-- **Games close or freeze Android on Linux with an AMD card.** Choose the **Host GPU** mode: on Linux, **Automatic** currently ends in the emulator's software renderer, because the client starts the engine with `-no-window`. From v0.24.1 the client prepares a video memory protection for the engine and, with the host GPU, shows Android the card's whole video memory instead of the small window the processor reaches. **Technical details** shows the line `AMD graphics on Linux: …`. If Android stops with a message about processor virtualization and graphics memory, enabling **Above 4G Decoding** and **Resizable BAR** in the firmware or using Linux 6.13 or newer should avoid it; neither was measured. `doctor` prints the same advice when it applies. [Measurements and limits](docs/linux-runtime.md#amd-graphics-on-bare-metal-linux)
+- **Games close or freeze Android on Linux with an AMD card.** Choose the **Host GPU** mode: on Linux, **Automatic** currently ends in the emulator's software renderer, because the client starts the engine with `-no-window`. From v0.24.1 the client prepares a video memory protection for the engine and, with the host GPU, shows Android the card's whole video memory instead of the small window the processor reaches. **Technical details** shows the line `AMD graphics on Linux: …`. If the driver still loses the device, the failure now reads `The graphics driver lost the device and the engine exited (…)` with the log path. If Android stops with a message about processor virtualization and graphics memory, enabling **Above 4G Decoding** and **Resizable BAR** in the firmware or using Linux 6.13 or newer should avoid it; neither was measured. `doctor` prints the same advice when it applies. All of this was measured on one PC with a Radeon RX 580 and Linux 6.8. [Measurements and limits](docs/linux-runtime.md#amd-graphics-on-bare-metal-linux)
 - **Several ADB devices.** Run `adb devices -l` and use `adb -s <serial>` to target the correct instance. Look up the session serial in the launcher output.
 - **PUBG MOBILE closes during startup on Android 17 Google Play.** Starting with v0.2.1, the launcher selects the built-in ANGLE driver for `com.tencent.ig` when using host or automatic GPU rendering on this x86-64 image with Vulkan support. Existing per-app preferences take precedence. On Linux, v0.13.3 skips adding the preference when the session confirms that Vulkan selected a CPU device. On a GeForce RTX 5070 Ti this fixed the native EGL crash when the game presented a frame. [Android per-app graphics drivers](https://developer.android.com/games/develop/vulkan/overview)
 - **PUBG stays on the studio logos on Kemu Android 16.** Open **Settings → Game compatibility**, enable **Lightweight ARM translation for PUBG** and save. If Android is running, choose **Save and restart Android**. In RustEmuDroid’s Original profile, build 21718 reached the update prompt in 56 seconds and then the welcome screen. In a fresh Kemu Qt 0.7.1 profile, the same build crashed before the Lobby with both translation settings. This setting applies to all ARM apps during that boot. [Original profile test](docs/game-testing.md#pubg-startup-on-kemu-android-16) · [Fresh Kemu Qt test](benchmarks/pubg-mobile/windows-kemu-qt-21718.md)
@@ -322,10 +363,11 @@ For a repeatable graphics test on Windows, try **FPS WW2 URP → Start Game → 
 |---|---|
 | [Desktop UI](src/ui.rs) | Rust, eframe/egui and Glow. Owns the native window, controls, settings and shutdown screen. |
 | [Experimental GPUI viewer](experiments/README.md) | A separate Rust window can display live Android video. Playing the same recorded kart clip with the published viewers on the Radeon 780M, Windows recorded 71.18 presentation events/s for GPUI and 82.50 for the current Glow renderer. [Measurements](experiments/results/windows-viewers-stk-presentmon.md#published-gpui-lab-v011) · [Screenshot](experiments/screenshots/gpui-en-US.png) |
-| [VM lifecycle](src/android.rs) | Discovers the SDK and images, creates AVDs, launches the selected emulator and waits for its exit. |
+| [VM lifecycle](src/android.rs) | Discovers the SDK and images, creates AVDs, launches the selected emulator and waits for its exit. On Windows it also checks and starts the cache or performance engine chosen for the profile. On Linux it prepares the AMD video memory protection and reads the engine log for a lost graphics device or a frozen VM. |
+| [AMD video memory protection](native/linux/userptr_guard.c) | Small C library for Linux, built with the client and loaded into the engine when the computer has an AMD graphics card. |
 | [Display and input](src/display.rs) | Receives authenticated local gRPC frames from `EmulatorController.streamScreenshot`, retains the latest pending RGBA frame and forwards touch and key input. |
 | [Android Home](android/home) | Native Android activity. Reads launcher entries through PackageManager and uses app banners or icons. The desktop client installs the embedded development APK through ADB. |
 
-Run `cargo test --locked --features ui` for the offline tests. [GitHub Actions](.github/workflows/build.yml) tests and builds release binaries for Windows and Ubuntu x86-64 on pushes, pull requests and manual runs. Guest tests require a local AVD. To repeat the native Windows close test, set `RUSTEMUDROID_TEST_STATE` to the absolute directory of an idle launcher profile, then run `cargo test --locked --features ui real_window_paints_until_android_exits -- --ignored --nocapture`.
+Run `cargo test --locked --features ui` for the offline tests. On Linux they also build and run the AMD protection library's own test, which needs a C compiler. [GitHub Actions](.github/workflows/build.yml) tests and builds release binaries for Windows and Ubuntu x86-64 on pushes, pull requests and manual runs. Guest tests require a local AVD. To repeat the native Windows close test, set `RUSTEMUDROID_TEST_STATE` to the absolute directory of an idle launcher profile, then run `cargo test --locked --features ui real_window_paints_until_android_exits -- --ignored --nocapture`.
 
 To rebuild Android Home, install a JDK, a platform `android.jar` and Android Build-Tools. Run `python android/home/build.py <android.jar> <build-tools-dir>`. The script uses `~/.android/debug.keystore` by default and supports `--keystore` and `--alias`. To upgrade existing installations, retain the signing identity and update the version code in the manifest and [installation check](src/controls.rs).

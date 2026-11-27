@@ -2,7 +2,13 @@
 
 ## Handoff
 
-Last updated 2026-11-26. A fresh clone contains the test summaries and benchmark data linked below. On the original Windows test PC, open `.rustemudroid/LOCAL-HANDOFF.md` for the matching traces, build recipes, boot logs and private disk locations.
+Last updated 2026-11-27. A fresh clone contains the test summaries and benchmark data linked below. On the original Windows test PC, open `.rustemudroid/LOCAL-HANDOFF.md` for the matching traces, build recipes, boot logs and private disk locations.
+
+### Handoff · 2026-11-27, README for v0.24.1 and the latest benchmark
+
+| Work item | State | Where to continue |
+| --- | --- | --- |
+| README in three languages brought up to v0.24.1 | The three READMEs describe v0.24.1 and are equivalent section by section: archive names, the performance engine switches of v0.23.0 and v0.24.0, the power mode option, the engine flags of `boot`, the Linux AMD protection and its messages. "Performance and troubleshooting" opens with the latest benchmark, the alternated series of 2026-11-26, 16:06–16:47, on the RTX 5070 Ti: RustEmuDroid with the hypervisor APIC 392.9 FPS with Balanced (one boot, 2 laps) and 393.6 with Best performance (8 laps); BlueStacks 402.5 and 419.3 (4 laps each), 2.4% and 6.5% ahead. **The client was v0.22.0 with the operator-applied recipe, so this is a historical comparison. v0.24.1 itself has not been timed.** Other programs used 0.54–0.68 host core during RustEmuDroid's laps: quieter than the earlier daytime series, not an idle desktop. `RULES.md` has a new rule that keeps the README, its screenshots and the latest benchmark current. | [Benchmark record](benchmarks/stk-1.5/windows-rtx-mailbox-hypervisor-apic-bluestacks.md) · [History](docs/performance-history.md#alternated-series-with-bluestacks-in-both-power-modes). Still open: time the published v0.24.1 client applying its own preset, on an idle desktop. No screenshot shows the performance engine switches, the power mode option or the AMD line in Technical details yet. |
 
 ### Handoff · 2026-11-26 evening, AMD graphics on Linux and v0.24.1
 
