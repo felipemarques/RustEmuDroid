@@ -1,7 +1,7 @@
 //! Window-sized transport for the primary Android Emulator display.
 
 #[cfg(test)]
-mod fake_engine;
+pub(super) mod fake_engine;
 mod shared;
 
 use super::{
@@ -26,18 +26,28 @@ use tonic::{
 
 const RESIZE_SETTLE: Duration = Duration::from_millis(250);
 const FIRST_REDUCED_FRAME: Duration = Duration::from_secs(2);
-/// `RUSTEMUDROID_VIDEO_TRANSPORT=inline` keeps every frame in its message.
-const TRANSPORT_ENV: &str = "RUSTEMUDROID_VIDEO_TRANSPORT";
+/// `RUSTEMUDROID_VIDEO_TRANSPORT=inline` keeps every frame in its message and
+/// `=shared` asks for shared memory; without it the system decides
+/// (`shared_frames::DEFAULT`).
+pub(super) const TRANSPORT_ENV: &str = "RUSTEMUDROID_VIDEO_TRANSPORT";
 
-fn shared_preferred(value: Option<&str>) -> bool {
-    !value.is_some_and(|value| value.trim().eq_ignore_ascii_case("inline"))
+/// Whether shared memory is to be tried, and if not, why.
+fn shared_wanted(value: Option<&str>, by_default: bool) -> Result<(), Fallback> {
+    let value = value.map(str::trim);
+    if value.is_some_and(|value| value.eq_ignore_ascii_case("inline")) {
+        Err(Fallback::TurnedOff)
+    } else if by_default || value.is_some_and(|value| value.eq_ignore_ascii_case("shared")) {
+        Ok(())
+    } else {
+        Err(Fallback::OffByDefault)
+    }
 }
 
 /// What a display session is told about shared memory. The tests replace the
 /// limits and the way a region is made.
 pub(super) struct Setup {
-    /// `false` keeps every frame in its message.
-    shared: bool,
+    /// `Err` keeps every frame in its message and is the reason reported.
+    shared: Result<(), Fallback>,
     timing: shared::Timing,
     create: Box<dyn Fn(usize) -> io::Result<SharedFrames>>,
 }
@@ -45,7 +55,10 @@ pub(super) struct Setup {
 impl Setup {
     pub fn from_environment() -> Self {
         Self {
-            shared: shared_preferred(std::env::var(TRANSPORT_ENV).ok().as_deref()),
+            shared: shared_wanted(
+                std::env::var(TRANSPORT_ENV).ok().as_deref(),
+                shared_frames::DEFAULT,
+            ),
             timing: shared::Timing::default(),
             create: Box::new(SharedFrames::create),
         }
@@ -437,23 +450,27 @@ pub(super) async fn run(
             .saturating_mul(u64::from(height))
             .saturating_mul(4)
     });
-    let mut plan = match native_bytes {
-        _ if !setup.shared || !shared_frames::SUPPORTED => {
+    let mut plan = match (setup.shared, native_bytes) {
+        _ if !shared_frames::SUPPORTED => {
             report(None);
             Plan::Inline
         }
-        None => {
+        (Err(reason), _) => {
+            report(Some(reason));
+            Plan::Inline
+        }
+        (Ok(()), None) => {
             report(Some(Fallback::ResizableDisplay));
             Plan::Inline
         }
-        Some(frame) if frame > shared_frames::MAX_REGION => {
+        (Ok(()), Some(frame)) if frame > shared_frames::MAX_REGION => {
             report(Some(Fallback::FrameTooLarge {
                 frame,
                 region: shared_frames::MAX_REGION,
             }));
             Plan::Inline
         }
-        Some(_) => {
+        (Ok(()), Some(_)) => {
             shared_frames::remove_leftovers();
             Plan::UntilFirstPicture
         }
@@ -463,17 +480,21 @@ pub(super) async fn run(
         if fixed_raster.is_none() || reacquire == Some(request.generation) {
             request.reduction = None;
         }
+        // A new region for every subscription; the one before is kept for a
+        // while after its stream (see `Lingering`).
         let mut region = None;
         if let (Plan::Shared, Some(bytes)) = (plan, native_bytes) {
             match (setup.create)(bytes as usize) {
-                Ok(created) => region = Some(created),
+                Ok(created) => {
+                    region = Some(shared::Lingering::new(created, setup.timing.linger));
+                }
                 Err(error) => {
                     plan = Plan::Inline;
                     report(Some(Fallback::RegionError(error.to_string())));
                 }
             }
         }
-        let result = if let Some(region) = &mut region {
+        let result = if let Some(region) = region.as_mut().and_then(shared::Lingering::region) {
             let subscription = shared::receive_shared(
                 &mut video,
                 token,
@@ -807,10 +828,21 @@ mod tests {
     }
 
     #[test]
-    fn the_transport_variable_forces_inline_only_when_it_says_inline() {
-        assert!(shared_preferred(None));
-        assert!(shared_preferred(Some("shared")));
-        assert!(!shared_preferred(Some(" Inline ")));
+    fn the_transport_variable_turns_shared_memory_on_or_off_and_the_system_decides_without_it() {
+        for by_default in [true, false] {
+            assert_eq!(
+                shared_wanted(Some(" Inline "), by_default),
+                Err(Fallback::TurnedOff)
+            );
+            assert_eq!(shared_wanted(Some("shared"), by_default), Ok(()));
+            assert_eq!(shared_wanted(Some(" SHARED\n"), by_default), Ok(()));
+        }
+        for undecided in [None, Some(""), Some("mmap")] {
+            assert_eq!(shared_wanted(undecided, true), Ok(()));
+            assert_eq!(shared_wanted(undecided, false), Err(Fallback::OffByDefault));
+        }
+        // By default only where it has run against the engine.
+        assert_eq!(shared_frames::DEFAULT, cfg!(windows));
     }
 
     #[test]
@@ -835,7 +867,7 @@ mod tests {
                 fallback: Some(Fallback::RegionError("Acesso negado. (os error 5)".into())),
             },
             VideoTransport::Inline {
-                fallback: Some(Fallback::NoPicture { seconds: 3 }),
+                fallback: Some(Fallback::TurnedOff),
             },
             VideoTransport::Inline {
                 fallback: Some(Fallback::NotWritten),
@@ -845,6 +877,9 @@ mod tests {
                     frame: 5_760_000,
                     region: 1_440_000,
                 }),
+            },
+            VideoTransport::Inline {
+                fallback: Some(Fallback::OffByDefault),
             },
         ];
         for locale in [Locale::PtBr, Locale::EnUs, Locale::EsEs] {
@@ -862,7 +897,9 @@ mod tests {
                     && texts[4].ends_with("“Rejected shared memory handle”")
             );
             assert!(texts[5].ends_with("“Acesso negado. (os error 5)”"));
-            assert!(texts[6].contains("3 s"));
+            // The variable and its values are written as they are typed.
+            assert!(texts[6].contains("RUSTEMUDROID_VIDEO_TRANSPORT=inline"));
+            assert!(texts[9].contains("RUSTEMUDROID_VIDEO_TRANSPORT=shared"));
             assert!(texts[8].contains("5760000 bytes") && texts[8].contains("1440000 bytes"));
         }
         assert_eq!(
@@ -871,7 +908,23 @@ mod tests {
         );
         assert_eq!(
             transports[6].describe(Locale::EsEs),
-            "Vídeo del panel: fotogramas dentro del canal de control; no se usó la memoria compartida porque no llegó ninguna imagen por la región de memoria en 3 s."
+            "Vídeo del panel: fotogramas dentro del canal de control; no se usó la memoria compartida porque la variable RUSTEMUDROID_VIDEO_TRANSPORT=inline la desactivó."
+        );
+        assert_eq!(
+            transports[6].describe(Locale::EnUs),
+            "Panel video: frames inside the control channel; shared memory was not used because the variable RUSTEMUDROID_VIDEO_TRANSPORT=inline turned it off."
+        );
+        assert_eq!(
+            transports[9].describe(Locale::PtBr),
+            "Vídeo do painel: quadros dentro do canal de controle; a memória compartilhada não foi usada porque neste sistema ela ainda não foi testada com o motor e só é ligada pela variável RUSTEMUDROID_VIDEO_TRANSPORT=shared."
+        );
+        assert_eq!(
+            transports[9].describe(Locale::EnUs),
+            "Panel video: frames inside the control channel; shared memory was not used because on this system it has not been tested with the engine yet and is only turned on by the variable RUSTEMUDROID_VIDEO_TRANSPORT=shared."
+        );
+        assert_eq!(
+            transports[9].describe(Locale::EsEs),
+            "Vídeo del panel: fotogramas dentro del canal de control; no se usó la memoria compartida porque en este sistema todavía no se ha probado con el motor y solo la activa la variable RUSTEMUDROID_VIDEO_TRANSPORT=shared."
         );
         assert_eq!(
             transports[7].describe(Locale::PtBr),

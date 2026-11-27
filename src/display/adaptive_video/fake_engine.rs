@@ -2,34 +2,53 @@
 //! loopback interface, that keeps the habits of the real one (the engine's
 //! `EmulatorService.cpp`, `SharedMemoryLibrary.cpp` and `SharedMemory_*.cpp`):
 //!
-//! * A stream sends nothing until the guest has a frame, then the current
-//!   picture at once and one message per frame the guest posts.
+//! * It has a thread of its own: its gRPC server, its guest and every write
+//!   into a region run there, at their own pace, while the client's thread
+//!   copies. Nothing tells the client when a write begins or ends.
+//! * A stream sends nothing while the guest has no frame (Android still
+//!   boots, or the screen is off: `getScreenshot` answers
+//!   `FAILED_PRECONDITION`, which the stream swallows). Until its first frame
+//!   it asks again by itself; then it sends the current picture at once and
+//!   one message per frame the guest posts.
 //! * Every frame is produced by `getScreenshot`, which borrows the region for
 //!   the length of the call. The stream takes its own, long-lived borrow only
 //!   after its first frame, so between the first frame and the second the
 //!   region is closed and opened again.
-//! * Closing a file-backed region deletes the file on Windows, always; on
-//!   POSIX only a file the emulator created itself is removed. A handle that
-//!   is not a `file://` URL is a named mapping on Windows.
-//! * A file outside the allowed directories is refused with the emulator's
-//!   words; a region that can not be opened or mapped is `INVALID_ARGUMENT`.
-//! * `FAILED_PRECONDITION` from `getScreenshot` is swallowed by the stream.
+//! * A handle that is not a `file://` URL is named shared memory: on Windows
+//!   the section `SHM_<handle>`, opened here with the calls of
+//!   `SharedMemory_win32.cpp` and none of the client's code.
+//! * A file handle must be an absolute path that resolves into one of the
+//!   allowed directories and is a regular file or nothing, never a link.
+//!   Otherwise it is refused with the emulator's words.
+//! * Closing a file-backed region deletes the file on Windows, always. On
+//!   POSIX the file is created only when it is missing, refused when it has
+//!   another hard link, grown to the frame's size, and removed only if the
+//!   emulator created it.
+//! * A region that can not be opened or mapped is `INVALID_ARGUMENT`.
+//!
+//! What it is not: the "POSIX" rules are the emulator's choices of what to
+//! open, create and delete, run on the file system of the test machine, so a
+//! Windows run shows nothing about tmpfs, unlinked files or pages that are
+//! not allocated. Its writes are one plain copy from the first byte to the
+//! last; the engine's come out of a GPU readback.
 #![allow(clippy::result_large_err)]
 use super::super::{Format, Frame, Rotation, Transport};
 use crate::display::shared_frames::MMAP;
-#[cfg(windows)]
-use crate::display::shared_frames::Mapping;
 use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
     future::Future,
-    io::{self, Seek, SeekFrom, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::PathBuf,
     pin::Pin,
     sync::{Arc, Mutex},
     task::{Context, Poll},
+    time::Duration,
 };
-use tokio::sync::{mpsc, watch};
+use tokio::{
+    sync::{mpsc, oneshot, watch},
+    time,
+};
 use tonic::{
     Code, Status,
     body::BoxBody,
@@ -43,9 +62,15 @@ use tonic::{
     transport::{Channel, Endpoint, Server},
 };
 
-/// A whole frame as the emulator writes it: opaque pixels of one value.
-pub(crate) fn picture(value: u8, bytes: usize) -> Vec<u8> {
-    [value, value, value, 255].repeat(bytes / 4)
+/// How often a stream that has not sent a frame yet asks for one again (the
+/// engine: every 125 ms).
+const RETRY: Duration = Duration::from_millis(5);
+
+/// A whole frame as the emulator writes it: opaque pixels of one colour, the
+/// number of the frame.
+pub(crate) fn picture(value: u32, bytes: usize) -> Vec<u8> {
+    let [red, green, blue, _] = value.to_le_bytes();
+    [red, green, blue, 255].repeat(bytes / 4)
 }
 
 /// How the emulator of each system treats a file-backed region.
@@ -59,15 +84,18 @@ pub(crate) enum Files {
     Posix,
 }
 
-enum Region {
+/// A region as the emulator holds it open (its `SharedMemory`).
+pub(crate) enum Region {
     File {
         file: Option<File>,
         path: PathBuf,
+        /// There was no such file: the emulator made this one for itself.
+        created: bool,
         delete: bool,
         size: usize,
     },
     #[cfg(windows)]
-    Named(Mapping, usize),
+    Named(Section),
     /// Opening or mapping failed; `getScreenshot` then answers
     /// `INVALID_ARGUMENT`.
     Unmapped,
@@ -78,22 +106,49 @@ impl Region {
         match self {
             Self::File { size, .. } => *size,
             #[cfg(windows)]
-            Self::Named(_, size) => *size,
+            Self::Named(section) => section.bytes,
             Self::Unmapped => 0,
         }
     }
 
-    fn write(&mut self, pixels: &[u8]) {
+    /// Whether this is the region the client created and not one the
+    /// emulator made under that name.
+    pub fn is_the_clients(&self) -> bool {
+        match self {
+            Self::File { created, .. } => !created,
+            #[cfg(windows)]
+            Self::Named(section) => section.existed,
+            Self::Unmapped => false,
+        }
+    }
+
+    pub fn write_at(&self, offset: usize, bytes: &[u8]) {
+        match self {
+            Self::File { file, .. } => {
+                let mut file = file.as_ref().unwrap();
+                file.seek(SeekFrom::Start(offset as u64)).unwrap();
+                file.write_all(bytes).unwrap();
+            }
+            #[cfg(windows)]
+            Self::Named(section) => section.write_at(offset, bytes),
+            Self::Unmapped => {}
+        }
+    }
+
+    /// The first `len` bytes of the region as the emulator sees them.
+    pub fn read(&self, len: usize) -> Vec<u8> {
+        let mut bytes = vec![0; len];
         match self {
             Self::File { file, .. } => {
                 let mut file = file.as_ref().unwrap();
                 file.seek(SeekFrom::Start(0)).unwrap();
-                file.write_all(pixels).unwrap();
+                file.read_exact(&mut bytes).unwrap();
             }
             #[cfg(windows)]
-            Self::Named(mapping, _) => mapping.write(pixels),
+            Self::Named(section) => section.read(&mut bytes),
             Self::Unmapped => {}
         }
+        bytes
     }
 }
 
@@ -113,19 +168,121 @@ impl Drop for Region {
     }
 }
 
+/// The named kind of `SharedMemory_win32.cpp`: the section `SHM_<handle>`,
+/// opened if there is one and otherwise created in the paging file, and a
+/// writable view of the size asked for.
+#[cfg(windows)]
+pub(crate) struct Section {
+    section: windows_sys::Win32::Foundation::HANDLE,
+    view: *mut u8,
+    bytes: usize,
+    /// The section was there already: it is the client's.
+    pub existed: bool,
+}
+
+// SAFETY: a section handle and its view belong to the process, not to a thread.
+#[cfg(windows)]
+unsafe impl Send for Section {}
+
+#[cfg(windows)]
+impl Section {
+    pub fn open(handle: &str, bytes: usize) -> Option<Self> {
+        use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
+        use windows_sys::Win32::{
+            Foundation::{ERROR_ALREADY_EXISTS, GetLastError},
+            System::Memory::{CreateFileMappingW, FILE_MAP_WRITE, MapViewOfFile, PAGE_READWRITE},
+        };
+        let name: Vec<u16> = OsStr::new("SHM_")
+            .encode_wide()
+            .chain(OsStr::new(handle).encode_wide())
+            .chain([0])
+            .collect();
+        let size = bytes as u64;
+        // SAFETY: plain Win32 calls with a NUL-terminated name; the handle and
+        // the view are owned by the returned value, which releases both.
+        unsafe {
+            // No file: the engine's file handle is still null here.
+            let section = CreateFileMappingW(
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                PAGE_READWRITE,
+                (size >> 32) as u32,
+                size as u32,
+                name.as_ptr(),
+            );
+            if section.is_null() {
+                return None;
+            }
+            let existed = GetLastError() == ERROR_ALREADY_EXISTS;
+            let view = MapViewOfFile(section, FILE_MAP_WRITE, 0, 0, bytes).Value;
+            if view.is_null() {
+                // As the engine: it has not stored the handle yet, so its
+                // `close` leaves the section open for as long as it runs.
+                return None;
+            }
+            Some(Self {
+                section,
+                view: view.cast(),
+                bytes,
+                existed,
+            })
+        }
+    }
+
+    fn write_at(&self, offset: usize, bytes: &[u8]) {
+        assert!(offset + bytes.len() <= self.bytes);
+        // SAFETY: inside the view, which is mapped while `self` lives; the
+        // client may read or write the same memory meanwhile, so the bytes
+        // are copied through raw pointers.
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), self.view.add(offset), bytes.len()) }
+    }
+
+    fn read(&self, buffer: &mut [u8]) {
+        assert!(buffer.len() <= self.bytes);
+        // SAFETY: as in `write_at`.
+        unsafe { std::ptr::copy_nonoverlapping(self.view, buffer.as_mut_ptr(), buffer.len()) }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Section {
+    fn drop(&mut self) {
+        use windows_sys::Win32::{
+            Foundation::CloseHandle,
+            System::Memory::{MEMORY_MAPPED_VIEW_ADDRESS, UnmapViewOfFile},
+        };
+        // SAFETY: the view and the handle came from `open` and are released once.
+        unsafe {
+            UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
+                Value: self.view.cast(),
+            });
+            CloseHandle(self.section);
+        }
+    }
+}
+
 #[derive(Default)]
 struct State {
-    /// The guest's current frame.
-    picture: Option<u8>,
+    /// The guest's current frame, none before its first one.
+    picture: Option<u32>,
+    /// The screen is off: `getScreenshot` has no frame for anybody.
+    dark: bool,
+    /// How the device is turned (`Rotation.SkinRotation`).
+    rotation: i32,
+    /// The guest draws by itself, a new frame after every pause this long.
+    pace: Option<Duration>,
+    /// A stream has read the guest's current frame.
+    taken: bool,
     stopped: bool,
     /// Regions by handle with their number of borrows.
     library: HashMap<String, (usize, Region)>,
     /// One entry per stream: whether it asked for shared memory.
     subscriptions: Vec<bool>,
     handles: Vec<String>,
+    /// Messages sent for frames written into a region.
+    announced: u64,
     ignore_transport: bool,
     misread_handles: bool,
-    starve_shared: bool,
     refuse_next: Option<(Code, String)>,
 }
 
@@ -134,8 +291,11 @@ pub(crate) struct FakeEngine {
     files: Files,
     allowed: Vec<PathBuf>,
     state: Mutex<State>,
-    /// Frame events: the guest posted a frame, or the VM stopped.
-    posted: watch::Sender<u64>,
+    /// Events for the streams and the guest: a frame was posted, the screen
+    /// or the device changed, or the VM stopped.
+    events: watch::Sender<u64>,
+    /// The engine's thread and what ends it.
+    thread: Mutex<Option<(oneshot::Sender<()>, std::thread::JoinHandle<()>)>>,
 }
 
 /// The stream's own borrow of its region.
@@ -159,10 +319,19 @@ impl FakeEngine {
         Arc::new(Self {
             native,
             files,
-            allowed: allowed.into_iter().collect(),
+            // Resolved once, as the engine does.
+            allowed: allowed
+                .into_iter()
+                .filter_map(|directory| directory.canonicalize().ok())
+                .collect(),
             state: Mutex::default(),
-            posted: watch::Sender::new(0),
+            events: watch::Sender::new(0),
+            thread: Mutex::default(),
         })
+    }
+
+    fn notify(&self) {
+        self.events.send_modify(|events| *events += 1);
     }
 
     /// Bytes of a frame of the native raster.
@@ -171,15 +340,51 @@ impl FakeEngine {
     }
 
     /// The guest posts a frame.
-    pub fn post(&self, value: u8) {
+    pub fn post(&self, value: u32) {
         self.state.lock().unwrap().picture = Some(value);
-        self.posted.send_modify(|events| *events += 1);
+        self.notify();
+    }
+
+    /// The guest draws by itself from now on, in the engine's thread: frame
+    /// after frame with `pause` between them (none: a new frame as soon as a
+    /// stream has read the one before).
+    pub fn draw(&self, pause: Duration) {
+        self.state.lock().unwrap().pace = Some(pause);
+        self.notify();
+    }
+
+    /// The guest stops drawing by itself; its last frame stays.
+    pub fn rest(&self) {
+        self.state.lock().unwrap().pace = None;
+    }
+
+    /// The number of the guest's newest frame.
+    pub fn drawn(&self) -> u32 {
+        self.state.lock().unwrap().picture.unwrap_or(0)
+    }
+
+    /// The screen goes off (`getScreenshot` has no frame for anybody, every
+    /// stream is silent) or comes back with the picture it had.
+    pub fn screen(&self, on: bool) {
+        self.state.lock().unwrap().dark = !on;
+        self.notify();
+    }
+
+    /// The device is turned (an odd value swaps the sides of the picture) and
+    /// the guest posts its first frame for the new position.
+    pub fn turn_and_post(&self, rotation: i32, value: u32) {
+        {
+            let mut state = self.state.lock().unwrap();
+            state.rotation = rotation;
+            state.picture = Some(value);
+        }
+        self.notify();
     }
 
     /// The VM stops: every stream ends.
     pub fn stop(&self) {
         self.state.lock().unwrap().stopped = true;
-        self.posted.send_modify(|events| *events += 1);
+        self.notify();
     }
 
     /// The pixels stay inside the messages whatever the request says.
@@ -191,12 +396,6 @@ impl FakeEngine {
     /// meant (as with a path that is not valid UTF-8).
     pub fn misread_handles(&self) {
         self.state.lock().unwrap().misread_handles = true;
-    }
-
-    /// `getScreenshot` has no frame for shared-memory requests, as while the
-    /// guest has not posted one: their streams send nothing.
-    pub fn starve_shared(&self) {
-        self.state.lock().unwrap().starve_shared = true;
     }
 
     /// The next `getScreenshot` of a shared-memory stream answers this.
@@ -214,17 +413,38 @@ impl FakeEngine {
         self.state.lock().unwrap().handles.clone()
     }
 
-    /// Starts serving and returns a connected client.
-    pub async fn serve(self: Arc<Self>) -> Grpc<Channel> {
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-            .await
-            .unwrap();
+    /// How many messages were sent for frames written into a region.
+    pub fn announced(&self) -> u64 {
+        self.state.lock().unwrap().announced
+    }
+
+    /// Starts the engine in its own thread and returns a client connected to
+    /// it, for the runtime this is called in.
+    pub async fn serve(self: &Arc<Self>) -> Grpc<Channel> {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
-        tokio::spawn(
-            Server::builder()
-                .add_service(Controller(self))
-                .serve_with_incoming(TcpListenerStream::new(listener)),
-        );
+        let (stop, stopped) = oneshot::channel();
+        let engine = self.clone();
+        let thread = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async {
+                let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+                tokio::spawn(engine.clone().guest());
+                let server = Server::builder()
+                    .add_service(Controller(engine))
+                    .serve_with_incoming(TcpListenerStream::new(listener));
+                tokio::select! {
+                    served = server => served.unwrap(),
+                    _ = stopped => {}
+                }
+            });
+            // The runtime goes, and with it every stream and its regions.
+        });
+        *self.thread.lock().unwrap() = Some((stop, thread));
         let channel = Endpoint::from_shared(format!("http://{address}"))
             .unwrap()
             .connect()
@@ -233,13 +453,60 @@ impl FakeEngine {
         Grpc::new(channel)
     }
 
-    fn open(&self, handle: &str, size: usize, misread: bool) -> Result<Region, Status> {
+    /// Ends the engine's thread. Every region the engine had open is closed
+    /// when this returns.
+    pub fn shut_down(&self) {
+        let thread = self.thread.lock().unwrap().take();
+        if let Some((stop, thread)) = thread {
+            let _ = stop.send(());
+            thread.join().unwrap();
+        }
+    }
+
+    /// The guest, in the engine's thread.
+    async fn guest(self: Arc<Self>) {
+        let mut events = self.events.subscribe();
+        loop {
+            // Decided and done under one lock: no frame after `rest`.
+            let (pace, posted) = {
+                let mut state = self.state.lock().unwrap();
+                // Without a pause: the next frame as soon as a stream has
+                // read this one.
+                let taken = state.taken;
+                let posts = state.pace.is_some_and(|pause| !pause.is_zero() || taken);
+                if posts {
+                    state.picture = Some(state.picture.map_or(1, |frame| frame + 1));
+                    state.taken = false;
+                }
+                (state.pace, posts)
+            };
+            if posted {
+                self.notify();
+            }
+            let Some(pause) = pace else {
+                if events.changed().await.is_err() {
+                    return;
+                }
+                continue;
+            };
+            if pause.is_zero() {
+                tokio::task::yield_now().await;
+            } else {
+                time::sleep(pause).await;
+            }
+        }
+    }
+
+    /// `SharedMemoryLibrary` opening a region: what the handle names, checked
+    /// and opened as the emulator of `self.files` does.
+    pub fn open(&self, handle: &str, size: usize, misread: bool) -> Result<Region, Status> {
         let Some(path) = handle.strip_prefix("file://") else {
+            // A name. `open`, and `create` when that gave no mapped region.
             #[cfg(windows)]
-            return Ok(match Mapping::named(handle, size) {
-                Ok((mapping, _)) => Region::Named(mapping, size),
-                Err(_) => Region::Unmapped,
-            });
+            return Ok(Section::open(handle, size)
+                .or_else(|| Section::open(handle, size))
+                .map_or(Region::Unmapped, Region::Named));
+            // POSIX shared memory, which the client never asks for.
             #[cfg(not(windows))]
             return Ok(Region::Unmapped);
         };
@@ -248,13 +515,48 @@ impl FakeEngine {
         } else {
             path.to_string()
         });
-        if !self.allowed.iter().any(|dir| path.starts_with(dir)) {
-            return Err(Status::permission_denied(format!(
-                "Rejected shared memory handle '{handle}': it resolves to '{}', which is not \
-                 inside a directory that the emulator allows for shared memory regions.",
+        let rejected = |why: String| format!("Rejected shared memory handle '{handle}': {why}");
+        // A local absolute path, with every link of its directory resolved.
+        let resolved = path
+            .parent()
+            .filter(|_| path.is_absolute())
+            .and_then(|directory| directory.canonicalize().ok())
+            .zip(path.file_name())
+            .map(|(directory, name)| directory.join(name));
+        let Some(resolved) = resolved else {
+            return Err(Status::invalid_argument(rejected(format!(
+                "unable to resolve path '{}'.",
                 path.display()
-            )));
+            ))));
+        };
+        if !self.allowed.iter().any(|dir| resolved.starts_with(dir)) {
+            return Err(Status::permission_denied(rejected(format!(
+                "it resolves to '{}', which is not inside a directory that the emulator allows \
+                 for shared memory regions.",
+                resolved.display()
+            ))));
         }
+        match fs::symlink_metadata(&resolved) {
+            Ok(found) if found.file_type().is_symlink() => {
+                return Err(Status::permission_denied(rejected(format!(
+                    "'{}' is a symbolic link, which is not allowed.",
+                    resolved.display()
+                ))));
+            }
+            Ok(found) if !found.is_file() => {
+                return Err(Status::invalid_argument(rejected(format!(
+                    "it resolves to '{}', which exists but is not a regular file.",
+                    resolved.display()
+                ))));
+            }
+            _ => {}
+        }
+        let unable_to_open = |error: io::Error| {
+            Status::invalid_argument(rejected(format!(
+                "unable to open '{}' ({error}).",
+                resolved.display()
+            )))
+        };
         let grow = |file: &File| {
             if file.metadata().unwrap().len() < size as u64 {
                 file.set_len(size as u64).unwrap();
@@ -262,17 +564,19 @@ impl FakeEngine {
         };
         match self.files {
             Files::Windows => {
+                let created = !resolved.exists();
                 let mut options = OpenOptions::new();
                 options.read(true).write(true).create(true);
                 // FILE_SHARE_READ | FILE_SHARE_WRITE, as the emulator asks.
                 #[cfg(windows)]
                 std::os::windows::fs::OpenOptionsExt::share_mode(&mut options, 3);
-                Ok(match options.open(&path) {
+                Ok(match options.open(&resolved) {
                     Ok(file) => {
                         grow(&file);
                         Region::File {
                             file: Some(file),
-                            path,
+                            path: resolved,
+                            created,
                             delete: true,
                             size,
                         }
@@ -283,20 +587,38 @@ impl FakeEngine {
             Files::Posix => {
                 let mut options = OpenOptions::new();
                 options.read(true).write(true);
-                let (file, created) = match options.open(&path) {
+                let (file, created) = match options.open(&resolved) {
                     Ok(file) => (file, false),
                     Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                        match options.create_new(true).open(&path) {
+                        match options.create_new(true).open(&resolved) {
                             Ok(file) => (file, true),
-                            Err(error) => return Err(unable_to_open(handle, &path, &error)),
+                            Err(error) => return Err(unable_to_open(error)),
                         }
                     }
-                    Err(error) => return Err(unable_to_open(handle, &path, &error)),
+                    Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                        return Err(Status::permission_denied(rejected(format!(
+                            "the emulator is not allowed to open '{}' for reading and writing \
+                             ({error}).",
+                            resolved.display()
+                        ))));
+                    }
+                    Err(error) => return Err(unable_to_open(error)),
                 };
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    if !created && file.metadata().unwrap().nlink() != 1 {
+                        return Err(Status::permission_denied(rejected(format!(
+                            "'{}' has multiple hard links, which is not allowed.",
+                            resolved.display()
+                        ))));
+                    }
+                }
                 grow(&file);
                 Ok(Region::File {
                     file: Some(file),
-                    path,
+                    path: resolved,
+                    created,
                     delete: created,
                     size,
                 })
@@ -333,23 +655,28 @@ impl FakeEngine {
     fn screenshot(&self, request: &Format) -> Result<Frame, Status> {
         let no_frame = || Status::failed_precondition("The guest has not posted new frame yet");
         let mut state = self.state.lock().unwrap();
-        let Some(value) = state.picture else {
+        let Some(value) = state.picture.filter(|_| !state.dark) else {
             return Err(no_frame());
         };
+        state.taken = true;
+        // The picture turns with the device.
+        let mut native = self.native;
+        if state.rotation % 2 != 0 {
+            native.swap(0, 1);
+        }
         let [width, height] = if request.width == 0 || request.height == 0 {
-            self.native
+            native
         } else {
-            [
-                request.width.min(self.native[0]),
-                request.height.min(self.native[1]),
-            ]
+            [request.width.min(native[0]), request.height.min(native[1])]
         };
         let bytes = (width * height * 4) as usize;
         let mut format = Format {
             format: 1,
             width,
             height,
-            rotation: Some(Rotation { value: 0 }),
+            rotation: Some(Rotation {
+                value: state.rotation,
+            }),
             ..Default::default()
         };
         let handle = request
@@ -363,15 +690,12 @@ impl FakeEngine {
                 pixels: picture(value, bytes).into(),
             });
         };
-        if state.starve_shared {
-            return Err(no_frame());
-        }
         if let Some((code, message)) = state.refuse_next.take() {
             return Err(Status::new(code, message));
         }
         // Borrowed here, released when this call returns.
         self.borrow(&mut state, &handle, bytes)?;
-        let written = match &mut state.library.get_mut(&handle).unwrap().1 {
+        let written = match &state.library[&handle].1 {
             Region::Unmapped => Err(Status::invalid_argument(format!(
                 "Unable to open or map shared memory region: {handle}"
             ))),
@@ -379,7 +703,7 @@ impl FakeEngine {
                 "The shared memory region needs to have a size of at least: {bytes}"
             ))),
             region => {
-                region.write(&picture(value, bytes));
+                region.write_at(0, &picture(value, bytes));
                 Ok(())
             }
         };
@@ -400,15 +724,17 @@ impl FakeEngine {
         request: Format,
         replies: mpsc::Sender<Result<Frame, Status>>,
     ) {
-        let mut posted = self.posted.subscribe();
+        let mut events = self.events.subscribe();
         // Taken after the first frame and kept until the stream ends.
         let mut own: Option<Borrow> = None;
+        let mut first = true;
         let mut wait = false;
         loop {
             if wait {
                 tokio::select! {
-                    changed = posted.changed() => if changed.is_err() { return },
+                    changed = events.changed() => if changed.is_err() { return },
                     () = replies.closed() => return,
+                    () = time::sleep(RETRY), if first => {}
                 }
             }
             wait = true;
@@ -426,10 +752,12 @@ impl FakeEngine {
                     return;
                 }
             };
+            first = false;
             let shared = reply.format.as_ref().and_then(|format| {
                 let transport = format.transport.as_ref()?;
                 Some((transport.handle.clone(), format.width * format.height * 4))
             });
+            let announces = shared.is_some();
             if let (None, Some((handle, bytes))) = (&own, shared) {
                 let borrowed = {
                     let mut state = self.state.lock().unwrap();
@@ -447,15 +775,11 @@ impl FakeEngine {
             if replies.send(Ok(reply)).await.is_err() {
                 return;
             }
+            if announces {
+                self.state.lock().unwrap().announced += 1;
+            }
         }
     }
-}
-
-fn unable_to_open(handle: &str, path: &std::path::Path, error: &io::Error) -> Status {
-    Status::invalid_argument(format!(
-        "Rejected shared memory handle '{handle}': unable to open '{}' ({error}).",
-        path.display()
-    ))
 }
 
 #[derive(Clone)]
