@@ -25,6 +25,8 @@
 //!   another hard link, grown to the frame's size, and removed only if the
 //!   emulator created it.
 //! * A region that can not be opened or mapped is `INVALID_ARGUMENT`.
+//! * On request it writes as the readback does that rotates or scales on the
+//!   processor: the red, green and blue of every pixel and no alpha.
 //!
 //! What it is not: the "POSIX" rules are the emulator's choices of what to
 //! open, create and delete, run on the file system of the test machine, so a
@@ -34,11 +36,13 @@
 #![allow(clippy::result_large_err)]
 use super::super::{Format, Frame, Rotation, Transport};
 use crate::display::shared_frames::MMAP;
+use hyper_util::rt::TokioIo;
 use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
     future::Future,
     io::{self, Read, Seek, SeekFrom, Write},
+    net::SocketAddr,
     path::PathBuf,
     pin::Pin,
     sync::{Arc, Mutex},
@@ -71,6 +75,12 @@ const RETRY: Duration = Duration::from_millis(5);
 pub(crate) fn picture(value: u32, bytes: usize) -> Vec<u8> {
     let [red, green, blue, _] = value.to_le_bytes();
     [red, green, blue, 255].repeat(bytes / 4)
+}
+
+/// What is left of a frame when its alpha was never written: the zeros of
+/// the buffer.
+fn without_alpha(pixels: &mut [u8]) {
+    pixels.iter_mut().skip(3).step_by(4).for_each(|a| *a = 0);
 }
 
 /// How the emulator of each system treats a file-backed region.
@@ -132,6 +142,14 @@ impl Region {
             #[cfg(windows)]
             Self::Named(section) => section.write_at(offset, bytes),
             Self::Unmapped => {}
+        }
+    }
+
+    /// As the readback that leaves the alpha alone: the red, green and blue
+    /// of every pixel of `pixels` and nothing else.
+    pub fn write_colours(&self, pixels: &[u8]) {
+        for (pixel, bytes) in pixels.chunks_exact(4).enumerate() {
+            self.write_at(pixel * 4, &bytes[..3]);
         }
     }
 
@@ -284,6 +302,12 @@ struct State {
     ignore_transport: bool,
     misread_handles: bool,
     refuse_next: Option<(Code, String)>,
+    /// Frames are written without their alpha, inside the messages too.
+    colours_only: bool,
+    /// `getScreenshot` never has a frame for a shared-memory request.
+    silent_shared: bool,
+    /// The screen goes off when the next shared-memory stream begins.
+    dark_at_shared: bool,
 }
 
 pub(crate) struct FakeEngine {
@@ -296,6 +320,36 @@ pub(crate) struct FakeEngine {
     events: watch::Sender<u64>,
     /// The engine's thread and what ends it.
     thread: Mutex<Option<(oneshot::Sender<()>, std::thread::JoinHandle<()>)>>,
+    /// A second handle of the client's socket.
+    client: Arc<Mutex<Option<std::net::TcpStream>>>,
+}
+
+/// Connects the client by TCP, as tonic does by itself, and keeps a second
+/// handle of that socket for [`FakeEngine::announcement_waits_at_the_client`].
+struct Tapped {
+    address: SocketAddr,
+    kept: Arc<Mutex<Option<std::net::TcpStream>>>,
+}
+
+impl Service<http::Uri> for Tapped {
+    type Response = TokioIo<tokio::net::TcpStream>;
+    type Error = io::Error;
+    type Future = Pin<Box<dyn Future<Output = io::Result<Self::Response>> + Send>>;
+
+    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, _: http::Uri) -> Self::Future {
+        let (address, kept) = (self.address, self.kept.clone());
+        Box::pin(async move {
+            let stream = tokio::net::TcpStream::connect(address).await?;
+            stream.set_nodelay(true)?;
+            let stream = stream.into_std()?;
+            *kept.lock().unwrap() = Some(stream.try_clone()?);
+            Ok(TokioIo::new(tokio::net::TcpStream::from_std(stream)?))
+        })
+    }
 }
 
 /// The stream's own borrow of its region.
@@ -327,6 +381,7 @@ impl FakeEngine {
             state: Mutex::default(),
             events: watch::Sender::new(0),
             thread: Mutex::default(),
+            client: Arc::default(),
         })
     }
 
@@ -337,6 +392,16 @@ impl FakeEngine {
     /// Bytes of a frame of the native raster.
     pub fn frame_bytes(&self) -> usize {
         (self.native[0] * self.native[1] * 4) as usize
+    }
+
+    /// A frame of the native raster as it reaches the client from this
+    /// engine: with the alpha the guest gave it, or with none.
+    pub fn frame(&self, value: u32) -> Vec<u8> {
+        let mut pixels = picture(value, self.frame_bytes());
+        if self.state.lock().unwrap().colours_only {
+            without_alpha(&mut pixels);
+        }
+        pixels
     }
 
     /// The guest posts a frame.
@@ -403,6 +468,45 @@ impl FakeEngine {
         self.state.lock().unwrap().refuse_next = Some((code, message.into()));
     }
 
+    /// Every frame is written as by the readback that leaves the alpha alone:
+    /// colours only, into a region and into a message (whose buffer starts as
+    /// zeros) alike.
+    pub fn write_colours_only(&self) {
+        self.state.lock().unwrap().colours_only = true;
+    }
+
+    /// `getScreenshot` never has a frame for a shared-memory request: such a
+    /// stream sends nothing, whatever the guest draws.
+    pub fn silence_shared(&self) {
+        self.state.lock().unwrap().silent_shared = true;
+    }
+
+    /// The screen goes off at the moment the next shared-memory stream begins.
+    pub fn darken_on_shared(&self) {
+        self.state.lock().unwrap().dark_at_shared = true;
+    }
+
+    /// Whether a message that announces a frame in the newest region lies in
+    /// the client's socket: received by the system and not yet read by the
+    /// client. A test that holds the client inside a copy knows by this that
+    /// the client's transport has the message at its next turn.
+    pub fn announcement_waits_at_the_client(&self) -> bool {
+        let Some(handle) = self.handles().pop() else {
+            return false;
+        };
+        let kept = self.client.lock().unwrap();
+        let Some(socket) = kept.as_ref() else {
+            return false;
+        };
+        // The handle is the last field of the message.
+        let mut waiting = vec![0; 1 << 16];
+        socket.peek(&mut waiting).is_ok_and(|read| {
+            waiting[..read]
+                .windows(handle.len())
+                .any(|bytes| bytes == handle.as_bytes())
+        })
+    }
+
     /// Whether each stream so far asked for shared memory, in order.
     pub fn subscriptions(&self) -> Vec<bool> {
         self.state.lock().unwrap().subscriptions.clone()
@@ -447,7 +551,10 @@ impl FakeEngine {
         *self.thread.lock().unwrap() = Some((stop, thread));
         let channel = Endpoint::from_shared(format!("http://{address}"))
             .unwrap()
-            .connect()
+            .connect_with_connector(Tapped {
+                address,
+                kept: self.client.clone(),
+            })
             .await
             .unwrap();
         Grpc::new(channel)
@@ -684,12 +791,19 @@ impl FakeEngine {
             .as_ref()
             .filter(|transport| transport.channel == MMAP && !state.ignore_transport)
             .map(|transport| transport.handle.clone());
+        let mut pixels = picture(value, bytes);
         let Some(handle) = handle else {
+            if state.colours_only {
+                without_alpha(&mut pixels);
+            }
             return Ok(Frame {
                 format: Some(format),
-                pixels: picture(value, bytes).into(),
+                pixels: pixels.into(),
             });
         };
+        if state.silent_shared {
+            return Err(no_frame());
+        }
         if let Some((code, message)) = state.refuse_next.take() {
             return Err(Status::new(code, message));
         }
@@ -702,8 +816,12 @@ impl FakeEngine {
             region if bytes > region.size() => Err(Status::failed_precondition(format!(
                 "The shared memory region needs to have a size of at least: {bytes}"
             ))),
+            region if state.colours_only => {
+                region.write_colours(&pixels);
+                Ok(())
+            }
             region => {
-                region.write_at(0, &picture(value, bytes));
+                region.write_at(0, &pixels);
                 Ok(())
             }
         };
@@ -827,6 +945,9 @@ impl ServerStreamingService<Format> for Screens {
                 .filter(|transport| transport.channel == MMAP)
                 .map(|transport| transport.handle.clone());
             state.subscriptions.push(handle.is_some());
+            if handle.is_some() && std::mem::take(&mut state.dark_at_shared) {
+                state.dark = true;
+            }
             state.handles.extend(handle);
         }
         tokio::spawn(self.0.clone().stream(request, replies));

@@ -284,8 +284,12 @@ pub(crate) enum Fallback {
     RegionError(String),
     /// A frame of `frame` bytes does not fit in a region of `region` bytes.
     FrameTooLarge { frame: u64, region: u64 },
-    /// The emulator announced frames without writing them into the region.
+    /// The emulator announced frames and the region showed no sign of them:
+    /// neither its alpha nor its colours changed.
     NotWritten,
+    /// No picture came through the region within this many seconds, while
+    /// the emulator sent pictures inside the messages before and after.
+    NoPicture { seconds: u64 },
 }
 
 impl VideoTransport {
@@ -381,11 +385,22 @@ impl VideoTransport {
                     },
                     Fallback::NotWritten => locale
                         .pick(
-                            "o motor anunciou quadros sem gravá-los na região de memória criada pelo painel.",
-                            "the engine announced frames without writing them into the memory region the panel created.",
-                            "el motor anunció fotogramas sin escribirlos en la región de memoria creada por el panel.",
+                            "o motor anunciou quadros e nada mudou na região de memória criada pelo painel.",
+                            "the engine announced frames and nothing changed in the memory region the panel created.",
+                            "el motor anunció fotogramas y nada cambió en la región de memoria creada por el panel.",
                         )
                         .to_string(),
+                    Fallback::NoPicture { seconds } => match locale {
+                        Locale::PtBr => format!(
+                            "nenhuma imagem chegou pela região de memória em {seconds} s, embora o motor as enviasse dentro das mensagens antes e depois."
+                        ),
+                        Locale::EnUs => format!(
+                            "no picture came through the memory region within {seconds} s, although the engine sent pictures inside the messages before and after."
+                        ),
+                        Locale::EsEs => format!(
+                            "no llegó ninguna imagen por la región de memoria en {seconds} s, aunque el motor las enviaba dentro de los mensajes antes y después."
+                        ),
+                    },
                 },
             ),
         };
