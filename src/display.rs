@@ -199,38 +199,86 @@ struct Shared {
     latest: Option<Frame>,
     source: adaptive_video::Source,
     blank: bool,
-    error: Option<String>,
+    error: Option<StreamError>,
     video_transport: Option<VideoTransport>,
     video_transport_epoch: u64,
-    // Frames with pixels handed to the panel (the shared-memory plan waits for
-    // in-band pictures before it tries the file again).
+    // Frames with pixels handed to the panel (the shared-memory plan starts
+    // after the first one).
     delivered: u64,
+}
+
+/// The emulator closed the video stream (normally the VM stopping).
+#[derive(Debug)]
+struct StreamEnded;
+
+impl std::fmt::Display for StreamEnded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&StreamError::Ended.describe(Locale::PtBr))
+    }
+}
+
+impl std::error::Error for StreamEnded {}
+
+/// Why the display session ended, kept so the panel can say it in the
+/// user's language.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum StreamError {
+    Ended,
+    /// The text of the gRPC status or of the operating system.
+    Other(String),
+}
+
+impl StreamError {
+    fn from_error(error: &(dyn std::error::Error + Send + Sync + 'static)) -> Self {
+        if error.is::<StreamEnded>() {
+            Self::Ended
+        } else {
+            Self::Other(error.to_string())
+        }
+    }
+
+    fn describe(&self, locale: Locale) -> std::borrow::Cow<'_, str> {
+        match self {
+            Self::Ended => locale
+                .pick(
+                    "O motor encerrou o fluxo de vídeo.",
+                    "The engine closed the video stream.",
+                    "El motor cerró el flujo de vídeo.",
+                )
+                .into(),
+            Self::Other(text) => text.into(),
+        }
+    }
 }
 
 /// How the panel's pixels arrive from the emulator.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum VideoTransport {
-    /// The emulator writes each frame into a file shared with this process.
+    /// The emulator writes each frame into memory shared with this process.
     SharedMemory,
     /// Each frame travels inside its gRPC message; `fallback` says why the
-    /// shared file is not in use when it was wanted.
+    /// shared memory is not in use when it was wanted.
     Inline { fallback: Option<Fallback> },
 }
 
 /// Why the panel continues with inline frames.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Fallback {
-    /// The Android screen can change size, so no file size bounds every frame.
+    /// The Android screen can change size, so no region bounds every frame.
     ResizableDisplay,
     /// The emulator ignored the request and sent the pixels inline.
     EngineSentInline,
-    /// The emulator refused the file: its gRPC status code and message,
+    /// The emulator refused the region: its gRPC status code and message,
     /// shown verbatim as the engine's words.
     EngineRefused { code: String, message: String },
-    /// The frame file could not be created or read: the operating system's
-    /// message.
-    FileError(String),
-    /// No picture arrived through the file within this many seconds.
+    /// The region could not be created or read: the operating system's own
+    /// message, verbatim.
+    RegionError(String),
+    /// A frame of `frame` bytes does not fit in a region of `region` bytes.
+    FrameTooLarge { frame: u64, region: u64 },
+    /// The emulator announced frames without writing them into the region.
+    NotWritten,
+    /// No picture arrived through the region within this many seconds.
     NoPicture { seconds: u64 },
 }
 
@@ -281,9 +329,9 @@ impl VideoTransport {
                     Fallback::EngineRefused { code, message } => format!(
                         "{} ({code}); {} “{message}”",
                         locale.pick(
-                            "o motor recusou o arquivo de quadros",
-                            "the engine refused the frame file",
-                            "el motor rechazó el archivo de fotogramas",
+                            "o motor recusou a região de memória",
+                            "the engine refused the memory region",
+                            "el motor rechazó la región de memoria",
                         ),
                         locale.pick(
                             "mensagem do motor:",
@@ -291,21 +339,41 @@ impl VideoTransport {
                             "mensaje del motor:",
                         )
                     ),
-                    Fallback::FileError(message) => format!(
+                    Fallback::RegionError(message) => format!(
                         "{} “{message}”",
                         locale.pick(
-                            "não foi possível criar ou ler o arquivo de quadros; mensagem do sistema:",
-                            "the frame file could not be created or read; the system's message:",
-                            "no se pudo crear ni leer el archivo de fotogramas; mensaje del sistema:",
+                            "não foi possível criar ou ler a região de memória; mensagem do sistema:",
+                            "the memory region could not be created or read; the system's message:",
+                            "no se pudo crear ni leer la región de memoria; mensaje del sistema:",
                         )
                     ),
+                    Fallback::FrameTooLarge { frame, region } => match locale {
+                        Locale::PtBr => format!(
+                            "um quadro de {frame} bytes não cabe na região de memória de {region} bytes."
+                        ),
+                        Locale::EnUs => format!(
+                            "a frame of {frame} bytes does not fit in the memory region of {region} bytes."
+                        ),
+                        Locale::EsEs => format!(
+                            "un fotograma de {frame} bytes no cabe en la región de memoria de {region} bytes."
+                        ),
+                    },
+                    Fallback::NotWritten => locale
+                        .pick(
+                            "o motor anunciou quadros sem gravá-los na região de memória criada pelo painel.",
+                            "the engine announced frames without writing them into the memory region the panel created.",
+                            "el motor anunció fotogramas sin escribirlos en la región de memoria creada por el panel.",
+                        )
+                        .to_string(),
                     Fallback::NoPicture { seconds } => match locale {
-                        Locale::PtBr => format!("nenhuma imagem chegou pelo arquivo em {seconds} s."),
+                        Locale::PtBr => {
+                            format!("nenhuma imagem chegou pela região de memória em {seconds} s.")
+                        }
                         Locale::EnUs => {
-                            format!("no image arrived through the file within {seconds} s.")
+                            format!("no image arrived through the memory region within {seconds} s.")
                         }
                         Locale::EsEs => {
-                            format!("no llegó ninguna imagen por el archivo en {seconds} s.")
+                            format!("no llegó ninguna imagen por la región de memoria en {seconds} s.")
                         }
                     },
                 },
@@ -393,7 +461,7 @@ async fn stream(
         &state,
         video_requests,
         fixed_raster,
-        &avd,
+        adaptive_video::Setup::from_environment(),
     );
     let (cancel_tilt, tilt_shutdown) = tokio::sync::oneshot::channel();
     let session = async {
@@ -458,7 +526,7 @@ impl Display {
                     ))
                 });
             if let Err(e) = result {
-                shared.lock().unwrap().error = Some(e.to_string());
+                shared.lock().unwrap().error = Some(StreamError::from_error(e.as_ref()));
                 ctx.request_repaint();
             }
         });
@@ -812,7 +880,7 @@ impl Display {
                     "No se pudo conectar con la pantalla de Android.",
                 ),
             )
-            .on_hover_text(error);
+            .on_hover_text(error.describe(locale).into_owned());
             return;
         }
         let Some(texture) = &self.texture else {

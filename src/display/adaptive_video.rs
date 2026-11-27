@@ -1,11 +1,16 @@
 //! Window-sized transport for the primary Android Emulator display.
 
+#[cfg(test)]
+mod fake_engine;
 mod shared;
 
-use super::{DisplayResult, Format, Frame, Shared, VideoTransport, authorized, shared_frames};
+use super::{
+    DisplayResult, Fallback, Format, Frame, Shared, StreamEnded, VideoTransport, authorized,
+    shared_frames::{self, SharedFrames},
+};
 use eframe::egui::{self, Rect};
 use std::{
-    fs,
+    fs, io,
     path::Path,
     sync::Mutex,
     time::{Duration, Instant},
@@ -23,11 +28,28 @@ const RESIZE_SETTLE: Duration = Duration::from_millis(250);
 const FIRST_REDUCED_FRAME: Duration = Duration::from_secs(2);
 /// `RUSTEMUDROID_VIDEO_TRANSPORT=inline` keeps every frame in its message.
 const TRANSPORT_ENV: &str = "RUSTEMUDROID_VIDEO_TRANSPORT";
-/// How often the plan looks for in-band pictures before its single retry.
-const PICTURE_POLL: Duration = Duration::from_millis(200);
 
 fn shared_preferred(value: Option<&str>) -> bool {
     !value.is_some_and(|value| value.trim().eq_ignore_ascii_case("inline"))
+}
+
+/// What a display session is told about shared memory. The tests replace the
+/// limits and the way a region is made.
+pub(super) struct Setup {
+    /// `false` keeps every frame in its message.
+    shared: bool,
+    timing: shared::Timing,
+    create: Box<dyn Fn(usize) -> io::Result<SharedFrames>>,
+}
+
+impl Setup {
+    pub fn from_environment() -> Self {
+        Self {
+            shared: shared_preferred(std::env::var(TRANSPORT_ENV).ok().as_deref()),
+            timing: shared::Timing::default(),
+            create: Box::new(SharedFrames::create),
+        }
+    }
 }
 
 pub(super) fn fixed_raster(avd: &Path) -> Option<[u32; 2]> {
@@ -346,7 +368,7 @@ async fn receive(
             frames.message().await?
         };
         let Some(frame) = message else {
-            return Err("O motor encerrou o fluxo de vídeo.".into());
+            return Err(StreamEnded.into());
         };
         if frame.pixels.is_empty() {
             let mut shared = state.lock().unwrap();
@@ -398,54 +420,60 @@ pub(super) async fn run(
     state: &Mutex<Shared>,
     mut requests: watch::Receiver<Request>,
     mut fixed_raster: Option<[u32; 2]>,
-    avd: &Path,
+    setup: Setup,
 ) -> DisplayResult<()> {
+    use shared::Plan;
     let mut reacquire = None;
-    // The native raster bounds every requested size, so it sizes the file.
-    let native_pixels = fixed_raster.map(|[width, height]| u64::from(width) * u64::from(height));
-    let directory = shared_frames::directory(avd);
-    let mut plan = if !shared_preferred(std::env::var(TRANSPORT_ENV).ok().as_deref()) {
+    let report = |fallback| {
         state
             .lock()
             .unwrap()
-            .set_video_transport(VideoTransport::Inline { fallback: None });
-        shared::Plan::Off
-    } else if native_pixels.is_none() {
-        state
-            .lock()
-            .unwrap()
-            .set_video_transport(VideoTransport::Inline {
-                fallback: Some(super::Fallback::ResizableDisplay),
-            });
-        shared::Plan::Off
-    } else {
-        shared_frames::remove_stale(&directory);
-        shared::Plan::Probe
+            .set_video_transport(VideoTransport::Inline { fallback })
+    };
+    // The native raster bounds every frame of the session, so it sizes the
+    // region of every subscription.
+    let native_bytes = fixed_raster.map(|[width, height]| {
+        u64::from(width)
+            .saturating_mul(u64::from(height))
+            .saturating_mul(4)
+    });
+    let mut plan = match native_bytes {
+        _ if !setup.shared || !shared_frames::SUPPORTED => {
+            report(None);
+            Plan::Inline
+        }
+        None => {
+            report(Some(Fallback::ResizableDisplay));
+            Plan::Inline
+        }
+        Some(frame) if frame > shared_frames::MAX_REGION => {
+            report(Some(Fallback::FrameTooLarge {
+                frame,
+                region: shared_frames::MAX_REGION,
+            }));
+            Plan::Inline
+        }
+        Some(_) => {
+            shared_frames::remove_leftovers();
+            Plan::UntilFirstPicture
+        }
     };
     loop {
         let mut request = *requests.borrow_and_update();
         if fixed_raster.is_none() || reacquire == Some(request.generation) {
             request.reduction = None;
         }
-        let file = match (plan.limit(), native_pixels) {
-            (Some(_), Some(pixels)) => {
-                match shared_frames::SharedFrames::create(&directory, pixels) {
-                    Ok(file) => Some(file),
-                    Err(error) => {
-                        let (next, report) = plan.after(&shared::Outcome::Unusable(
-                            super::Fallback::FileError(error.to_string()),
-                        ));
-                        plan = next;
-                        if let Some(report) = report {
-                            state.lock().unwrap().set_video_transport(report);
-                        }
-                        None
-                    }
+        let mut region = None;
+        if let (Plan::Shared, Some(bytes)) = (plan, native_bytes) {
+            match (setup.create)(bytes as usize) {
+                Ok(created) => region = Some(created),
+                Err(error) => {
+                    plan = Plan::Inline;
+                    report(Some(Fallback::RegionError(error.to_string())));
                 }
             }
-            _ => None,
-        };
-        let result = if let (Some(file), Some(limit)) = (&file, plan.limit()) {
+        }
+        let result = if let Some(region) = &mut region {
             let subscription = shared::receive_shared(
                 &mut video,
                 token,
@@ -453,8 +481,8 @@ pub(super) async fn run(
                 state,
                 request,
                 fixed_raster,
-                file,
-                limit,
+                region,
+                setup.timing,
             );
             tokio::select! {
                 biased;
@@ -464,26 +492,22 @@ pub(super) async fn run(
                     }
                     continue;
                 }
-                (outcome, result) = subscription => {
-                    let (next, report) = plan.after(&outcome);
-                    plan = next;
-                    if let Some(report) = report {
-                        state.lock().unwrap().set_video_transport(report);
-                    }
-                    if matches!(outcome, shared::Outcome::Unusable(_) | shared::Outcome::NoPicture(_)) {
-                        // The same request again, in-band (or once more through the file).
+                ended = subscription => match ended {
+                    Ok(result) => result,
+                    Err(fallback) => {
+                        // The same request again, in-band, as every later one.
+                        plan = Plan::Inline;
+                        report(Some(fallback));
                         continue;
                     }
-                    result
                 }
             }
         } else {
-            let retry = plan == shared::Plan::InlineUntilPictures;
-            let delivered = state.lock().unwrap().delivered;
-            let pictures = async {
+            let shown = state.lock().unwrap().delivered;
+            let first_picture = async {
                 loop {
-                    time::sleep(PICTURE_POLL).await;
-                    if state.lock().unwrap().delivered > delivered {
+                    time::sleep(setup.timing.picture_poll).await;
+                    if state.lock().unwrap().delivered > shown {
                         return;
                     }
                 }
@@ -496,8 +520,9 @@ pub(super) async fn run(
                     }
                     continue;
                 }
-                () = pictures, if retry => {
-                    plan = plan.after_inline_pictures();
+                () = first_picture, if plan == Plan::UntilFirstPicture => {
+                    // The screen is up: the same request again, through a region.
+                    plan = Plan::Shared;
                     continue;
                 }
                 result = receive(&mut video, token, ctx, state, request, fixed_raster) => result,
@@ -722,7 +747,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_transport_request_and_reply_on_the_wire() {
+    fn the_shared_transport_request_and_reply_have_the_emulators_wire_format() {
         use super::shared::shared_frame_len;
         use crate::display::{Transport, shared_frames::MMAP};
         use prost::Message;
@@ -765,15 +790,32 @@ mod tests {
     }
 
     #[test]
-    fn inline_can_be_forced() {
+    fn the_end_of_the_stream_is_told_in_every_language_and_other_errors_verbatim() {
+        use crate::{display::StreamError, ui::i18n::Locale};
+        let ended: Box<dyn std::error::Error + Send + Sync> = StreamEnded.into();
+        assert_eq!(StreamError::from_error(ended.as_ref()), StreamError::Ended);
+        assert_eq!(ended.to_string(), "O motor encerrou o fluxo de vídeo.");
+        let texts =
+            [Locale::PtBr, Locale::EnUs, Locale::EsEs].map(|l| StreamError::Ended.describe(l));
+        assert_eq!(texts[0], "O motor encerrou o fluxo de vídeo.");
+        assert_eq!(texts[1], "The engine closed the video stream.");
+        assert_eq!(texts[2], "El motor cerró el flujo de vídeo.");
+        let other: Box<dyn std::error::Error + Send + Sync> = "status: Unavailable".into();
+        let other = StreamError::from_error(other.as_ref());
+        assert_eq!(other, StreamError::Other("status: Unavailable".into()));
+        assert_eq!(other.describe(Locale::EsEs), "status: Unavailable");
+    }
+
+    #[test]
+    fn the_transport_variable_forces_inline_only_when_it_says_inline() {
         assert!(shared_preferred(None));
         assert!(shared_preferred(Some("shared")));
         assert!(!shared_preferred(Some(" Inline ")));
     }
 
     #[test]
-    fn transport_is_described_in_every_language_and_reported_once_per_change() {
-        use crate::{display::Fallback, ui::i18n::Locale};
+    fn the_transport_is_described_in_every_language_and_reported_once_per_change() {
+        use crate::ui::i18n::Locale;
         let transports = [
             VideoTransport::SharedMemory,
             VideoTransport::Inline { fallback: None },
@@ -790,10 +832,19 @@ mod tests {
                 }),
             },
             VideoTransport::Inline {
-                fallback: Some(Fallback::FileError("Acesso negado. (os error 5)".into())),
+                fallback: Some(Fallback::RegionError("Acesso negado. (os error 5)".into())),
             },
             VideoTransport::Inline {
-                fallback: Some(Fallback::NoPicture { seconds: 20 }),
+                fallback: Some(Fallback::NoPicture { seconds: 3 }),
+            },
+            VideoTransport::Inline {
+                fallback: Some(Fallback::NotWritten),
+            },
+            VideoTransport::Inline {
+                fallback: Some(Fallback::FrameTooLarge {
+                    frame: 5_760_000,
+                    region: 1_440_000,
+                }),
             },
         ];
         for locale in [Locale::PtBr, Locale::EnUs, Locale::EsEs] {
@@ -811,15 +862,32 @@ mod tests {
                     && texts[4].ends_with("“Rejected shared memory handle”")
             );
             assert!(texts[5].ends_with("“Acesso negado. (os error 5)”"));
-            assert!(texts[6].contains("20 s"));
+            assert!(texts[6].contains("3 s"));
+            assert!(texts[8].contains("5760000 bytes") && texts[8].contains("1440000 bytes"));
         }
         assert_eq!(
             transports[4].describe(Locale::PtBr),
-            "Vídeo do painel: quadros dentro do canal de controle; a memória compartilhada não foi usada porque o motor recusou o arquivo de quadros (PermissionDenied); mensagem do motor: “Rejected shared memory handle”"
+            "Vídeo do painel: quadros dentro do canal de controle; a memória compartilhada não foi usada porque o motor recusou a região de memória (PermissionDenied); mensagem do motor: “Rejected shared memory handle”"
         );
         assert_eq!(
             transports[6].describe(Locale::EsEs),
-            "Vídeo del panel: fotogramas dentro del canal de control; no se usó la memoria compartida porque no llegó ninguna imagen por el archivo en 20 s."
+            "Vídeo del panel: fotogramas dentro del canal de control; no se usó la memoria compartida porque no llegó ninguna imagen por la región de memoria en 3 s."
+        );
+        assert_eq!(
+            transports[7].describe(Locale::PtBr),
+            "Vídeo do painel: quadros dentro do canal de controle; a memória compartilhada não foi usada porque o motor anunciou quadros sem gravá-los na região de memória criada pelo painel."
+        );
+        assert_eq!(
+            transports[7].describe(Locale::EnUs),
+            "Panel video: frames inside the control channel; shared memory was not used because the engine announced frames without writing them into the memory region the panel created."
+        );
+        assert_eq!(
+            transports[5].describe(Locale::EsEs),
+            "Vídeo del panel: fotogramas dentro del canal de control; no se usó la memoria compartida porque no se pudo crear ni leer la región de memoria; mensaje del sistema: “Acesso negado. (os error 5)”"
+        );
+        assert_eq!(
+            transports[8].describe(Locale::EnUs),
+            "Panel video: frames inside the control channel; shared memory was not used because a frame of 5760000 bytes does not fit in the memory region of 1440000 bytes."
         );
         assert_eq!(
             transports[0].describe(Locale::EnUs),
