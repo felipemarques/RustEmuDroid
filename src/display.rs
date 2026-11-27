@@ -205,6 +205,9 @@ struct Shared {
     // Frames with pixels handed to the panel (the shared-memory plan starts
     // after the first one).
     delivered: u64,
+    // Every frame that came through a region, for a test that sets this.
+    #[cfg(test)]
+    record: Option<Vec<Frame>>,
 }
 
 /// The emulator closed the video stream (normally the VM stopping).
@@ -264,6 +267,11 @@ pub(crate) enum VideoTransport {
 /// Why the panel continues with inline frames.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Fallback {
+    /// `RUSTEMUDROID_VIDEO_TRANSPORT=inline` asks for inline frames.
+    TurnedOff,
+    /// Shared memory is not used on this system unless
+    /// `RUSTEMUDROID_VIDEO_TRANSPORT=shared` asks for it.
+    OffByDefault,
     /// The Android screen can change size, so no region bounds every frame.
     ResizableDisplay,
     /// The emulator ignored the request and sent the pixels inline.
@@ -278,8 +286,6 @@ pub(crate) enum Fallback {
     FrameTooLarge { frame: u64, region: u64 },
     /// The emulator announced frames without writing them into the region.
     NotWritten,
-    /// No picture arrived through the region within this many seconds.
-    NoPicture { seconds: u64 },
 }
 
 impl VideoTransport {
@@ -312,6 +318,21 @@ impl VideoTransport {
                     "Vídeo del panel: fotogramas dentro del canal de control; no se usó la memoria compartida porque",
                 ),
                 match fallback {
+                    Fallback::TurnedOff => format!(
+                        "{} {}=inline {}",
+                        locale.pick("a variável", "the variable", "la variable"),
+                        adaptive_video::TRANSPORT_ENV,
+                        locale.pick("a desligou.", "turned it off.", "la desactivó."),
+                    ),
+                    Fallback::OffByDefault => format!(
+                        "{} {}=shared.",
+                        locale.pick(
+                            "neste sistema ela ainda não foi testada com o motor e só é ligada pela variável",
+                            "on this system it has not been tested with the engine yet and is only turned on by the variable",
+                            "en este sistema todavía no se ha probado con el motor y solo la activa la variable",
+                        ),
+                        adaptive_video::TRANSPORT_ENV,
+                    ),
                     Fallback::ResizableDisplay => locale
                         .pick(
                             "a tela do Android pode mudar de tamanho.",
@@ -365,17 +386,6 @@ impl VideoTransport {
                             "el motor anunció fotogramas sin escribirlos en la región de memoria creada por el panel.",
                         )
                         .to_string(),
-                    Fallback::NoPicture { seconds } => match locale {
-                        Locale::PtBr => {
-                            format!("nenhuma imagem chegou pela região de memória em {seconds} s.")
-                        }
-                        Locale::EnUs => {
-                            format!("no image arrived through the memory region within {seconds} s.")
-                        }
-                        Locale::EsEs => {
-                            format!("no llegó ninguna imagen por la región de memoria en {seconds} s.")
-                        }
-                    },
                 },
             ),
         };
