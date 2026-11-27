@@ -1,228 +1,464 @@
-//! File-backed ("MMAP") frame transport of the emulator's `streamScreenshot`.
+//! Shared-memory ("MMAP") frame transport of the emulator's `streamScreenshot`.
 //!
-//! The emulator maps a file we name in the request and writes every frame's
-//! pixels there before it sends a message that carries only the frame's format
-//! (`ImageTransport.channel = MMAP`, empty `image`). It accepts only regular
-//! files inside its temporary or discovery directories
-//! (`SharedMemoryLibrary::defaultAllowedDirectories`).
+//! The emulator writes every frame's pixels into a region we name in the
+//! request and then sends a message that carries only the frame's format
+//! (`ImageTransport.channel = MMAP`, empty `image`).
 //!
-//! Where the file lives (see [`directory`]): on Linux the emulator's discovery
-//! directory `$ANDROID_EMULATOR_DISCOVERY_DIR/avd/running`, which the launcher
-//! points at the profile's home and the emulator creates with mode 0700, so the
-//! live screen is not in a world-readable `/tmp`; elsewhere the user's own
-//! temporary directory (`%LOCALAPPDATA%\Temp` on Windows, `$TMPDIR` on macOS).
-//! On every Unix the file itself is created with mode 0600.
+//! The region is memory, never a file on a disk:
 //!
-//! Reading: the file is read with positioned reads instead of a second mapping.
-//! For a local file the operating system keeps reads and the emulator's mapped
-//! view coherent (the same cached pages), and the copy we have to make anyway
-//! (the panel keeps the frame after the next one is written) is a single read.
+//! * Windows: a named mapping backed by the paging file. The emulator turns a
+//!   handle that is not a `file://` URL into the mapping `SHM_<handle>` and
+//!   opens ours because we create it first. It lives exactly as long as a
+//!   handle to it, so nothing is left behind and the emulator has nothing to
+//!   delete. (A file does not work there: the Windows emulator closes the
+//!   region between the first frame and the rest of the stream, deletes a
+//!   file whenever it closes it, and continues in a new file of that name.)
+//! * Linux: a file in `/dev/shm` (tmpfs, one of the directories the emulator
+//!   accepts), created exclusively with mode 0600 and filled with zeros, so
+//!   every page exists before the emulator maps it: a full tmpfs fails here,
+//!   in the client, never as a fault in the emulator's write. The Linux
+//!   emulator does not delete a file it did not create. Files of clients that
+//!   no longer run are removed at the next start ([`remove_leftovers`]).
+//!
+//! Proof that the emulator writes where we read: after every copy we put a
+//! mark in the first [`MARK`] bytes of the region. A frame is a rewrite of the
+//! whole image, so the mark is gone when the next frame is there. A copy that
+//! still starts with our mark was not written since the previous copy; it gets
+//! the bytes the mark replaced back (the mark is never shown) and is counted
+//! ([`SharedFrames::ignored`]). The emulator can write a frame just before we
+//! put the mark and announce it just after; that single frame also counts as
+//! not written and its first four pixels are the previous frame's, which is
+//! why only several such frames in a row, over some time, mean that the
+//! emulator writes somewhere else. The price of that caution: fewer such
+//! frames followed by a still screen are noticed only with the next frames.
 //!
 //! Tearing: the protocol has one region per subscription and no lock or
-//! sequence inside the region; `seq`/`timestampUs` only number the messages.
-//! The emulator writes frame N+1 into the region before it sends message N+1,
-//! and it may start that write while we are still copying frame N. The reader
+//! sequence inside it; `seq`/`timestampUs` only number the messages. The
+//! emulator writes frame N+1 into the region before it sends message N+1, and
+//! it may start that write while we are still copying frame N. The reader
 //! therefore jumps to the newest message already received before copying, and
 //! after copying it checks again: if a newer message arrived meanwhile the copy
 //! is dropped and the newer frame is copied instead ([`copy_newest`]). A write
 //! that starts during the copy and whose message has not arrived yet can still
 //! mix two frames in one displayed image; the next frame replaces it. The
 //! region is never read beyond the size we created.
+#[cfg(any(not(windows), test))]
 use std::{
     fs::{self, File, OpenOptions},
-    io,
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+};
+use std::{
+    io,
     sync::{
-        Mutex,
+        OnceLock,
         atomic::{AtomicU64, Ordering},
     },
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 /// `ImageTransport.TransportChannel.MMAP`.
 pub(super) const MMAP: i32 = 1;
-const PREFIX: &str = "rustemudroid-frames-";
-const SUFFIX: &str = ".rgba";
+/// Where this client knows how to share a region with the emulator.
+pub(super) const SUPPORTED: bool = cfg!(any(windows, target_os = "linux"));
+/// No region is larger than this (an 8K RGBA frame is half of it).
+pub(super) const MAX_REGION: u64 = 256 << 20;
 /// A copy is redone at most this many times for newer messages, so a fast
 /// producer can not keep the reader copying forever.
 pub(super) const MAX_RECOPY: u32 = 4;
 /// At most this many pending messages are skipped in one scan.
 const MAX_SKIP: u32 = 256;
+/// Bytes of the mark at the start of the region (four RGBA pixels).
+const MARK: usize = 16;
+const PREFIX: &str = "rustemudroid-frames-";
+#[cfg(any(not(windows), test))]
+const SUFFIX: &str = ".rgba";
+#[cfg(not(windows))]
+const DIRECTORY: &str = "/dev/shm";
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
-/// Files the emulator still held open when we tried to remove them.
-static PENDING: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// A number that differs between two processes that were given the same id.
+fn instance() -> u64 {
+    static INSTANCE: OnceLock<u64> = OnceLock::new();
+    *INSTANCE.get_or_init(|| {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_nanos() as u64)
+    })
+}
+
+/// `rustemudroid-frames-<process id>-<instance>-<counter>`.
+fn unique_name() -> String {
+    format!(
+        "{PREFIX}{}-{:x}-{}",
+        std::process::id(),
+        instance(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+#[derive(Debug)]
+pub(super) enum CopyError {
+    /// The announced frame does not fit in the region.
+    TooLarge { frame: u64, region: u64 },
+    /// The operating system refused the read or the write.
+    System(io::Error),
+}
+
+impl From<io::Error> for CopyError {
+    fn from(error: io::Error) -> Self {
+        Self::System(error)
+    }
+}
 
 pub(super) struct SharedFrames {
-    path: PathBuf,
-    file: File,
-    capacity: u64,
+    region: Region,
+    handle: String,
+    capacity: usize,
+    /// What we last put at the start of the region, and the frame bytes it
+    /// replaced.
+    mark: [u8; MARK],
+    under: [u8; MARK],
+    marks: u64,
+    /// The emulator wrote over a mark at least once.
+    written: bool,
+    /// Copies in a row that still started with our mark, and since when.
+    unwritten: u32,
+    unwritten_since: Option<Instant>,
 }
 
 impl SharedFrames {
-    /// Creates a private region big enough for `max_pixels` RGBA pixels in
-    /// `directory` (the emulator opens it instead of creating its own).
-    pub fn create(directory: &Path, max_pixels: u64) -> io::Result<Self> {
-        let capacity = max_pixels
-            .checked_mul(4)
-            .filter(|bytes| *bytes > 0)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty raster"))?;
-        retry_pending_removals();
-        fs::create_dir_all(directory)?;
-        let name = format!(
-            "{PREFIX}{}-{}{SUFFIX}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        );
-        let path = directory.join(name);
+    /// Creates this platform's region of `bytes` bytes, all of them allocated
+    /// and zero, for the emulator to open instead of creating its own.
+    pub fn create(bytes: usize) -> io::Result<Self> {
+        #[cfg(windows)]
+        {
+            let name = unique_name();
+            let (mapping, existed) = Mapping::named(&name, bytes)?;
+            if existed {
+                // Somebody else's memory under our name is not ours to share.
+                return Err(io::Error::from_raw_os_error(
+                    windows_sys::Win32::Foundation::ERROR_ALREADY_EXISTS as i32,
+                ));
+            }
+            Self::over(Region::Mapping(mapping), name, bytes)
+        }
+        #[cfg(not(windows))]
+        {
+            Self::in_directory(Path::new(DIRECTORY), bytes)
+        }
+    }
+
+    /// A region that is a file in `directory`; the handle is the `file://`
+    /// URL the Unix emulator opens verbatim.
+    #[cfg(any(not(windows), test))]
+    pub fn in_directory(directory: &Path, bytes: usize) -> io::Result<Self> {
+        let file = FrameFile::create(directory, bytes)?;
+        let handle = format!("file://{}", file.path.display());
+        Self::over(Region::File(file), handle, bytes)
+    }
+
+    fn over(region: Region, handle: String, capacity: usize) -> io::Result<Self> {
+        let mut frames = Self {
+            region,
+            handle,
+            capacity,
+            mark: [0; MARK],
+            under: [0; MARK],
+            marks: 0,
+            written: false,
+            unwritten: 0,
+            unwritten_since: None,
+        };
+        if capacity >= MARK {
+            frames.put_mark()?;
+        }
+        Ok(frames)
+    }
+
+    /// The `ImageTransport.handle` that makes the emulator open this region.
+    pub fn handle(&self) -> &str {
+        &self.handle
+    }
+
+    /// Whether the emulator wrote a frame into this region at least once.
+    pub fn written(&self) -> bool {
+        self.written
+    }
+
+    /// Announced frames in a row that the emulator did not write here.
+    pub fn unwritten(&self) -> u32 {
+        self.unwritten
+    }
+
+    /// True when at least `frames` announced frames in a row, the first of
+    /// them at least `span` ago, were not written into this region: the
+    /// emulator writes somewhere else.
+    pub fn ignored(&self, frames: u32, span: Duration) -> bool {
+        self.unwritten >= frames
+            && self
+                .unwritten_since
+                .is_some_and(|since| since.elapsed() >= span)
+    }
+
+    /// Copies the first `len` bytes of the region, the frame just announced,
+    /// and notes whether the emulator wrote them since the previous copy.
+    pub fn copy(&mut self, len: usize) -> Result<Vec<u8>, CopyError> {
+        if len > self.capacity {
+            return Err(CopyError::TooLarge {
+                frame: len as u64,
+                region: self.capacity as u64,
+            });
+        }
+        let mut pixels = vec![0; len];
+        self.region.read(&mut pixels)?;
+        if len < MARK {
+            // Smaller than the mark (under four pixels): nothing to judge by.
+            return Ok(pixels);
+        }
+        if pixels[..MARK] == self.mark {
+            pixels[..MARK].copy_from_slice(&self.under);
+            self.unwritten += 1;
+            self.unwritten_since.get_or_insert_with(Instant::now);
+        } else {
+            self.under.copy_from_slice(&pixels[..MARK]);
+            self.written = true;
+            self.unwritten = 0;
+            self.unwritten_since = None;
+            self.put_mark()?;
+        }
+        Ok(pixels)
+    }
+
+    /// Puts a mark no frame starts with: its alpha bytes are not opaque and
+    /// it changes with every copy.
+    fn put_mark(&mut self) -> io::Result<()> {
+        self.marks += 1;
+        self.mark[..8].copy_from_slice(b"RED\0mrk\x01");
+        self.mark[8..].copy_from_slice(&self.marks.to_le_bytes());
+        self.region.write(&self.mark)
+    }
+}
+
+enum Region {
+    #[cfg(windows)]
+    Mapping(Mapping),
+    #[cfg(any(not(windows), test))]
+    File(FrameFile),
+}
+
+impl Region {
+    fn read(&self, buffer: &mut [u8]) -> io::Result<()> {
+        match self {
+            #[cfg(windows)]
+            Self::Mapping(mapping) => {
+                mapping.read(buffer);
+                Ok(())
+            }
+            #[cfg(any(not(windows), test))]
+            Self::File(file) => file.read(buffer),
+        }
+    }
+
+    fn write(&self, bytes: &[u8]) -> io::Result<()> {
+        match self {
+            #[cfg(windows)]
+            Self::Mapping(mapping) => {
+                mapping.write(bytes);
+                Ok(())
+            }
+            #[cfg(any(not(windows), test))]
+            Self::File(file) => file.write(bytes),
+        }
+    }
+}
+
+/// A view of the named mapping the Windows emulator calls `SHM_<name>`.
+#[cfg(windows)]
+pub(super) struct Mapping {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+    view: *mut u8,
+    bytes: usize,
+}
+
+// SAFETY: a mapping handle and its view belong to the process, not to a thread.
+#[cfg(windows)]
+unsafe impl Send for Mapping {}
+
+#[cfg(windows)]
+impl Mapping {
+    /// Opens the mapping `SHM_<name>` or creates it, backed by the paging
+    /// file with every page committed and zero, and maps its first `bytes`
+    /// bytes. The flag says whether it existed before the call.
+    pub fn named(name: &str, bytes: usize) -> io::Result<(Self, bool)> {
+        use windows_sys::Win32::{
+            Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, INVALID_HANDLE_VALUE},
+            System::Memory::{
+                CreateFileMappingW, FILE_MAP_READ, FILE_MAP_WRITE, MapViewOfFile, PAGE_READWRITE,
+            },
+        };
+        let name: Vec<u16> = format!("SHM_{name}").encode_utf16().chain([0]).collect();
+        let size = bytes as u64;
+        // SAFETY: plain Win32 calls with a NUL-terminated name; the handle and
+        // the view are owned by the returned value, which releases both.
+        unsafe {
+            let handle = CreateFileMappingW(
+                INVALID_HANDLE_VALUE,
+                std::ptr::null(),
+                PAGE_READWRITE,
+                (size >> 32) as u32,
+                size as u32,
+                name.as_ptr(),
+            );
+            if handle.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            let existed = GetLastError() == ERROR_ALREADY_EXISTS;
+            let view = MapViewOfFile(handle, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, bytes).Value;
+            if view.is_null() {
+                let error = io::Error::last_os_error();
+                CloseHandle(handle);
+                return Err(error);
+            }
+            Ok((
+                Self {
+                    handle,
+                    view: view.cast(),
+                    bytes,
+                },
+                existed,
+            ))
+        }
+    }
+
+    fn read(&self, buffer: &mut [u8]) {
+        let len = buffer.len().min(self.bytes);
+        // SAFETY: the view is `bytes` long and mapped while `self` lives. The
+        // emulator may write the same memory meanwhile, so the bytes are
+        // copied through raw pointers and never borrowed as a slice.
+        unsafe { std::ptr::copy_nonoverlapping(self.view, buffer.as_mut_ptr(), len) }
+    }
+
+    pub fn write(&self, bytes: &[u8]) {
+        let len = bytes.len().min(self.bytes);
+        // SAFETY: as in `read`.
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), self.view, len) }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Mapping {
+    fn drop(&mut self) {
+        use windows_sys::Win32::{
+            Foundation::CloseHandle,
+            System::Memory::{MEMORY_MAPPED_VIEW_ADDRESS, UnmapViewOfFile},
+        };
+        // SAFETY: the view and the handle came from `named` and are released once.
+        unsafe {
+            UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
+                Value: self.view.cast(),
+            });
+            CloseHandle(self.handle);
+        }
+    }
+}
+
+/// A frame file, removed when dropped.
+#[cfg(any(not(windows), test))]
+struct FrameFile {
+    path: PathBuf,
+    file: File,
+}
+
+#[cfg(any(not(windows), test))]
+impl FrameFile {
+    fn create(directory: &Path, bytes: usize) -> io::Result<Self> {
+        let path = directory.join(format!("{}{SUFFIX}", unique_name()));
         let mut options = OpenOptions::new();
+        // `create_new` refuses every existing name, a symbolic link included.
         options.read(true).write(true).create_new(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
         let file = options.open(&path)?;
-        let frames = Self {
-            path,
-            file,
-            capacity,
-        };
-        frames.file.set_len(capacity)?;
+        // From here on a failure removes the file again.
+        let frames = Self { path, file };
+        // Writing the zeros allocates every page now; a hole would only be
+        // allocated by the emulator's write through its mapping, and a full
+        // filesystem at that moment kills the emulator (SIGBUS).
+        let zeros = vec![0u8; 64 * 1024];
+        let mut left = bytes;
+        while left > 0 {
+            let part = left.min(zeros.len());
+            (&frames.file).write_all(&zeros[..part])?;
+            left -= part;
+        }
         Ok(frames)
     }
 
-    pub fn handle(&self) -> String {
-        file_url(&self.path)
+    fn read(&self, buffer: &mut [u8]) -> io::Result<()> {
+        let mut file = &self.file;
+        file.seek(SeekFrom::Start(0))?;
+        file.read_exact(buffer)
     }
 
-    /// Copies the first `len` bytes of the region.
-    pub fn read(&self, len: usize) -> io::Result<Vec<u8>> {
-        if len as u64 > self.capacity {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "frame of {len} bytes exceeds the {} byte region",
-                    self.capacity
-                ),
-            ));
-        }
-        let mut pixels = vec![0; len];
-        read_exact_at(&self.file, &mut pixels, 0)?;
-        Ok(pixels)
+    fn write(&self, bytes: &[u8]) -> io::Result<()> {
+        let mut file = &self.file;
+        file.seek(SeekFrom::Start(0))?;
+        file.write_all(bytes)
     }
 }
 
-impl Drop for SharedFrames {
+#[cfg(any(not(windows), test))]
+impl Drop for FrameFile {
     fn drop(&mut self) {
-        // On Windows the emulator opens the file without delete sharing (and
-        // deletes it itself when it closes it). If it still has it open, the
-        // removal is retried on the next subscription and at the next start.
-        if fs::remove_file(&self.path).is_err() && self.path.exists() {
-            PENDING.lock().unwrap().push(self.path.clone());
-        }
+        let _ = fs::remove_file(&self.path);
     }
 }
 
-fn retry_pending_removals() {
-    PENDING
-        .lock()
-        .unwrap()
-        .retain(|path| fs::remove_file(path).is_err() && path.exists());
+/// Removes the frame files that clients which no longer run left in the
+/// shared directory (after a crash; they are memory until the next restart of
+/// the computer). Nothing to do where a region is not a file. Never fails.
+pub(super) fn remove_leftovers() {
+    #[cfg(target_os = "linux")]
+    remove_leftovers_in(Path::new(DIRECTORY), |pid| {
+        Path::new("/proc").join(pid.to_string()).exists()
+    });
 }
 
-/// The directory for the frame files: on Linux the emulator's per-user
-/// discovery directory under the profile (`avd` is `<profile>/avd/<name>.avd`,
-/// the launcher sets `ANDROID_EMULATOR_DISCOVERY_DIR=<profile>/home`), else the
-/// user's temporary directory. `RUSTEMUDROID_VIDEO_SHARED_DIR` replaces it for
-/// tests of the fallback.
-pub(super) fn directory(avd: &Path) -> PathBuf {
-    if let Some(dir) = std::env::var_os("RUSTEMUDROID_VIDEO_SHARED_DIR") {
-        return PathBuf::from(dir);
-    }
-    if cfg!(target_os = "linux")
-        && let Some(profile) = avd.parent().and_then(Path::parent)
-    {
-        return profile.join("home").join("avd").join("running");
-    }
-    std::env::temp_dir()
-}
-
-/// Removes frame files that earlier clients of this user left behind (a crash,
-/// or an emulator that kept the file open past the client). Files of running
-/// processes are kept; files still open without delete sharing (Windows) fail
-/// to delete and are kept too. Never fails.
-pub(super) fn remove_stale(directory: &Path) -> usize {
+/// Removes the frame files in `directory` of processes that `alive` denies,
+/// and those that carry this process's id but were not created by it (an
+/// earlier process that had the same id).
+#[cfg(any(not(windows), test))]
+fn remove_leftovers_in(directory: &Path, alive: impl Fn(u32) -> bool) -> usize {
     let Ok(entries) = fs::read_dir(directory) else {
         return 0;
     };
-    let own = std::process::id();
+    let own = (std::process::id(), format!("{:x}", instance()));
     let mut removed = 0;
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let Some(pid) = name
+        let Some(of) = name
             .to_str()
             .and_then(|name| name.strip_prefix(PREFIX))
-            .and_then(|rest| rest.split('-').next())
-            .and_then(|pid| pid.parse::<u32>().ok())
+            .and_then(|rest| {
+                let mut parts = rest.split('-');
+                let pid = parts.next()?.parse::<u32>().ok()?;
+                Some((pid, parts.next()?.to_string()))
+            })
         else {
             continue;
         };
-        if pid != own && !process_alive(pid) && fs::remove_file(entry.path()).is_ok() {
+        let left_behind = if of.0 == own.0 {
+            of.1 != own.1
+        } else {
+            !alive(of.0)
+        };
+        if left_behind && fs::remove_file(entry.path()).is_ok() {
             removed += 1;
         }
     }
     removed
-}
-
-#[cfg(windows)]
-fn process_alive(pid: u32) -> bool {
-    use windows_sys::Win32::{
-        Foundation::{CloseHandle, STILL_ACTIVE},
-        System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
-    };
-    // SAFETY: plain Win32 calls on a handle we own and close.
-    unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if handle.is_null() {
-            // Gone, or not ours to inspect: only an exited process is safe to clean up after.
-            return windows_sys::Win32::Foundation::GetLastError()
-                != windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER;
-        }
-        let mut code = 0;
-        let alive = GetExitCodeProcess(handle, &mut code) == 0 || code == STILL_ACTIVE as u32;
-        CloseHandle(handle);
-        alive
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn process_alive(pid: u32) -> bool {
-    Path::new("/proc").join(pid.to_string()).exists()
-}
-
-#[cfg(all(unix, not(target_os = "linux")))]
-fn process_alive(_pid: u32) -> bool {
-    true
-}
-
-/// The handle the emulator parses: on Windows a `file:///` URL that
-/// `PathCreateFromUrlW` decodes, so characters with a meaning in URLs are
-/// percent-encoded; on Unix the emulator takes everything after `file://` as
-/// the path verbatim (no decoding), so the path is passed as it is.
-pub(super) fn file_url(path: &Path) -> String {
-    let text = path.to_string_lossy();
-    if cfg!(windows) {
-        let mut url = String::from("file:///");
-        for c in text.replace('\\', "/").chars() {
-            match c {
-                'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '.' | '_' | '~' | '/' | ':' => {
-                    url.push(c)
-                }
-                c if !c.is_ascii() => url.push(c),
-                c => url.push_str(&format!("%{:02X}", c as u32)),
-            }
-        }
-        url
-    } else {
-        format!("file://{text}")
-    }
 }
 
 /// Jumps to the newest pending item that `newer` accepts, copies it, and
@@ -267,117 +503,256 @@ pub(super) fn copy_newest<T, E>(
     }
 }
 
-#[cfg(windows)]
-fn read_exact_at(file: &File, mut buffer: &mut [u8], mut offset: u64) -> io::Result<()> {
-    use std::os::windows::fs::FileExt;
-    while !buffer.is_empty() {
-        match file.seek_read(buffer, offset)? {
-            0 => return Err(io::ErrorKind::UnexpectedEof.into()),
-            read => {
-                buffer = &mut buffer[read..];
-                offset += read as u64;
-            }
-        }
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<()> {
-    use std::os::unix::fs::FileExt;
-    file.read_exact_at(buffer, offset)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        io::{Seek, SeekFrom, Write},
-        sync::{Arc, atomic::AtomicBool, mpsc},
-        thread,
-        time::{Duration, Instant},
-    };
+
+    const BYTES: usize = 8 * 4 * 4;
+
+    /// A whole frame as the emulator writes it: opaque pixels of one value.
+    fn picture(value: u8, bytes: usize) -> Vec<u8> {
+        [value, value, value, 255].repeat(bytes / 4)
+    }
+
+    /// The regions to test: a file everywhere, the named mapping on Windows.
+    /// The second item writes into the region the way the emulator does,
+    /// through its own handle.
+    #[allow(clippy::type_complexity)]
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    fn regions(dir: &Path) -> Vec<(SharedFrames, Box<dyn Fn(usize, &[u8])>)> {
+        let file = SharedFrames::in_directory(dir, BYTES).unwrap();
+        let path = PathBuf::from(file.handle().strip_prefix("file://").unwrap());
+        let mut regions: Vec<(SharedFrames, Box<dyn Fn(usize, &[u8])>)> = vec![(
+            file,
+            Box::new(move |offset, bytes| {
+                let mut emulator = OpenOptions::new().write(true).open(&path).unwrap();
+                emulator.seek(SeekFrom::Start(offset as u64)).unwrap();
+                emulator.write_all(bytes).unwrap();
+            }),
+        )];
+        #[cfg(windows)]
+        {
+            let mapping = SharedFrames::create(BYTES).unwrap();
+            let name = mapping.handle().to_string();
+            regions.push((
+                mapping,
+                Box::new(move |offset, bytes| {
+                    let (emulator, existed) = Mapping::named(&name, offset + bytes.len()).unwrap();
+                    assert!(existed, "the emulator opens the client's mapping");
+                    let mut whole = vec![0; offset + bytes.len()];
+                    emulator.read(&mut whole);
+                    whole[offset..].copy_from_slice(bytes);
+                    emulator.write(&whole);
+                }),
+            ));
+        }
+        regions
+    }
 
     #[test]
-    fn region_is_sized_named_uniquely_read_back_and_removed() {
+    fn a_copy_is_the_frame_the_emulator_wrote_and_never_shows_the_mark() {
         let dir = tempfile::tempdir().unwrap();
-        let a = SharedFrames::create(dir.path(), 4).unwrap();
-        let b = SharedFrames::create(dir.path(), 4).unwrap();
+        for (mut frames, emulator) in regions(dir.path()) {
+            assert!(!frames.written());
+            for value in [7, 8, 9] {
+                emulator(0, &picture(value, BYTES));
+                assert_eq!(frames.copy(BYTES).unwrap(), picture(value, BYTES));
+                assert!(frames.written());
+                assert_eq!(frames.unwritten(), 0);
+            }
+            // A smaller frame (another raster) is the start of the region.
+            emulator(0, &picture(3, 64));
+            assert_eq!(frames.copy(64).unwrap(), picture(3, 64));
+        }
+    }
+
+    #[test]
+    fn a_region_the_emulator_never_wrote_is_empty_and_counts_every_announced_frame() {
+        let dir = tempfile::tempdir().unwrap();
+        for (mut frames, _) in regions(dir.path()) {
+            for announced in 1..=3 {
+                assert_eq!(frames.copy(BYTES).unwrap(), vec![0; BYTES]);
+                assert!(!frames.written());
+                assert_eq!(frames.unwritten(), announced);
+            }
+            assert!(frames.ignored(3, Duration::ZERO));
+            assert!(!frames.ignored(4, Duration::ZERO));
+            assert!(!frames.ignored(3, Duration::from_secs(3600)));
+        }
+    }
+
+    #[test]
+    fn frames_announced_without_a_write_repeat_the_last_picture_and_are_counted() {
+        let dir = tempfile::tempdir().unwrap();
+        for (mut frames, emulator) in regions(dir.path()) {
+            emulator(0, &picture(5, BYTES));
+            assert_eq!(frames.copy(BYTES).unwrap(), picture(5, BYTES));
+            // The emulator now writes elsewhere and keeps announcing frames.
+            for announced in 1..=4 {
+                assert_eq!(frames.copy(BYTES).unwrap(), picture(5, BYTES));
+                assert_eq!(frames.unwritten(), announced);
+            }
+            assert!(frames.written());
+            assert!(frames.ignored(4, Duration::ZERO));
+            std::thread::sleep(Duration::from_millis(30));
+            assert!(frames.ignored(4, Duration::from_millis(20)));
+            // One real write clears the suspicion.
+            emulator(0, &picture(6, BYTES));
+            assert_eq!(frames.copy(BYTES).unwrap(), picture(6, BYTES));
+            assert_eq!(frames.unwritten(), 0);
+            assert!(!frames.ignored(1, Duration::ZERO));
+        }
+    }
+
+    #[test]
+    fn a_frame_written_just_before_the_mark_keeps_all_but_its_first_four_pixels() {
+        let dir = tempfile::tempdir().unwrap();
+        for (mut frames, emulator) in regions(dir.path()) {
+            emulator(0, &picture(1, BYTES));
+            assert_eq!(frames.copy(BYTES).unwrap(), picture(1, BYTES));
+            // The emulator wrote frame 2 before our mark landed on its first
+            // bytes: the region now holds the mark followed by frame 2.
+            emulator(MARK, &picture(2, BYTES - MARK));
+            let shown = frames.copy(BYTES).unwrap();
+            assert_eq!(shown[..MARK], picture(1, MARK));
+            assert_eq!(shown[MARK..], picture(2, BYTES - MARK));
+            assert_eq!(frames.unwritten(), 1);
+            emulator(0, &picture(3, BYTES));
+            assert_eq!(frames.copy(BYTES).unwrap(), picture(3, BYTES));
+            assert_eq!(frames.unwritten(), 0);
+        }
+    }
+
+    #[test]
+    fn a_frame_larger_than_the_region_is_refused_without_reading() {
+        let dir = tempfile::tempdir().unwrap();
+        for (mut frames, _) in regions(dir.path()) {
+            assert!(matches!(
+                frames.copy(BYTES + 4),
+                Err(CopyError::TooLarge { frame, region })
+                    if frame == BYTES as u64 + 4 && region == BYTES as u64
+            ));
+            assert_eq!(frames.unwritten(), 0);
+        }
+    }
+
+    #[test]
+    fn every_region_has_its_own_name_with_this_process_in_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = SharedFrames::in_directory(dir.path(), BYTES).unwrap();
+        let b = SharedFrames::in_directory(dir.path(), BYTES).unwrap();
         assert_ne!(a.handle(), b.handle());
-        assert_eq!(fs::metadata(&a.path).unwrap().len(), 16);
+        let start = format!("{PREFIX}{}-{:x}-", std::process::id(), instance());
+        for frames in [&a, &b] {
+            let path = PathBuf::from(frames.handle().strip_prefix("file://").unwrap());
+            let name = path.file_name().unwrap().to_str().unwrap();
+            assert!(name.starts_with(&start) && name.ends_with(SUFFIX), "{name}");
+            assert_eq!(path.parent(), Some(dir.path()));
+        }
+    }
+
+    #[test]
+    fn the_frame_file_is_private_fully_allocated_and_removed_with_the_region() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = 3 * 64 * 1024 + 4;
+        let frames = SharedFrames::in_directory(dir.path(), bytes).unwrap();
+        let path = PathBuf::from(frames.handle().strip_prefix("file://").unwrap());
+        let info = fs::metadata(&path).unwrap();
+        assert_eq!(info.len(), bytes as u64);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                fs::metadata(&a.path).unwrap().permissions().mode() & 0o777,
-                0o600
-            );
+            assert_eq!(info.permissions().mode() & 0o777, 0o600);
         }
-        // Another writer (the emulator) updates the file in place.
-        let mut writer = OpenOptions::new().write(true).open(&a.path).unwrap();
-        writer.write_all(&[1, 2, 3, 4, 5, 6, 7, 8]).unwrap();
-        writer.flush().unwrap();
-        assert_eq!(a.read(8).unwrap(), [1, 2, 3, 4, 5, 6, 7, 8]);
-        assert_eq!(a.read(16).unwrap()[8..], [0; 8]);
-        assert!(a.read(17).is_err());
-        let path = a.path.clone();
-        drop(writer);
-        drop(a);
+        // Zeros behind the mark, so no earlier picture can show through.
+        let content = fs::read(&path).unwrap();
+        assert_eq!(content[..MARK], frames.mark);
+        assert!(content[MARK..].iter().all(|byte| *byte == 0));
+        drop(frames);
+        assert!(!path.exists());
+        // A directory that does not exist is an error for the caller, who
+        // continues without shared memory.
+        assert!(SharedFrames::in_directory(&dir.path().join("missing"), bytes).is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_linux_region_is_an_owner_only_file_in_dev_shm_with_every_page_allocated() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        if !Path::new(DIRECTORY).is_dir() {
+            return;
+        }
+        let bytes = 1600 * 900 * 4;
+        let frames = SharedFrames::create(bytes).unwrap();
+        let path = PathBuf::from(frames.handle().strip_prefix("file://").unwrap());
+        assert_eq!(path.parent(), Some(Path::new(DIRECTORY)));
+        let info = fs::metadata(&path).unwrap();
+        assert_eq!(info.len(), bytes as u64);
+        assert_eq!(info.permissions().mode() & 0o777, 0o600);
+        // tmpfs counts a page as soon as it exists: nothing is left for the
+        // emulator's mapped write to allocate.
+        assert!(info.blocks() * 512 >= bytes as u64, "{}", info.blocks());
+        drop(frames);
         assert!(!path.exists());
     }
 
+    #[cfg(windows)]
     #[test]
-    fn empty_or_overflowing_rasters_are_refused() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(SharedFrames::create(dir.path(), 0).is_err());
-        assert!(SharedFrames::create(dir.path(), u64::MAX).is_err());
-    }
-
-    #[test]
-    fn handles_are_absolute_file_urls_the_emulator_decodes() {
-        if cfg!(windows) {
-            assert_eq!(
-                file_url(Path::new(r"C:\Users\A B\Temp #1\50%\çã\f.rgba")),
-                "file:///C:/Users/A%20B/Temp%20%231/50%25/çã/f.rgba"
-            );
-        } else {
-            // The Unix emulator strips "file://" and opens the rest verbatim.
-            assert_eq!(
-                file_url(Path::new("/home/a b/#1/50%/f.rgba")),
-                "file:///home/a b/#1/50%/f.rgba"
-            );
+    fn the_windows_region_is_a_mapping_the_emulator_opens_by_name_and_leaves_no_file() {
+        let frames = SharedFrames::create(BYTES).unwrap();
+        let name = frames.handle().to_string();
+        // Not a file URL: the emulator's SharedMemory takes it as a name.
+        assert!(name.starts_with(PREFIX) && !name.contains("://"), "{name}");
+        // The emulator opens, writes, closes and opens again, as it does
+        // between the first frame and the rest of a stream.
+        for _ in 0..2 {
+            let (emulator, existed) = Mapping::named(&name, BYTES).unwrap();
+            assert!(existed);
+            drop(emulator);
         }
+        // A larger view than the region is refused, not silently created.
+        assert!(Mapping::named(&name, BYTES * 1024).is_err());
+        drop(frames);
+        // Closed by its only owner, the memory is gone: nothing to clean up.
+        let (fresh, existed) = Mapping::named(&name, BYTES).unwrap();
+        assert!(!existed);
+        drop(fresh);
     }
 
     #[test]
-    fn regions_in_folders_with_url_characters_round_trip() {
+    fn files_of_dead_processes_and_of_an_earlier_process_with_our_id_are_removed() {
         let dir = tempfile::tempdir().unwrap();
-        let odd = dir.path().join("a b#c%d");
-        let frames = SharedFrames::create(&odd, 1).unwrap();
-        assert!(frames.path.starts_with(&odd));
-        let handle = frames.handle();
-        assert!(!handle.contains('#') || !cfg!(windows), "{handle}");
-    }
-
-    #[test]
-    fn stale_files_of_exited_processes_are_removed_and_others_kept() {
-        let dir = tempfile::tempdir().unwrap();
-        let own = dir
-            .path()
-            .join(format!("{PREFIX}{}-7{SUFFIX}", std::process::id()));
-        // A pid that cannot be running (above the usual limits).
-        let dead = dir.path().join(format!("{PREFIX}4294967290-1{SUFFIX}"));
+        let own = std::process::id();
+        let name = |pid: u32, instance: &str| {
+            dir.path()
+                .join(format!("{PREFIX}{pid}-{instance}-0{SUFFIX}"))
+        };
+        // The same process id as ours, from before this process existed. Its
+        // name can not be the name of a region of this process.
+        let reused = name(own, "1");
+        fs::write(&reused, b"x").unwrap();
+        let live = SharedFrames::in_directory(dir.path(), BYTES).unwrap();
+        let live_path = PathBuf::from(live.handle().strip_prefix("file://").unwrap());
+        let dead = name(4_000_000_001, "abc");
+        let running = name(4_000_000_002, "abc");
         let unrelated = dir.path().join("rustemudroid-other.rgba");
-        for path in [&own, &dead, &unrelated] {
+        let unparsed = dir.path().join(format!("{PREFIX}x-1-0{SUFFIX}"));
+        for path in [&dead, &running, &unrelated, &unparsed] {
             fs::write(path, b"x").unwrap();
         }
-        assert_eq!(remove_stale(dir.path()), 1);
-        assert!(own.exists() && !dead.exists() && unrelated.exists());
-        assert_eq!(remove_stale(&dir.path().join("missing")), 0);
+        let removed = remove_leftovers_in(dir.path(), |pid| pid == 4_000_000_002);
+        assert_eq!(removed, 2);
+        assert!(!reused.exists() && !dead.exists());
+        assert!(live_path.exists() && running.exists());
+        assert!(unrelated.exists() && unparsed.exists());
+        assert_eq!(
+            remove_leftovers_in(&dir.path().join("missing"), |_| false),
+            0
+        );
     }
 
     #[test]
-    fn newest_pending_item_is_copied_and_older_copies_are_dropped() {
+    fn the_newest_announced_frame_is_copied_and_a_superseded_copy_is_redone() {
         // Items: (sequence, pixel value). 9 is not a shared frame.
         let mut queue: std::collections::VecDeque<(u32, u8)> =
             [(2, 2), (3, 3), (9, 0), (4, 4)].into();
@@ -425,91 +800,10 @@ mod tests {
             |_| Ok::<_, ()>(vec![]),
         );
         assert_eq!(dropped, MAX_RECOPY);
-    }
 
-    /// The reviewer's tear test: a writer overwrites the region with
-    /// alternating patterns at ~120 Hz (in chunks, as a GPU readback lands)
-    /// and announces each frame; a slow consumer (20 ms per frame) reads it
-    /// with the old strategy (every message in order) and with `copy_newest`.
-    /// Counts copies that mix patterns (torn) and copies whose pixels do not
-    /// belong to the message they are shown with (stale). Run with
-    /// `cargo test --features ui tear_rate -- --ignored --nocapture`.
-    #[test]
-    #[ignore = "timing measurement, prints numbers"]
-    fn tear_rate_of_in_order_and_newest_consumers() {
-        const BYTES: usize = 800 * 450 * 4;
-        fn run(newest: bool, seconds: u64) -> (u32, u32, u32, u32) {
-            let dir = tempfile::tempdir().unwrap();
-            let region = SharedFrames::create(dir.path(), (BYTES / 4) as u64).unwrap();
-            let path = region.path.clone();
-            let (send, receive) = mpsc::channel::<(u32, u8)>();
-            let stop = Arc::new(AtomicBool::new(false));
-            let writer_stop = stop.clone();
-            let writer = thread::spawn(move || {
-                let mut file = OpenOptions::new().write(true).open(&path).unwrap();
-                let chunk = vec![0u8; 64 * 1024];
-                let mut seq = 0u32;
-                while !writer_stop.load(Ordering::Relaxed) {
-                    let started = Instant::now();
-                    seq += 1;
-                    let value = if seq.is_multiple_of(2) { 0xAA } else { 0x55 };
-                    let block: Vec<u8> = chunk.iter().map(|_| value).collect();
-                    file.seek(SeekFrom::Start(0)).unwrap();
-                    let mut left = BYTES;
-                    while left > 0 {
-                        let n = left.min(block.len());
-                        file.write_all(&block[..n]).unwrap();
-                        left -= n;
-                    }
-                    if send.send((seq, value)).is_err() {
-                        break;
-                    }
-                    let period = Duration::from_micros(8_333);
-                    if let Some(rest) = period.checked_sub(started.elapsed()) {
-                        thread::sleep(rest);
-                    }
-                }
-            });
-            let check = |item: &(u32, u8), pixels: &[u8], torn: &mut u32, stale: &mut u32| {
-                let mixed = pixels.iter().step_by(4096).any(|b| *b != pixels[0]);
-                if mixed {
-                    *torn += 1;
-                } else if pixels[0] != item.1 {
-                    *stale += 1;
-                }
-            };
-            let (mut shown, mut torn, mut stale, mut dropped_total) = (0, 0, 0, 0);
-            let deadline = Instant::now() + Duration::from_secs(seconds);
-            while Instant::now() < deadline {
-                let Ok(first) = receive.recv() else { break };
-                if newest {
-                    let (item, pixels, _, dropped) = copy_newest(
-                        first,
-                        || receive.try_recv().ok(),
-                        |_| true,
-                        |_| region.read(BYTES),
-                    );
-                    dropped_total += dropped;
-                    check(&item, &pixels.unwrap(), &mut torn, &mut stale);
-                } else {
-                    let pixels = region.read(BYTES).unwrap();
-                    check(&first, &pixels, &mut torn, &mut stale);
-                }
-                shown += 1;
-                thread::sleep(Duration::from_millis(20));
-            }
-            stop.store(true, Ordering::Relaxed);
-            drop(receive);
-            writer.join().unwrap();
-            (shown, torn, stale, dropped_total)
-        }
-        for (name, newest) in [("in order", false), ("newest", true)] {
-            let (shown, torn, stale, dropped) = run(newest, 6);
-            println!(
-                "{name}: shown={shown} torn={torn} ({:.1}%) stale={stale} ({:.1}%) dropped_copies={dropped}",
-                100.0 * f64::from(torn) / f64::from(shown.max(1)),
-                100.0 * f64::from(stale) / f64::from(shown.max(1))
-            );
-        }
+        // A failed copy is returned at once with the item it was for.
+        let (item, pixels, _, _) =
+            copy_newest((7, 7), || None, |_| true, |_| Err::<Vec<u8>, _>("gone"));
+        assert_eq!((item, pixels), ((7, 7), Err("gone")));
     }
 }
