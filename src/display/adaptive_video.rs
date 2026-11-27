@@ -495,6 +495,10 @@ pub(super) async fn run(
             }
         }
         let result = if let Some(region) = region.as_mut().and_then(shared::Lingering::region) {
+            // Until a picture has come through a region, a subscription owes
+            // one in time: the stream it replaces was showing pictures.
+            let proven =
+                state.lock().unwrap().video_transport == Some(VideoTransport::SharedMemory);
             let subscription = shared::receive_shared(
                 &mut video,
                 token,
@@ -504,6 +508,7 @@ pub(super) async fn run(
                 fixed_raster,
                 region,
                 setup.timing,
+                (!proven).then_some(setup.timing.first_picture),
             );
             tokio::select! {
                 biased;
@@ -515,10 +520,16 @@ pub(super) async fn run(
                 }
                 ended = subscription => match ended {
                     Ok(result) => result,
-                    Err(fallback) => {
+                    Err(shared::Stop::Evidence(fallback)) => {
                         // The same request again, in-band, as every later one.
                         plan = Plan::Inline;
                         report(Some(fallback));
+                        continue;
+                    }
+                    Err(shared::Stop::Silent) => {
+                        // The same request again, in-band, to see whether the
+                        // emulator has pictures.
+                        plan = Plan::Doubt;
                         continue;
                     }
                 }
@@ -533,6 +544,7 @@ pub(super) async fn run(
                     }
                 }
             };
+            let doubt = time::sleep(setup.timing.first_picture);
             tokio::select! {
                 biased;
                 changed = requests.changed() => {
@@ -541,9 +553,25 @@ pub(super) async fn run(
                     }
                     continue;
                 }
-                () = first_picture, if plan == Plan::UntilFirstPicture => {
-                    // The screen is up: the same request again, through a region.
-                    plan = Plan::Shared;
+                () = first_picture, if matches!(plan, Plan::UntilFirstPicture | Plan::Doubt) => {
+                    if plan == Plan::Doubt {
+                        // The emulator has pictures, as before, and the
+                        // region got none in between.
+                        plan = Plan::Inline;
+                        report(Some(Fallback::NoPicture {
+                            seconds: setup.timing.first_picture.as_secs(),
+                        }));
+                    } else {
+                        // The screen is up: the same request again, through a
+                        // region.
+                        plan = Plan::Shared;
+                    }
+                    continue;
+                }
+                () = doubt, if plan == Plan::Doubt => {
+                    // Nothing here either: the emulator had no picture, which
+                    // says nothing about the region.
+                    plan = Plan::UntilFirstPicture;
                     continue;
                 }
                 result = receive(&mut video, token, ctx, state, request, fixed_raster) => result,
@@ -881,6 +909,9 @@ mod tests {
             VideoTransport::Inline {
                 fallback: Some(Fallback::OffByDefault),
             },
+            VideoTransport::Inline {
+                fallback: Some(Fallback::NoPicture { seconds: 3 }),
+            },
         ];
         for locale in [Locale::PtBr, Locale::EnUs, Locale::EsEs] {
             let texts: Vec<_> = transports.iter().map(|t| t.describe(locale)).collect();
@@ -900,6 +931,7 @@ mod tests {
             // The variable and its values are written as they are typed.
             assert!(texts[6].contains("RUSTEMUDROID_VIDEO_TRANSPORT=inline"));
             assert!(texts[9].contains("RUSTEMUDROID_VIDEO_TRANSPORT=shared"));
+            assert!(texts[10].contains("3 s"));
             assert!(texts[8].contains("5760000 bytes") && texts[8].contains("1440000 bytes"));
         }
         assert_eq!(
@@ -928,11 +960,11 @@ mod tests {
         );
         assert_eq!(
             transports[7].describe(Locale::PtBr),
-            "Vídeo do painel: quadros dentro do canal de controle; a memória compartilhada não foi usada porque o motor anunciou quadros sem gravá-los na região de memória criada pelo painel."
+            "Vídeo do painel: quadros dentro do canal de controle; a memória compartilhada não foi usada porque o motor anunciou quadros e nada mudou na região de memória criada pelo painel."
         );
         assert_eq!(
             transports[7].describe(Locale::EnUs),
-            "Panel video: frames inside the control channel; shared memory was not used because the engine announced frames without writing them into the memory region the panel created."
+            "Panel video: frames inside the control channel; shared memory was not used because the engine announced frames and nothing changed in the memory region the panel created."
         );
         assert_eq!(
             transports[5].describe(Locale::EsEs),
@@ -945,6 +977,18 @@ mod tests {
         assert_eq!(
             transports[0].describe(Locale::EnUs),
             "Panel video: memory shared with the engine."
+        );
+        assert_eq!(
+            transports[10].describe(Locale::PtBr),
+            "Vídeo do painel: quadros dentro do canal de controle; a memória compartilhada não foi usada porque nenhuma imagem chegou pela região de memória em 3 s, embora o motor as enviasse dentro das mensagens antes e depois."
+        );
+        assert_eq!(
+            transports[10].describe(Locale::EnUs),
+            "Panel video: frames inside the control channel; shared memory was not used because no picture came through the memory region within 3 s, although the engine sent pictures inside the messages before and after."
+        );
+        assert_eq!(
+            transports[10].describe(Locale::EsEs),
+            "Vídeo del panel: fotogramas dentro del canal de control; no se usó la memoria compartida porque no llegó ninguna imagen por la región de memoria en 3 s, aunque el motor las enviaba dentro de los mensajes antes y después."
         );
         assert_eq!(
             transports[3].describe(Locale::EnUs),

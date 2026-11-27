@@ -3053,6 +3053,7 @@ dependencies = [
  "clap",
  "eframe",
  "gilrs",
+ "hyper-util",
  "png",
  "prost",
  "raw-window-handle",

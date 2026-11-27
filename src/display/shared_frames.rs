@@ -31,33 +31,54 @@
 //! this process, so another program can not take the name first (which would
 //! only keep the frames inside the messages).
 //!
-//! Proof that the emulator writes where we read: after every copy we put a
-//! mark into the region, and the next frame, a rewrite of the whole image,
-//! removes it. The mark is [`MARK`] bytes, each in the alpha byte of one of
-//! the first pixels. The client writes nothing else into the region, so in
-//! whatever order the emulator's write and ours land, every colour byte of a
-//! copy is a byte the emulator wrote. (The emulator writes RGBA8888, all four
-//! bytes of every pixel on every frame, and takes the alpha from the guest's
-//! picture without forcing it to opaque. The mark therefore assumes no alpha
-//! value: an alpha byte of a copy that still is its mark byte is given the
-//! byte the mark replaced. No mark byte is 0, 255 or the alpha it replaces,
-//! so a transparent pixel, an opaque one and one that keeps its alpha are
-//! never taken for the mark; a pixel whose alpha changes to exactly its mark
-//! byte, one value in 254, gets the alpha of the frame before.)
+//! Proof that the emulator writes where we read. Every way the emulator has
+//! of producing a frame writes the colours of all its pixels. Most also write
+//! the alpha, which they take from the guest's picture without forcing it to
+//! opaque; the one that rotates or scales on the processor for a renderer
+//! that is all Vulkan leaves the alpha bytes of the region as they are. So a
+//! write shows in one of two ways:
 //!
-//! A copy in which every mark byte is still there was not written since the
-//! previous copy and is counted ([`SharedFrames::unwritten`]). The emulator
-//! can write a frame just before we put the mark and announce it just after:
-//! that copy is the whole frame (the alpha of its first pixels is the previous
-//! frame's, the same on an opaque screen) but it counts as not written. This
-//! can only happen to frames whose write began before the mark was there, and
-//! the emulator writes one frame at a time, so fewer than
-//! [`UNWRITTEN_FRAMES`] copies in a row are affected; that many, over some
-//! time, mean that the emulator writes somewhere else. The price of that
-//! caution: fewer such frames followed by a still screen are noticed only
-//! with the next frames. A region the emulator has never written has no such
-//! doubt, its mark is there before the request is sent: one announced frame
-//! that is not in it is enough.
+//! * The mark is gone. The mark is [`MARK`] bytes, each in the alpha byte of
+//!   one of the first pixels, put there after a copy that found it gone. It
+//!   assumes no alpha value: an alpha byte of a copy that still is its mark
+//!   byte is given the byte the mark replaced. No mark byte is 0, 255 or the
+//!   alpha it replaces, so a transparent pixel, an opaque one and one that
+//!   keeps its alpha are never taken for the mark; a pixel whose alpha changes
+//!   to exactly its mark byte, one value in 254, gets the alpha of the frame
+//!   before.
+//! * The colours changed: with the mark still whole, the copy differs from
+//!   the copy before. Before the first frame the copy before is the seal:
+//!   colours no frame has, put into the first pixels when the region is
+//!   created, which any frame, a black one too, replaces.
+//!
+//! The seal is written once, before the emulator knows the region. After
+//! that the client writes mark bytes and nothing else, so in whatever order
+//! the emulator's write and ours land, every colour byte of a copy is a byte
+//! the emulator wrote.
+//!
+//! A copy that shows neither sign counts against the region
+//! ([`SharedFrames::unwritten`]) when the emulator is known to rewrite the
+//! alpha here: it has removed a mark. Then a mark that stays says that
+//! nothing was written, with one exception. The emulator can write a frame
+//! just before we put the mark and announce it just after; that copy is the
+//! whole frame (the alpha of its first pixels is the previous frame's, the
+//! same on an opaque screen), and if the frame also has the colours of the
+//! one before, it counts. This can only happen to frames whose write began
+//! before the mark was there, and the emulator writes one frame at a time, so
+//! fewer than [`UNWRITTEN_FRAMES`] copies in a row are affected; that many,
+//! over some time, mean that nothing changes in the region any more: the
+//! emulator writes somewhere else. The price of that caution: fewer such
+//! frames followed by a still screen are noticed only with the next frames.
+//!
+//! An emulator known here only by the colours it changes proves nothing by a
+//! frame that changes none, so such copies are not counted: a still screen
+//! that is announced again and again is not mistaken for a region that is
+//! not written. (An emulator that first removed marks and then stops, on a
+//! screen that stands still, is doubted all the same; it is believed again
+//! when colours change under a mark that has stayed for more copies in a row
+//! than a writer of alpha leaves it.) A region the emulator has never written
+//! has no such doubts, its seal and its mark are there before the request is
+//! sent: one announced frame that left both is enough.
 //!
 //! Tearing: the protocol has one region per subscription and no lock or
 //! sequence inside it; `seq`/`timestampUs` only number the messages. The
@@ -72,6 +93,7 @@
 //! (at a rotation, one frame can be drawn with the shape of the previous one)
 //! and the next frame replaces it. The region is never read beyond the size
 //! we created.
+use prost::bytes::Bytes;
 #[cfg(any(not(windows), test))]
 use std::{
     fs::{self, File, OpenOptions},
@@ -96,19 +118,29 @@ pub(super) const MAX_REGION: u64 = 256 << 20;
 /// This many copies in a row that still had the whole mark are more than the
 /// emulator writing a frame just before the mark can explain (see the module).
 pub(super) const UNWRITTEN_FRAMES: u32 = 4;
-/// Pixels at the start of the region whose alpha byte carries the mark.
+/// Pixels at the start of the region that carry the seal and the mark.
 const MARK: usize = 8;
-/// Bytes those pixels take: a smaller frame has no room for the mark.
+/// Bytes those pixels take: a smaller frame has no room for them.
 const MARK_SPAN: usize = MARK * 4;
+/// Colour bytes of those pixels.
+const SEAL: usize = MARK * 3;
 const PREFIX: &str = "rustemudroid-frames-";
 #[cfg(any(not(windows), test))]
 const SUFFIX: &str = ".rgba";
+/// Added to the name of a frame file that is being made.
+#[cfg(any(not(windows), test))]
+const NEW: &str = ".new";
 #[cfg(not(windows))]
 const DIRECTORY: &str = "/dev/shm";
 
 /// Where the alpha byte of the `index`th pixel is.
 const fn alpha(index: usize) -> usize {
     index * 4 + 3
+}
+
+/// Where the `index`th colour byte is, the alpha bytes not counted.
+const fn colour(index: usize) -> usize {
+    index / 3 * 4 + index % 3
 }
 
 /// `rustemudroid-frames-<process id>-<32 hexadecimal digits>`. The digits
@@ -150,11 +182,21 @@ pub(super) struct SharedFrames {
     /// not foresee.
     marks: u64,
     keys: RandomState,
-    /// The emulator wrote over a mark at least once.
+    /// The colours put into the first pixels at the creation, for as long as
+    /// the emulator has not written.
+    seal: Option<[u8; SEAL]>,
+    /// The emulator wrote into this region at least once.
     written: bool,
-    /// Copies in a row that still had the whole mark, and since when.
+    /// The emulator has removed a mark, so it rewrites the alpha here.
+    rewrites_alpha: bool,
+    /// Copies in a row that still had the whole mark.
+    marked: u32,
+    /// Those of them, in a row, that count against the region, and since
+    /// when.
     unwritten: u32,
     unwritten_since: Option<Instant>,
+    /// The copy before, to see a change of colours by.
+    previous: Option<Bytes>,
     /// Runs inside every copy, before and after the region is read.
     #[cfg(test)]
     watcher: Option<Box<dyn FnMut(Moment) + Send>>,
@@ -170,7 +212,8 @@ pub(super) enum Moment {
 
 impl SharedFrames {
     /// Creates this platform's region of `bytes` bytes, all of them allocated
-    /// and zero, for the emulator to open instead of creating its own.
+    /// and zero but for the seal and the mark, for the emulator to open
+    /// instead of creating its own.
     pub fn create(bytes: usize) -> io::Result<Self> {
         #[cfg(windows)]
         {
@@ -194,7 +237,7 @@ impl SharedFrames {
     /// URL the Unix emulator opens verbatim.
     #[cfg(any(not(windows), test))]
     pub fn in_directory(directory: &Path, bytes: usize) -> io::Result<Self> {
-        let file = FrameFile::create(directory, bytes)?;
+        let file = FrameFile::create(directory, bytes, |_| ())?;
         let handle = format!("file://{}", file.path.display());
         Self::over(Region::File(file), handle, bytes)
     }
@@ -209,13 +252,18 @@ impl SharedFrames {
             under: [0; MARK],
             marks: 0,
             keys: RandomState::new(),
+            seal: None,
             written: false,
+            rewrites_alpha: false,
+            marked: 0,
             unwritten: 0,
             unwritten_since: None,
+            previous: None,
             #[cfg(test)]
             watcher: None,
         };
         if capacity >= MARK_SPAN {
+            frames.put_seal()?;
             frames.put_mark()?;
         }
         Ok(frames)
@@ -231,13 +279,14 @@ impl SharedFrames {
         self.written
     }
 
-    /// Announced frames in a row that the emulator did not write here.
+    /// Announced frames in a row that showed no sign of a write and count
+    /// against the region.
     pub fn unwritten(&self) -> u32 {
         self.unwritten
     }
 
     /// True when at least `frames` announced frames in a row, the first of
-    /// them at least `span` ago, were not written into this region.
+    /// them at least `span` ago, count against this region.
     pub fn ignored(&self, frames: u32, span: Duration) -> bool {
         self.unwritten >= frames
             && self
@@ -247,7 +296,7 @@ impl SharedFrames {
 
     /// Copies the first `len` bytes of the region, the frame just announced,
     /// and notes whether the emulator wrote them since the previous copy.
-    pub fn copy(&mut self, len: usize) -> Result<Vec<u8>, CopyError> {
+    pub fn copy(&mut self, len: usize) -> Result<Bytes, CopyError> {
         if len > self.capacity {
             return Err(CopyError::TooLarge {
                 frame: len as u64,
@@ -261,8 +310,8 @@ impl SharedFrames {
         #[cfg(test)]
         self.tell(Moment::AfterRead);
         if len < MARK_SPAN {
-            // Too small for the mark: nothing to judge by.
-            return Ok(pixels);
+            // Too small for the seal and the mark: nothing to judge by.
+            return Ok(pixels.into());
         }
         let mut intact = 0;
         for (index, (mark, under)) in self.mark.iter().zip(&mut self.under).enumerate() {
@@ -276,16 +325,68 @@ impl SharedFrames {
                 *under = *byte;
             }
         }
-        if intact == MARK {
-            self.unwritten += 1;
-            self.unwritten_since.get_or_insert_with(Instant::now);
-        } else {
+        if intact < MARK {
+            // The mark is gone, or going.
             self.written = true;
+            self.rewrites_alpha = true;
+            self.seal = None;
+            self.marked = 0;
             self.unwritten = 0;
             self.unwritten_since = None;
             self.put_mark()?;
+        } else if self.changed(&pixels) {
+            // Colours were written and no alpha.
+            self.written = true;
+            self.seal = None;
+            self.marked += 1;
+            if self.marked >= UNWRITTEN_FRAMES {
+                // An emulator that rewrote the alpha here would have removed
+                // the mark by now.
+                self.rewrites_alpha = false;
+            }
+            self.unwritten = 0;
+            self.unwritten_since = None;
+        } else {
+            self.marked += 1;
+            if !self.written || self.rewrites_alpha {
+                self.unwritten += 1;
+                self.unwritten_since.get_or_insert_with(Instant::now);
+            }
         }
+        let pixels = Bytes::from(pixels);
+        self.previous = Some(pixels.clone());
         Ok(pixels)
+    }
+
+    /// Whether a copy has other colours than the region had at the copy
+    /// before: than the seal as long as nothing was written, than the previous
+    /// copy afterwards.
+    fn changed(&self, pixels: &[u8]) -> bool {
+        match (&self.seal, &self.previous) {
+            (Some(seal), _) => seal
+                .iter()
+                .enumerate()
+                .any(|(index, byte)| pixels[colour(index)] != *byte),
+            (None, Some(previous)) => {
+                let common = previous.len().min(pixels.len());
+                previous[..common] != pixels[..common]
+            }
+            (None, None) => false,
+        }
+    }
+
+    /// Puts the seal, the only colours the client ever writes into the
+    /// region, before the emulator knows of it.
+    fn put_seal(&mut self) -> io::Result<()> {
+        let mut seal = [0; SEAL];
+        for (part, bytes) in seal.chunks_mut(8).enumerate() {
+            bytes.copy_from_slice(&self.keys.hash_one(("seal", part)).to_le_bytes());
+        }
+        for (index, byte) in seal.iter().enumerate() {
+            self.region.put(colour(index), *byte)?;
+        }
+        self.seal = Some(seal);
+        Ok(())
     }
 
     /// Puts a new mark, byte by byte, so that no byte between them (the
@@ -454,21 +555,38 @@ struct FrameFile {
 
 #[cfg(any(not(windows), test))]
 impl FrameFile {
-    fn create(directory: &Path, bytes: usize) -> io::Result<Self> {
-        let path = directory.join(format!("{}{SUFFIX}", unique_name()));
-        let mut options = OpenOptions::new();
-        // `create_new` refuses every existing name, a symbolic link included.
-        options.read(true).write(true).create_new(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let file = options.open(&path)?;
-        // From here on a failure removes the file again.
-        let frames = Self { path, file };
-        // Where a file lock only advises (on Windows it would keep the
-        // emulator from writing), it says that the file is in use.
-        if cfg!(unix) {
-            frames.hold()?;
-        }
+    /// Makes the file under a name of its own for that, locks it and only
+    /// then gives it the name the emulator and every client's
+    /// [`remove_leftovers`] know: under that name a file is never without the
+    /// lock of the client that uses it. A sweep can take the file while it is
+    /// being made; then it is made again. `made` is told each name a file is
+    /// made under (a test's sweep comes in there).
+    fn create(directory: &Path, bytes: usize, mut made: impl FnMut(&Path)) -> io::Result<Self> {
+        let mut attempt = 0;
+        let frames = loop {
+            let name = unique_name();
+            let path = directory.join(format!("{name}{SUFFIX}"));
+            let making = directory.join(format!("{name}{SUFFIX}{NEW}"));
+            let mut options = OpenOptions::new();
+            // `create_new` refuses every existing name, a symbolic link included.
+            options.read(true).write(true).create_new(true);
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+            let file = options.open(&making)?;
+            made(&making);
+            match Self::hold(&file).and_then(|()| fs::rename(&making, &path)) {
+                // From here on a failure removes the file again.
+                Ok(()) => break Self { path, file },
+                Err(error) => {
+                    drop(file);
+                    let _ = fs::remove_file(&making);
+                    attempt += 1;
+                    if attempt == 3 {
+                        return Err(error);
+                    }
+                }
+            }
+        };
         // Writing the zeros allocates every page now; a hole would only be
         // allocated by the emulator's write through its mapping, and a full
         // filesystem at that moment kills the emulator (SIGBUS).
@@ -483,14 +601,15 @@ impl FrameFile {
     }
 
     /// Takes the lock that keeps every client's [`remove_leftovers`] away
-    /// from this file. It ends with the file or with this process, and it is
+    /// from a file. It ends with the file or with this process, and it is
     /// seen wherever the directory is, also by a client for which this
-    /// process's id means nothing (another container).
-    fn hold(&self) -> io::Result<()> {
-        self.file.lock()?;
-        // A sweep that came between the creation and the lock has removed the
-        // name, and the emulator would create a file of its own under it.
-        fs::symlink_metadata(&self.path).map(drop)
+    /// process's id means nothing (another container). Only where a file lock
+    /// advises: on Windows it would keep the emulator from writing.
+    fn hold(file: &File) -> io::Result<()> {
+        if cfg!(unix) {
+            file.lock()?;
+        }
+        Ok(())
     }
 
     fn read(&self, buffer: &mut [u8]) -> io::Result<()> {
@@ -521,8 +640,9 @@ pub(super) fn remove_leftovers() {
     remove_leftovers_in(Path::new(DIRECTORY));
 }
 
-/// Removes the frame files in `directory` that nobody holds (see
-/// [`FrameFile::hold`]). A file that can not be opened or locked stays.
+/// Removes the frame files in `directory`, finished or still being made,
+/// that nobody holds (see [`FrameFile::create`]). A file that can not be
+/// opened or locked stays.
 #[cfg(any(not(windows), test))]
 fn remove_leftovers_in(directory: &Path) -> usize {
     let Ok(entries) = fs::read_dir(directory) else {
@@ -530,10 +650,13 @@ fn remove_leftovers_in(directory: &Path) -> usize {
     };
     let mut removed = 0;
     for entry in entries.flatten() {
-        let ours = entry
-            .file_name()
-            .to_str()
-            .is_some_and(|name| name.starts_with(PREFIX) && name.ends_with(SUFFIX));
+        let ours = entry.file_name().to_str().is_some_and(|name| {
+            name.starts_with(PREFIX)
+                && (name.ends_with(SUFFIX)
+                    || name
+                        .strip_suffix(NEW)
+                        .is_some_and(|name| name.ends_with(SUFFIX)))
+        });
         // Only files: a link under one of our names is nothing we made.
         if !ours || !entry.file_type().is_ok_and(|kind| kind.is_file()) {
             continue;
@@ -542,8 +665,7 @@ fn remove_leftovers_in(directory: &Path) -> usize {
         let Ok(file) = File::open(&path) else {
             continue;
         };
-        // The lock is kept until the name is gone: a client that has just
-        // created this file waits for it and then finds its file removed.
+        // The lock is kept until the name is gone.
         if file.try_lock().is_ok() && fs::remove_file(&path).is_ok() {
             removed += 1;
         }
@@ -640,11 +762,17 @@ mod tests {
     }
 
     #[test]
-    fn a_region_the_emulator_never_wrote_is_empty_and_counts_every_announced_frame() {
+    fn a_region_the_emulator_never_wrote_holds_nothing_of_a_frame_and_counts_every_one_announced() {
         let dir = tempfile::tempdir().unwrap();
         for (mut frames, _) in regions(dir.path(), BYTES) {
             for announced in 1..=3 {
-                assert_eq!(frames.copy(BYTES).unwrap(), vec![0; BYTES]);
+                // The seal in the colours of the first pixels, zeros after.
+                let empty = frames.copy(BYTES).unwrap();
+                let seal = frames.seal.unwrap();
+                for (at, byte) in empty.iter().enumerate() {
+                    let sealed = (0..SEAL).find(|index| colour(*index) == at);
+                    assert_eq!(*byte, sealed.map_or(0, |index| seal[index]), "byte {at}");
+                }
                 assert!(!frames.written());
                 assert_eq!(frames.unwritten(), announced);
             }
@@ -678,12 +806,23 @@ mod tests {
     }
 
     #[test]
-    fn the_mark_is_written_into_alpha_bytes_of_the_first_pixels_and_nowhere_else() {
+    fn the_client_writes_the_seal_once_and_then_only_alpha_bytes_of_the_first_pixels() {
         let dir = tempfile::tempdir().unwrap();
         for (mut frames, emulator) in regions(dir.path(), BYTES) {
+            // Before the first frame: the seal and the mark, zeros after.
+            let (seal, mark) = (frames.seal.unwrap(), frames.mark);
+            for (at, byte) in emulator().read(BYTES).into_iter().enumerate() {
+                let sealed = (0..SEAL).find(|index| colour(*index) == at);
+                let marked = (0..MARK).find(|index| alpha(*index) == at);
+                let expected = sealed.map(|index| seal[index]);
+                let expected = expected.or(marked.map(|index| mark[index]));
+                assert_eq!(byte, expected.unwrap_or(0), "byte {at}");
+            }
+            assert!(seal.iter().any(|byte| *byte != 0));
             let before = picture(0x00a1_b2c3, BYTES);
             emulator().write_at(0, &before);
             assert_eq!(frames.copy(BYTES).unwrap(), before);
+            assert!(frames.seal.is_none());
             // What the region holds now, read by the emulator's side.
             let after = emulator().read(BYTES);
             for (at, (was, is)) in before.iter().zip(&after).enumerate() {
@@ -741,11 +880,13 @@ mod tests {
             emulator().write_at(0, &picture(1, BYTES));
             assert_eq!(frames.copy(BYTES).unwrap(), picture(1, BYTES));
             written_just_before_the_mark(&frames, &emulator(), &picture(2, BYTES));
-            // The whole of frame 2, although it counts as not written.
+            // The whole of frame 2, and its colours say that it was written.
+            assert_eq!(frames.copy(BYTES).unwrap(), picture(2, BYTES));
+            assert_eq!(frames.unwritten(), 0);
+            // It stays whole on a still screen. Announced again it counts:
+            // this emulator rewrites the alpha, and the mark is still there.
             assert_eq!(frames.copy(BYTES).unwrap(), picture(2, BYTES));
             assert_eq!(frames.unwritten(), 1);
-            // It stays whole on a still screen, announced again or not.
-            assert_eq!(frames.copy(BYTES).unwrap(), picture(2, BYTES));
             emulator().write_at(0, &picture(3, BYTES));
             assert_eq!(frames.copy(BYTES).unwrap(), picture(3, BYTES));
             assert_eq!(frames.unwritten(), 0);
@@ -779,20 +920,90 @@ mod tests {
     }
 
     #[test]
-    fn copies_racing_a_writer_that_never_pauses_keep_every_colour_and_are_not_taken_for_unwritten()
-    {
-        // Frames large enough for a write and a copy to overlap: 256x128.
+    fn an_emulator_that_writes_colours_and_no_alpha_is_known_by_its_colours() {
+        let dir = tempfile::tempdir().unwrap();
+        for (mut frames, emulator) in regions(dir.path(), BYTES) {
+            // Its first frame is black: no colour byte differs from the
+            // zeros of a new region, but all differ from the seal.
+            emulator().write_colours(&picture(0, BYTES));
+            assert_eq!(frames.copy(BYTES).unwrap(), vec![0; BYTES]);
+            assert!(frames.written());
+            // A still screen announced again and again: nothing says that it
+            // was written, and nothing that it was not.
+            for _ in 0..3 * UNWRITTEN_FRAMES {
+                emulator().write_colours(&picture(0, BYTES));
+                assert_eq!(frames.copy(BYTES).unwrap(), vec![0; BYTES]);
+                assert_eq!(frames.unwritten(), 0);
+            }
+            // The alpha stays what the region had, the mark is never shown
+            // and never removed.
+            let mark = frames.mark;
+            for value in 1..20 {
+                emulator().write_colours(&picture(value, BYTES));
+                assert_eq!(frames.copy(BYTES).unwrap(), translucent(value, 0, BYTES));
+                assert_eq!(frames.unwritten(), 0);
+            }
+            assert_eq!(frames.mark, mark);
+            assert!(!frames.ignored(1, Duration::ZERO));
+        }
+    }
+
+    #[test]
+    fn an_emulator_that_stops_rewriting_the_alpha_is_believed_once_its_colours_have_shown_it() {
+        let dir = tempfile::tempdir().unwrap();
+        for (mut frames, emulator) in regions(dir.path(), BYTES) {
+            emulator().write_at(0, &picture(1, BYTES));
+            assert_eq!(frames.copy(BYTES).unwrap(), picture(1, BYTES));
+            // From here on it writes colours only (it turned the picture, or
+            // its readback on the graphics card failed once). On a screen
+            // that stands still right then it looks like one that has stopped
+            // writing here.
+            emulator().write_colours(&picture(2, BYTES));
+            assert_eq!(frames.copy(BYTES).unwrap(), picture(2, BYTES));
+            for announced in 1..=UNWRITTEN_FRAMES {
+                emulator().write_colours(&picture(2, BYTES));
+                assert_eq!(frames.copy(BYTES).unwrap(), picture(2, BYTES));
+                assert_eq!(frames.unwritten(), announced);
+            }
+            assert!(frames.ignored(UNWRITTEN_FRAMES, Duration::ZERO));
+            // Frames that change clear that, and after more of them in a row
+            // under one mark than an emulator that rewrites the alpha could
+            // leave, a still screen is no longer held against it.
+            for value in 3..3 + UNWRITTEN_FRAMES {
+                emulator().write_colours(&picture(value, BYTES));
+                assert_eq!(frames.copy(BYTES).unwrap(), picture(value, BYTES));
+                assert_eq!(frames.unwritten(), 0);
+            }
+            let last = picture(2 + UNWRITTEN_FRAMES, BYTES);
+            for _ in 0..3 * UNWRITTEN_FRAMES {
+                emulator().write_colours(&last);
+                assert_eq!(frames.copy(BYTES).unwrap(), last);
+                assert_eq!(frames.unwritten(), 0);
+            }
+            // When it rewrites the alpha again, a mark that stays counts again.
+            emulator().write_at(0, &picture(90, BYTES));
+            assert_eq!(frames.copy(BYTES).unwrap(), picture(90, BYTES));
+            assert_eq!(frames.copy(BYTES).unwrap(), picture(90, BYTES));
+            assert_eq!(frames.unwritten(), 1);
+        }
+    }
+
+    #[test]
+    fn copies_overlapping_the_writes_of_a_writer_that_never_pauses_keep_every_colour_and_are_not_taken_for_unwritten()
+     {
+        // Frames large enough for a copy to fall into a write: 256x128.
         const LARGE: usize = 256 * 128 * 4;
-        const COPIES: u32 = 2000;
+        const PIECES: usize = 8;
+        const OVERLAPS: u32 = 300;
         let dir = tempfile::tempdir().unwrap();
         for (mut frames, emulator) in regions(dir.path(), LARGE) {
             let stop = Arc::new(AtomicBool::new(false));
-            // The frame whose write has begun, and the last one complete.
-            let begun = Arc::new(AtomicU32::new(0));
-            let complete = Arc::new(AtomicU32::new(0));
+            // Twice the number of the last frame written, and one less while
+            // that frame is being written.
+            let progress = Arc::new(AtomicU32::new(0));
             let (announce, announced) = mpsc::channel();
             let writer = {
-                let (stop, begun, complete) = (stop.clone(), begun.clone(), complete.clone());
+                let (stop, progress) = (stop.clone(), progress.clone());
                 std::thread::spawn(move || {
                     // The stream's own long-lived borrow of the region.
                     let region = emulator();
@@ -800,9 +1011,15 @@ mod tests {
                     while !stop.load(Ordering::Relaxed) {
                         frame += 1;
                         let pixels = picture(frame, LARGE);
-                        begun.store(frame, Ordering::SeqCst);
-                        region.write_at(0, &pixels);
-                        complete.store(frame, Ordering::SeqCst);
+                        progress.store(2 * frame - 1, Ordering::SeqCst);
+                        // In pieces, with a chance for the reader between
+                        // them, so that copies fall into the middle of a
+                        // write on a machine with one processor too.
+                        for (piece, bytes) in pixels.chunks(LARGE / PIECES).enumerate() {
+                            region.write_at(piece * (LARGE / PIECES), bytes);
+                            std::thread::yield_now();
+                        }
+                        progress.store(2 * frame, Ordering::SeqCst);
                         // As the emulator: the message follows the write.
                         if announce.send(frame).is_err() {
                             break;
@@ -811,19 +1028,20 @@ mod tests {
                 })
             };
             let started = Instant::now();
-            let (mut copies, mut torn, mut raced) = (0, 0, 0);
-            while copies < COPIES && started.elapsed() < Duration::from_secs(30) {
+            let (mut copies, mut overlapping, mut torn) = (0, 0, 0);
+            while overlapping < OVERLAPS && started.elapsed() < Duration::from_secs(60) {
                 // As the reader: wait for a message, jump to the newest.
                 let mut newest: u32 = announced.recv().unwrap();
                 while let Ok(newer) = announced.try_recv() {
                     newest = newer;
                 }
-                // Everything the region holds from here on is at least the
-                // last complete frame and at most the last one begun.
-                let floor = complete.load(Ordering::SeqCst);
-                assert!(floor >= newest);
+                let before = progress.load(Ordering::SeqCst);
                 let pixels = frames.copy(LARGE).unwrap();
-                let ceiling = begun.load(Ordering::SeqCst);
+                let after = progress.load(Ordering::SeqCst);
+                // Everything the region held meanwhile is at least the last
+                // frame complete before and at most the last one begun after.
+                let (floor, ceiling) = (before / 2, after.div_ceil(2));
+                assert!(floor >= newest);
                 let mut values = pixels.chunks_exact(4).map(|pixel| {
                     assert_eq!(pixel[3], 255, "an alpha the emulator never wrote");
                     u32::from_le_bytes([pixel[0], pixel[1], pixel[2], 0])
@@ -843,15 +1061,19 @@ mod tests {
                     frames.unwritten()
                 );
                 copies += 1;
+                // A write was going on when the copy began, or one began or
+                // ended during it.
+                overlapping += u32::from(before % 2 == 1 || after != before);
                 torn += u32::from(low != high);
-                raced += u32::from(frames.unwritten() > 0);
             }
             stop.store(true, Ordering::Relaxed);
             drop(announced);
             writer.join().unwrap();
-            assert_eq!(copies, COPIES, "too slow to say anything");
-            // How often the race really happened depends on the machine.
-            println!("{copies} copies: {torn} torn, {raced} written just before the mark");
+            assert!(
+                overlapping >= OVERLAPS,
+                "only {overlapping} of {copies} copies overlapped a write"
+            );
+            println!("{copies} copies: {overlapping} during a write, {torn} of two frames");
         }
     }
 
@@ -900,24 +1122,54 @@ mod tests {
     }
 
     #[test]
-    fn the_frame_file_has_the_frame_size_is_zero_under_the_mark_and_goes_with_the_region() {
+    fn the_frame_file_has_the_frame_size_and_one_name_and_goes_with_the_region() {
         let dir = tempfile::tempdir().unwrap();
         let bytes = 3 * 64 * 1024 + 4;
         let frames = SharedFrames::in_directory(dir.path(), bytes).unwrap();
         let path = PathBuf::from(frames.handle().strip_prefix("file://").unwrap());
         assert_eq!(fs::metadata(&path).unwrap().len(), bytes as u64);
-        // Zeros but for the mark, so no earlier picture can show through.
-        let mut content = fs::read(&path).unwrap();
-        for index in 0..MARK {
-            assert_eq!(content[alpha(index)], frames.mark[index]);
-            content[alpha(index)] = 0;
-        }
-        assert!(content.iter().all(|byte| *byte == 0));
+        // Nothing is left of the name it was made under.
+        let names: Vec<_> = fs::read_dir(dir.path()).unwrap().flatten().collect();
+        assert_eq!(names.len(), 1);
+        assert_eq!(names[0].path(), path);
+        // Zeros behind the first pixels, so no earlier picture can show
+        // through.
+        let content = fs::read(&path).unwrap();
+        assert!(content[MARK_SPAN..].iter().all(|byte| *byte == 0));
         drop(frames);
         assert!(!path.exists());
         // A directory that does not exist is an error for the caller, who
         // continues without shared memory.
         assert!(SharedFrames::in_directory(&dir.path().join("missing"), bytes).is_err());
+    }
+
+    #[test]
+    fn a_sweep_that_takes_a_frame_file_while_it_is_made_costs_one_more_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        // Another client's sweep finds the file between its creation and its
+        // lock, the first two times.
+        let mut swept = vec![];
+        let file = FrameFile::create(dir.path(), BYTES, |making| {
+            if swept.len() < 2 {
+                swept.push((making.to_path_buf(), remove_leftovers_in(dir.path())));
+            }
+        })
+        .unwrap();
+        assert_eq!(swept.len(), 2);
+        for (making, removed) in &swept {
+            assert_eq!(*removed, 1);
+            assert!(!making.exists());
+        }
+        // The third file is whole, under the name the emulator is given.
+        assert_eq!(fs::metadata(&file.path).unwrap().len(), BYTES as u64);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        drop(file);
+        // And a sweep that never lets go is an error for the caller.
+        let failed = FrameFile::create(dir.path(), BYTES, |_| {
+            remove_leftovers_in(dir.path());
+        });
+        assert!(failed.is_err());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
     #[cfg(unix)]
@@ -993,20 +1245,31 @@ mod tests {
         let in_use = frame_file();
         let holder = File::create(&in_use).unwrap();
         holder.lock().unwrap();
-        // Left behind by clients that are gone, the second by a build that
-        // put a counter after the process id.
+        // Left behind by clients that are gone: a finished file, one that was
+        // still being made, and one of a build that put a counter after the
+        // process id.
         let left = frame_file();
+        let unfinished = dir.path().join(format!("{}{SUFFIX}{NEW}", unique_name()));
         let older = dir.path().join(format!("{PREFIX}4242-17f3a-0{SUFFIX}"));
         let unrelated = dir.path().join("rustemudroid-other.rgba");
         let other_kind = dir.path().join(format!("{PREFIX}1-0.txt"));
+        let other_new = dir.path().join(format!("{PREFIX}1-0.txt{NEW}"));
         let folder = frame_file();
-        for path in [&left, &older, &unrelated, &other_kind] {
+        for path in [
+            &left,
+            &unfinished,
+            &older,
+            &unrelated,
+            &other_kind,
+            &other_new,
+        ] {
             fs::write(path, b"x").unwrap();
         }
         fs::create_dir(&folder).unwrap();
-        assert_eq!(remove_leftovers_in(dir.path()), 2);
-        assert!(!left.exists() && !older.exists());
-        assert!(in_use.exists() && unrelated.exists() && other_kind.exists() && folder.exists());
+        assert_eq!(remove_leftovers_in(dir.path()), 3);
+        assert!(!left.exists() && !unfinished.exists() && !older.exists());
+        assert!(in_use.exists() && unrelated.exists() && folder.exists());
+        assert!(other_kind.exists() && other_new.exists());
         // The client is gone: so is its lock, and then its file.
         drop(holder);
         assert_eq!(remove_leftovers_in(dir.path()), 1);

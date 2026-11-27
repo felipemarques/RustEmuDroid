@@ -9,8 +9,12 @@
 //!     │                  sends nothing while Android boots
 //!     └── the first picture is on the panel ──────────────────▶ Shared
 //!   Shared ── every subscription (the first, a resize, a rotation) uses a
-//!     │       new region; one that shows nothing is waited for as in-band
-//!     └── evidence against shared memory ─────────────────────▶ Inline(reason)
+//!     │       new region
+//!     ├── evidence against shared memory ─────────────────────▶ Inline(reason)
+//!     └── no picture in time, and none through a region so far ▶ Doubt
+//!   Doubt ── in-band again, to see whose silence that was
+//!     ├── a picture: the emulator had one, the region got none ▶ Inline(reason)
+//!     └── none in the same time: the emulator had none ───────▶ UntilFirstPicture
 //!   Inline ── in-band for the rest of the session.
 //! ```
 //!
@@ -22,14 +26,27 @@
 //! for how that is known). A picture counts, and shared memory is reported as
 //! the transport, only once the emulator has provably written into the region.
 //!
-//! A subscription without a picture is no evidence. The emulator sends
-//! nothing while the guest has no frame for it (the screen is off, Android is
-//! not up), through a region or inside the messages alike, so the wait is the
-//! one of the in-band path: none for an unreduced request, and for a reduced
-//! one the reduction's own limit, whose miss disables the reduction and leaves
-//! shared memory alone. A stream that ends or a connection error is not
-//! evidence either: it ends the subscription exactly as in-band (normally the
-//! VM stopping) and nothing is reported.
+//! A subscription without a picture is evidence in one situation only. The
+//! emulator sends nothing while the guest has no frame for it (the screen is
+//! off, Android is not up), through a region or inside the messages alike.
+//! But the plan enters `Shared` because the in-band stream it replaces has
+//! shown a picture a moment ago: the emulator has a frame then, and a new
+//! stream gets it at once. So until a picture has come through a region in
+//! this session, a shared subscription has `FIRST_PICTURE` to show one. When
+//! it does not, the same request goes in-band again. A picture there within
+//! the same time says that the emulator had pictures before and after and
+//! gave the region none: in-band for good, with that reason. Silence there
+//! says that the emulator had nothing to show (the screen went off just
+//! then), nothing is reported, and shared memory has its turn after the next
+//! picture. Android booting is waited for in-band, without a limit.
+//!
+//! Once a picture has come through a region, a subscription that shows
+//! nothing (a resize while the screen is off) is waited for as in-band: no
+//! limit for an unreduced request, and for a reduced one the reduction's own
+//! limit, whose miss disables the reduction and leaves shared memory alone. A
+//! stream that ends or a connection error is not evidence either: it ends the
+//! subscription exactly as in-band (normally the VM stopping) and nothing is
+//! reported.
 use super::{
     super::{Fallback, Format, Frame, Shared, StreamEnded, Transport, VideoTransport, authorized},
     DisplayResult, FIRST_REDUCED_FRAME, NativeDisplay, Request, Source,
@@ -59,9 +76,13 @@ use tonic::{
 const UNWRITTEN_SPAN: Duration = Duration::from_millis(500);
 /// How often the plan looks for the first in-band picture.
 const PICTURE_POLL: Duration = Duration::from_millis(200);
-/// How long a region is kept after its subscription (see [`Lingering`]): many
-/// times the 125 ms after which the emulator looks whether a stream was
-/// cancelled.
+/// A session that has not had a picture through a region gives a shared
+/// subscription this long for one, and then the in-band one as long to show
+/// that the emulator has pictures.
+const FIRST_PICTURE: Duration = Duration::from_secs(3);
+/// How long a region is kept after its subscription where that matters (see
+/// [`Lingering`]): many times the 125 ms after which the emulator looks
+/// whether a stream was cancelled.
 const LINGER: Duration = Duration::from_secs(2);
 /// A copy is made again at most this many times for frames announced during
 /// it, so a producer that never pauses can not keep the panel without a
@@ -74,7 +95,24 @@ const MAX_SKIP: u32 = 256;
 pub(super) enum Plan {
     UntilFirstPicture,
     Shared,
+    Doubt,
     Inline,
+}
+
+/// How a subscription through a region ended, when not as `receive` ends.
+pub(super) enum Stop {
+    /// Evidence against shared memory: the reason why the session continues
+    /// in-band for good.
+    Evidence(Fallback),
+    /// No picture in the time a session has for its first one through a
+    /// region.
+    Silent,
+}
+
+impl From<Fallback> for Stop {
+    fn from(fallback: Fallback) -> Self {
+        Self::Evidence(fallback)
+    }
 }
 
 /// The time limits of the plan; the tests shorten them.
@@ -82,6 +120,7 @@ pub(super) enum Plan {
 pub(super) struct Timing {
     /// The first picture of a reduced request, as in the in-band path.
     pub reduced_frame: Duration,
+    pub first_picture: Duration,
     pub unwritten_span: Duration,
     pub picture_poll: Duration,
     pub linger: Duration,
@@ -91,9 +130,15 @@ impl Default for Timing {
     fn default() -> Self {
         Self {
             reduced_frame: FIRST_REDUCED_FRAME,
+            first_picture: FIRST_PICTURE,
             unwritten_span: UNWRITTEN_SPAN,
             picture_poll: PICTURE_POLL,
-            linger: LINGER,
+            // Only where a name that is gone can hurt.
+            linger: if cfg!(windows) {
+                Duration::ZERO
+            } else {
+                LINGER
+            },
         }
     }
 }
@@ -109,6 +154,10 @@ impl Default for Timing {
 /// when `/dev/shm` is full. So the region stays for `linger` after the
 /// subscription, in a task of the worker's runtime. When the runtime ends
 /// (the display session is over, the VM stopping) it is released at once.
+///
+/// On Windows a name that is gone only makes the emulator create a section
+/// of its own for a frame nobody reads, so nothing lingers there: every
+/// region is released with its subscription.
 pub(super) struct Lingering {
     region: Option<SharedFrames>,
     linger: Duration,
@@ -130,6 +179,9 @@ impl Lingering {
 impl Drop for Lingering {
     fn drop(&mut self) {
         let linger = self.linger;
+        if linger.is_zero() {
+            return;
+        }
         if let (Some(region), Ok(runtime)) =
             (self.region.take(), tokio::runtime::Handle::try_current())
         {
@@ -237,9 +289,10 @@ async fn let_the_transport_run() {
     tokio::task::yield_now().await;
 }
 
-/// One subscription through `region`. `Err` is the reason why the session
-/// continues in-band (the caller repeats the request there); `Ok` is how the
-/// subscription ended otherwise, with the meaning `receive` gives it.
+/// One subscription through `region`. `Err` says why the caller repeats the
+/// request in-band; `Ok` is how the subscription ended otherwise, with the
+/// meaning `receive` gives it. `prove_within` is the time for the first
+/// picture of a session that has not had one through a region yet.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn receive_shared(
     video: &mut Grpc<Channel>,
@@ -250,11 +303,27 @@ pub(super) async fn receive_shared(
     fixed_raster: Option<[u32; 2]>,
     region: &mut SharedFrames,
     timing: Timing,
-) -> Result<DisplayResult<()>, Fallback> {
-    // As in-band: only a reduced request has a limit for its first picture.
-    let deadline = request
+    prove_within: Option<Duration>,
+) -> Result<DisplayResult<()>, Stop> {
+    // As in-band, a reduced request has a limit for its first picture, and
+    // missing it is the reduction's failure. The earlier limit decides.
+    let now = time::Instant::now();
+    let reduced = request
         .reduction
-        .map(|_| time::Instant::now() + timing.reduced_frame);
+        .map(|_| (now + timing.reduced_frame, true));
+    let unproven = prove_within.map(|limit| (now + limit, false));
+    let deadline = match (reduced, unproven) {
+        (Some(reduced), Some(unproven)) if unproven.0 < reduced.0 => Some(unproven),
+        (reduced, unproven) => reduced.or(unproven),
+    };
+    let missed =
+        |late: time::error::Elapsed, the_reductions: bool| -> Result<DisplayResult<()>, Stop> {
+            if the_reductions {
+                Ok(Err(late.into()))
+            } else {
+                Err(Stop::Silent)
+            }
+        };
     let [width, height] = request.reduction.map_or([0, 0], |reduction| reduction.size);
     let start = async {
         video.ready().await?;
@@ -281,18 +350,18 @@ pub(super) async fn receive_shared(
             .await;
         Ok::<_, Box<dyn std::error::Error + Send + Sync>>(reply)
     };
-    let started = match deadline {
-        Some(deadline) => match time::timeout_at(deadline, start).await {
-            Ok(started) => started,
-            Err(late) => return Ok(Err(late.into())),
+    let begun = match deadline {
+        Some((limit, the_reductions)) => match time::timeout_at(limit, start).await {
+            Ok(begun) => begun,
+            Err(late) => return missed(late, the_reductions),
         },
         None => start.await,
     };
-    let mut frames = match started {
+    let mut frames = match begun {
         Err(error) => return Ok(Err(error)),
         Ok(Err(status)) => {
             return match refusal(&status) {
-                Some(fallback) => Err(fallback),
+                Some(fallback) => Err(fallback.into()),
                 None => Ok(Err(status.into())),
             };
         }
@@ -308,10 +377,12 @@ pub(super) async fn receive_shared(
     loop {
         let item = match (again.take().or_else(|| lookahead.take()), first) {
             (Some(item), _) => item,
-            (None, Some(deadline)) => match time::timeout_at(deadline, frames.message()).await {
-                Ok(item) => item,
-                Err(late) => return Ok(Err(late.into())),
-            },
+            (None, Some((limit, the_reductions))) => {
+                match time::timeout_at(limit, frames.message()).await {
+                    Ok(item) => item,
+                    Err(late) => return missed(late, the_reductions),
+                }
+            }
             (None, None) => frames.message().await,
         };
         let item = if shared_len(&item).is_some() {
@@ -326,10 +397,10 @@ pub(super) async fn receive_shared(
                 let pixels = match region.copy(shared_len(&current).unwrap_or(0)) {
                     Ok(pixels) => pixels,
                     Err(CopyError::TooLarge { frame, region }) => {
-                        return Err(Fallback::FrameTooLarge { frame, region });
+                        return Err(Fallback::FrameTooLarge { frame, region }.into());
                     }
                     Err(CopyError::System(error)) => {
-                        return Err(Fallback::RegionError(error.to_string()));
+                        return Err(Fallback::RegionError(error.to_string()).into());
                     }
                 };
                 copies += 1;
@@ -355,24 +426,25 @@ pub(super) async fn receive_shared(
             let Some(pixels) = pixels else {
                 continue;
             };
-            // A region the emulator never wrote has had its mark since before
-            // the request: there one frame that is not in it is enough.
+            // A region the emulator never wrote has had its seal and its mark
+            // since before the request: there one frame that left both is
+            // enough.
             let elsewhere = if region.written() {
                 region.ignored(UNWRITTEN_FRAMES, timing.unwritten_span)
             } else {
                 region.unwritten() > 0
             };
             if elsewhere {
-                return Err(Fallback::NotWritten);
+                return Err(Fallback::NotWritten.into());
             }
             if !region.written() {
-                // A frame too small to carry the mark proves nothing, and
-                // nothing is shown without proof.
+                // A frame too small to carry them proves nothing, and nothing
+                // is shown without proof.
                 continue;
             }
             match current {
                 Ok(Some(mut frame)) => {
-                    frame.pixels = pixels.into();
+                    frame.pixels = pixels;
                     Ok(Some(frame))
                 }
                 other => other,
@@ -385,7 +457,7 @@ pub(super) async fn receive_shared(
             Ok(None) => return Ok(Err(StreamEnded.into())),
             Err(status) => {
                 return match refusal(&status) {
-                    Some(fallback) => Err(fallback),
+                    Some(fallback) => Err(fallback.into()),
                     None => Ok(Err(status.into())),
                 };
             }
@@ -397,7 +469,7 @@ pub(super) async fn receive_shared(
             .is_some_and(|transport| transport.channel == MMAP);
         if !frame.pixels.is_empty() && !mapped {
             // The emulator ignored the request; an in-band subscription works.
-            return Err(Fallback::EngineSentInline);
+            return Err(Fallback::EngineSentInline.into());
         }
         if frame.pixels.is_empty() {
             let mut shared = state.lock().unwrap();
@@ -487,6 +559,7 @@ mod tests {
     fn quick() -> Timing {
         Timing {
             reduced_frame: Duration::from_millis(300),
+            first_picture: Duration::from_millis(300),
             unwritten_span: Duration::from_millis(60),
             picture_poll: Duration::from_millis(10),
             linger: Duration::from_millis(100),
@@ -602,7 +675,7 @@ mod tests {
 
         /// The panel gets the picture `value` without the guest posting it.
         async fn has(&self, value: u32) {
-            let expected = picture(value, self.engine.frame_bytes());
+            let expected = self.engine.frame(value);
             self.until(&format!("picture {value} on the panel"), |shared| {
                 shared
                     .latest
@@ -656,21 +729,19 @@ mod tests {
         PathBuf::from(handle.strip_prefix("file://").unwrap())
     }
 
-    /// For a test that watches a copy: the guest does `what`, and the
-    /// emulator writes the frame and announces it, all before this returns
-    /// into the copy, with time for the message to reach this process.
+    /// For a test that watches a copy: the guest does `what`, the emulator
+    /// writes the frame and announces it, and the message is in this
+    /// process's socket, all before this returns into the copy.
     fn announced_meanwhile(engine: &FakeEngine, what: impl FnOnce(&FakeEngine)) {
-        let before = engine.announced();
         what(engine);
         let started = std::time::Instant::now();
-        while engine.announced() == before {
+        while !engine.announcement_waits_at_the_client() {
             assert!(
-                started.elapsed() < Duration::from_secs(5),
-                "the frame was not announced"
+                started.elapsed() < Duration::from_secs(20),
+                "the announcement did not arrive"
             );
             std::thread::sleep(Duration::from_millis(1));
         }
-        std::thread::sleep(Duration::from_millis(100));
     }
 
     #[test]
@@ -757,6 +828,135 @@ mod tests {
         });
         assert!(ended.is_none());
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn without_a_linger_the_region_of_a_replaced_subscription_goes_with_it() {
+        // Windows, where a name that is gone hurts nobody.
+        let expected = if cfg!(windows) { 0 } else { 2 };
+        assert_eq!(Timing::default().linger, Duration::from_secs(expected));
+        let dir = tempfile::tempdir().unwrap();
+        let session = Session::new(FakeEngine::new(NATIVE, Files::Posix, [dir.path().into()]));
+        let mut at_once = file_regions(dir.path().into());
+        at_once.timing.linger = Duration::ZERO;
+        let ended = session.play(at_once, Some(NATIVE), async |session| {
+            session.shows(1).await;
+            session.reports(VideoTransport::SharedMemory).await;
+            for regions in 2..20 {
+                session.asks_again();
+                session.has(1).await;
+                // One region, the newest, however often the panel asks.
+                let handles = session.engine.handles();
+                assert_eq!(handles.len(), regions);
+                let (newest, older) = handles.split_last().unwrap();
+                assert!(file_of(newest).exists());
+                assert!(older.iter().all(|handle| !file_of(handle).exists()));
+            }
+            session.shows(2).await;
+        });
+        assert!(ended.is_none());
+    }
+
+    #[test]
+    fn a_first_shared_subscription_that_shows_nothing_is_given_up_when_in_band_has_pictures() {
+        // An engine that has pictures for a stream inside the messages and
+        // none for one through a region, without saying so.
+        let dir = tempfile::tempdir().unwrap();
+        let session = Session::new(FakeEngine::new(NATIVE, Files::Posix, [dir.path().into()]));
+        session.engine.silence_shared();
+        let ended = session.play(
+            file_regions(dir.path().into()),
+            Some(NATIVE),
+            async |session| {
+                session.shows(1).await;
+                let replaced = time::Instant::now();
+                session
+                    .reports(inline(Fallback::NoPicture { seconds: 0 }))
+                    .await;
+                // Not before the region has had its time.
+                assert!(replaced.elapsed() >= quick().first_picture / 2);
+                // In-band before, through a region, in-band to see, and
+                // in-band from then on.
+                let streams = [false, true, false, false];
+                session
+                    .until_engine("the in-band subscription that stays", |engine| {
+                        engine.subscriptions() == streams
+                    })
+                    .await;
+                for value in 2..10 {
+                    session.shows(value).await;
+                }
+                assert_eq!(session.engine.subscriptions(), streams);
+            },
+        );
+        assert!(ended.is_none());
+    }
+
+    #[test]
+    fn a_screen_that_goes_off_as_the_session_moves_to_shared_memory_is_not_held_against_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = Session::new(FakeEngine::new(NATIVE, Files::Posix, [dir.path().into()]));
+        session.engine.darken_on_shared();
+        let ended = session.play(
+            file_regions(dir.path().into()),
+            Some(NATIVE),
+            async |session| {
+                session.shows(1).await;
+                // Nothing through the region in its time, and nothing in-band
+                // either in as long: the emulator has no picture. Nothing is
+                // reported, and the wait is the in-band one again.
+                session
+                    .until_engine("the wait in-band", |engine| {
+                        engine.subscriptions() == [false, true, false, false]
+                    })
+                    .await;
+                time::sleep(quick().first_picture * 3).await;
+                assert_eq!(session.transport(), None);
+                assert_eq!(session.engine.subscriptions(), [false, true, false, false]);
+                // The screen comes back: shared memory has its turn again.
+                session.engine.screen(true);
+                session.reports(VideoTransport::SharedMemory).await;
+                session.shows(2).await;
+                assert_eq!(
+                    session.engine.subscriptions(),
+                    [false, true, false, false, true]
+                );
+            },
+        );
+        assert!(ended.is_none());
+    }
+
+    #[test]
+    fn an_emulator_that_writes_colours_and_no_alpha_keeps_shared_memory_on_a_still_screen_too() {
+        let dir = tempfile::tempdir().unwrap();
+        for (files, setup) in [
+            (Files::Posix, file_regions(dir.path().into())),
+            #[cfg(windows)]
+            (Files::Windows, setup(SharedFrames::create)),
+        ] {
+            let session = Session::new(FakeEngine::new(NATIVE, files, [dir.path().into()]));
+            session.engine.write_colours_only();
+            let ended = session.play(setup, Some(NATIVE), async |session| {
+                // A black screen: its colours are the zeros of a new region.
+                session.shows(0).await;
+                session.reports(VideoTransport::SharedMemory).await;
+                // It stands still and is announced again and again, for much
+                // longer than frames that are not written are tolerated.
+                let announced = session.engine.announced();
+                for _ in 0..40 {
+                    session.engine.post(0);
+                    time::sleep(Duration::from_millis(5)).await;
+                }
+                assert!(session.engine.announced() >= announced + 2 * u64::from(UNWRITTEN_FRAMES));
+                assert_eq!(session.transport(), Some(VideoTransport::SharedMemory));
+                for value in 1..20 {
+                    session.shows(value).await;
+                }
+                assert_eq!(session.engine.subscriptions(), [false, true]);
+                assert_eq!(session.transport(), Some(VideoTransport::SharedMemory));
+            });
+            assert!(ended.is_none());
+        }
     }
 
     #[test]
@@ -940,6 +1140,73 @@ mod tests {
     }
 
     #[test]
+    fn the_last_copy_of_a_round_is_dropped_when_a_frame_of_another_shape_was_announced_during_it() {
+        // Every copy of a round is overtaken, and the frame that overtakes
+        // the last one, the one the client would draw rather than copy
+        // again, is turned: the bytes of that copy are laid out the other way
+        // than its message says.
+        let dir = tempfile::tempdir().unwrap();
+        let session = Session::new(FakeEngine::new(NATIVE, Files::Posix, [dir.path().into()]));
+        let overtakes = Arc::new(AtomicU32::new(0));
+        let overtaken = {
+            let (overtakes, engine) = (overtakes.clone(), session.engine.clone());
+            let directory = PathBuf::from(dir.path());
+            setup(move |bytes| {
+                let mut frames = SharedFrames::in_directory(&directory, bytes)?;
+                let (overtakes, engine) = (overtakes.clone(), engine.clone());
+                frames.watch_copies(move |moment| {
+                    let left = overtakes.load(Ordering::SeqCst);
+                    // The turned frame is written before the copy reads, the
+                    // others after it.
+                    let (turned, at) = match left {
+                        0 => return,
+                        1 => (true, Moment::BeforeRead),
+                        _ => (false, Moment::AfterRead),
+                    };
+                    if moment == at {
+                        overtakes.store(left - 1, Ordering::SeqCst);
+                        announced_meanwhile(&engine, |engine| match turned {
+                            true => engine.turn_and_post(1, engine.drawn() + 1),
+                            false => engine.post(engine.drawn() + 1),
+                        });
+                    }
+                });
+                Ok(frames)
+            })
+        };
+        let ended = session.play(overtaken, Some(NATIVE), async |session| {
+            session.shows(1).await;
+            session.reports(VideoTransport::SharedMemory).await;
+            session.state.lock().unwrap().record = Some(vec![]);
+            // Frame 10 and, during the copies, 11 to 14 and the turned 15.
+            overtakes.store(MAX_RECOPY + 1, Ordering::SeqCst);
+            session.shows_at_last(10, 15).await;
+            assert_eq!(overtakes.load(Ordering::SeqCst), 0);
+            session.shows(16).await;
+            // Nothing was drawn of the first round, whose last copy held the
+            // turned frame under the message of frame 14.
+            let drawn: Vec<_> = session
+                .state
+                .lock()
+                .unwrap()
+                .record
+                .take()
+                .unwrap()
+                .into_iter()
+                .map(|frame| {
+                    let format = frame.format.unwrap();
+                    let turn = format.rotation.unwrap().value;
+                    let value = u32::from(frame.pixels[0]);
+                    assert_eq!(frame.pixels, picture(value, NATIVE_BYTES));
+                    (value, [format.width, format.height], turn)
+                })
+                .collect();
+            assert_eq!(drawn, [(15, [8, 16], 1), (16, [8, 16], 1)]);
+        });
+        assert!(ended.is_none());
+    }
+
+    #[test]
     fn a_guest_that_draws_without_pause_from_its_own_thread_costs_no_shared_memory_and_no_colour() {
         // 128x64: a write and a copy take long enough to overlap.
         let native = [128, 64];
@@ -959,6 +1226,7 @@ mod tests {
                 // older frame, and never shows what the guest has not drawn.
                 let mut before = vec![1u32; (native[0] * native[1]) as usize];
                 let mut pictures = 0;
+                let mut last = None;
                 while pictures < 500 {
                     assert!(started.elapsed() < Duration::from_secs(30), "{pictures}");
                     let taken = session.state.lock().unwrap().latest.take();
@@ -966,6 +1234,7 @@ mod tests {
                         tokio::task::yield_now().await;
                         continue;
                     };
+                    let frame = last.insert(frame);
                     let newest = session.engine.drawn();
                     assert_eq!(frame.pixels.len(), before.len() * 4);
                     for (pixel, before) in frame.pixels.chunks_exact(4).zip(&mut before) {
@@ -984,8 +1253,15 @@ mod tests {
                         "after {pictures} pictures"
                     );
                 }
-                // The guest rests: its last frame is the picture, whole.
+                // The guest rests: its last frame is the picture, whole. The
+                // panel keeps what it drew last, which may be the frame taken
+                // last here (the client does not run while this does).
                 session.engine.rest();
+                let mut shared = session.state.lock().unwrap();
+                if shared.latest.is_none() {
+                    shared.latest = last;
+                }
+                drop(shared);
                 session.has(session.engine.drawn()).await;
                 assert_eq!(session.engine.subscriptions(), [false, true]);
                 assert_eq!(session.transport(), Some(VideoTransport::SharedMemory));
