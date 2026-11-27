@@ -133,7 +133,7 @@ With the final library:
 |---|---|
 | Rejections provoked on purpose: stock engine started with `-qt-hide-window`, all types, the test switch below | The driver rejected 8 submissions in a 150 s race. Every one was accepted when sent again: six after one more attempt in 9–33 ms, two after two more attempts in about 1050 ms. No device lost. |
 | The same configuration without the library | Device lost 13–14 s into the race, 2 of 2 |
-| Final client, `boot --headless --gpu host`, lab profile | 300 s race without a graphics error. Library installed under the user data folder, the preload and the variable present in the engine process, nothing had to be sent again. <!-- soak: result of the 30 minute race through the final client --> |
+| Final client, `boot --headless --gpu host`, lab profile | 300 s race without a graphics error. Library installed under the user data folder, the preload and the variable present in the engine process, nothing had to be sent again. A 30 minute race then ran to the end without a graphics error; during it the driver rejected two submissions with no helper program involved, and both were accepted on the first resend, 5 ms later. That is the event the first run through the client died of. |
 | Final client, all types forced, Godot 4.7 game | `kvm run failed Bad address` 9 s after the game started. The client stopped the VM and showed its explanation with "256 MB of 8192 MB, kernel 6.8". |
 | Linux build of the final tree | `cargo fmt` clean, release build with `--features ui`, 157 tests passed, 12 ignored |
 
