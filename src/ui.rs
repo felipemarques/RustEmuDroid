@@ -386,6 +386,18 @@ impl Launcher {
                 }
             }
         }
+        // The panel's video transport goes to the boot details, once per change.
+        if let Some(transport) = self
+            .display
+            .as_mut()
+            .and_then(Display::take_video_transport_change)
+        {
+            self.output
+                .push_back(transport.describe(self.config.locale));
+            if self.output.len() > 30 {
+                self.output.pop_front();
+            }
+        }
         if !finished {
             return;
         }

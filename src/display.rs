@@ -12,6 +12,7 @@ mod native_texture_test;
 mod preview;
 #[cfg(test)]
 mod profile_shortcut_tests;
+mod shared_frames;
 mod tilt;
 
 use crate::{capture::Shot, ui::i18n::Locale};
@@ -54,6 +55,16 @@ struct Format {
     folded_display: Option<Empty>,
     #[prost(int32, optional, tag = "8")]
     display_mode: Option<i32>,
+    // Requests and reports where the pixels travel (inline or a shared file).
+    #[prost(message, optional, tag = "6")]
+    transport: Option<Transport>,
+}
+#[derive(Clone, PartialEq, Message)]
+struct Transport {
+    #[prost(int32, tag = "1")]
+    channel: i32,
+    #[prost(string, tag = "2")]
+    handle: String,
 }
 #[derive(Clone, PartialEq, Message)]
 struct Rotation {
@@ -189,6 +200,131 @@ struct Shared {
     source: adaptive_video::Source,
     blank: bool,
     error: Option<String>,
+    video_transport: Option<VideoTransport>,
+    video_transport_epoch: u64,
+    // Frames with pixels handed to the panel (the shared-memory plan waits for
+    // in-band pictures before it tries the file again).
+    delivered: u64,
+}
+
+/// How the panel's pixels arrive from the emulator.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum VideoTransport {
+    /// The emulator writes each frame into a file shared with this process.
+    SharedMemory,
+    /// Each frame travels inside its gRPC message; `fallback` says why the
+    /// shared file is not in use when it was wanted.
+    Inline { fallback: Option<Fallback> },
+}
+
+/// Why the panel continues with inline frames.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Fallback {
+    /// The Android screen can change size, so no file size bounds every frame.
+    ResizableDisplay,
+    /// The emulator ignored the request and sent the pixels inline.
+    EngineSentInline,
+    /// The emulator refused the file: its gRPC status code and message,
+    /// shown verbatim as the engine's words.
+    EngineRefused { code: String, message: String },
+    /// The frame file could not be created or read: the operating system's
+    /// message.
+    FileError(String),
+    /// No picture arrived through the file within this many seconds.
+    NoPicture { seconds: u64 },
+}
+
+impl VideoTransport {
+    pub(crate) fn describe(&self, locale: Locale) -> String {
+        let (lead, reason) = match self {
+            Self::SharedMemory => {
+                return locale
+                    .pick(
+                        "Vídeo do painel: memória compartilhada com o motor.",
+                        "Panel video: memory shared with the engine.",
+                        "Vídeo del panel: memoria compartida con el motor.",
+                    )
+                    .into();
+            }
+            Self::Inline { fallback: None } => {
+                return locale
+                    .pick(
+                        "Vídeo do painel: quadros dentro do canal de controle.",
+                        "Panel video: frames inside the control channel.",
+                        "Vídeo del panel: fotogramas dentro del canal de control.",
+                    )
+                    .into();
+            }
+            Self::Inline {
+                fallback: Some(fallback),
+            } => (
+                locale.pick(
+                    "Vídeo do painel: quadros dentro do canal de controle; a memória compartilhada não foi usada porque",
+                    "Panel video: frames inside the control channel; shared memory was not used because",
+                    "Vídeo del panel: fotogramas dentro del canal de control; no se usó la memoria compartida porque",
+                ),
+                match fallback {
+                    Fallback::ResizableDisplay => locale
+                        .pick(
+                            "a tela do Android pode mudar de tamanho.",
+                            "the Android screen can change size.",
+                            "la pantalla de Android puede cambiar de tamaño.",
+                        )
+                        .to_string(),
+                    Fallback::EngineSentInline => locale
+                        .pick(
+                            "o motor enviou os quadros dentro das mensagens.",
+                            "the engine sent the frames inside the messages.",
+                            "el motor envió los fotogramas dentro de los mensajes.",
+                        )
+                        .to_string(),
+                    Fallback::EngineRefused { code, message } => format!(
+                        "{} ({code}); {} “{message}”",
+                        locale.pick(
+                            "o motor recusou o arquivo de quadros",
+                            "the engine refused the frame file",
+                            "el motor rechazó el archivo de fotogramas",
+                        ),
+                        locale.pick(
+                            "mensagem do motor:",
+                            "the engine's message:",
+                            "mensaje del motor:",
+                        )
+                    ),
+                    Fallback::FileError(message) => format!(
+                        "{} “{message}”",
+                        locale.pick(
+                            "não foi possível criar ou ler o arquivo de quadros; mensagem do sistema:",
+                            "the frame file could not be created or read; the system's message:",
+                            "no se pudo crear ni leer el archivo de fotogramas; mensaje del sistema:",
+                        )
+                    ),
+                    Fallback::NoPicture { seconds } => match locale {
+                        Locale::PtBr => format!("nenhuma imagem chegou pelo arquivo em {seconds} s."),
+                        Locale::EnUs => {
+                            format!("no image arrived through the file within {seconds} s.")
+                        }
+                        Locale::EsEs => {
+                            format!("no llegó ninguna imagen por el archivo en {seconds} s.")
+                        }
+                    },
+                },
+            ),
+        };
+        format!("{lead} {reason}")
+    }
+}
+
+impl Shared {
+    fn set_video_transport(&mut self, transport: VideoTransport) {
+        if self.video_transport.as_ref() != Some(&transport) {
+            if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some() {
+                println!("video_transport={transport:?}");
+            }
+            self.video_transport = Some(transport);
+            self.video_transport_epoch += 1;
+        }
+    }
 }
 
 async fn open_controller(
@@ -250,7 +386,15 @@ async fn stream(
         Ok(())
     };
     let fixed_raster = adaptive_video::fixed_raster(&avd);
-    let video = adaptive_video::run(video, &token, &ctx, &state, video_requests, fixed_raster);
+    let video = adaptive_video::run(
+        video,
+        &token,
+        &ctx,
+        &state,
+        video_requests,
+        fixed_raster,
+        &avd,
+    );
     let (cancel_tilt, tilt_shutdown) = tokio::sync::oneshot::channel();
     let session = async {
         let result = tokio::select! { result=inputs=>result, result=video=>result };
@@ -273,6 +417,7 @@ pub struct Display {
     shot_source: adaptive_video::Source,
     native_display: Option<adaptive_video::NativeDisplay>,
     stream_failed: bool,
+    video_transport_seen: u64,
     // The input coordinate space, independent of the Shot's transport raster.
     size: [usize; 2],
     rotation: i32,
@@ -336,6 +481,7 @@ impl Display {
             shot_source: adaptive_video::Source::default(),
             native_display: None,
             stream_failed: false,
+            video_transport_seen: 0,
             size: [1, 1],
             rotation: 0,
             contact: None,
@@ -382,6 +528,19 @@ impl Display {
         if let Some(preference) = &mut self.video_preference {
             preference.set_enabled(enabled);
         }
+    }
+
+    /// The video transport, once per change (for the boot details).
+    pub(crate) fn take_video_transport_change(&mut self) -> Option<VideoTransport> {
+        let (epoch, transport) = {
+            let state = self.state.lock().unwrap();
+            (state.video_transport_epoch, state.video_transport.clone())
+        };
+        if epoch == self.video_transport_seen {
+            return None;
+        }
+        self.video_transport_seen = epoch;
+        transport
     }
 
     pub(crate) fn stream_available(&self) -> bool {
