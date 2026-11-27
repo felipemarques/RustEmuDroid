@@ -81,10 +81,10 @@ On Linux the Automatic GPU mode currently ends in the emulator's software render
 
 The library defends the memory the driver received in two ways:
 
-1. It keeps that memory out of the start of the engine's helper programs, so starting one no longer takes it away from the driver.
-2. When the driver still rejects a submission of drawing commands because it could not get that memory within its one-second limit, the library makes the memory present and writable again, which has no time limit outside the driver, and sends the same submission again with a short, growing pause, for at most 30 seconds. A rejected submission was not submitted at all, so sending it again repeats nothing. The graphics stack already resends a submission this way when the driver answers EAGAIN.
+1. It keeps that memory out of the start of the engine's helper programs, so starting one no longer takes it away from the driver. A buffer stays protected when a late close of an older buffer on the same addresses arrives.
+2. When the driver still rejects a submission of drawing commands because it could not get that memory within its one-second limit, the library makes the memory present and writable again, which has no time limit outside the driver, and sends the same submission again with a short, growing pause, for at most 10 seconds. A rejected submission was not submitted at all, so sending it again repeats nothing. The graphics stack already resends a submission this way when the driver answers EAGAIN.
 
-If the driver keeps rejecting for 30 seconds, the engine still ends as before, and the client then says that the graphics driver lost the device.
+If the driver keeps rejecting for 10 seconds, the engine still ends as before, and the client then says that the graphics driver lost the device.
 
 | Memory mode | When the client uses it | What it does |
 |---|---|---|
@@ -135,7 +135,8 @@ With the final library:
 | The same configuration without the library | Device lost 13–14 s into the race, 2 of 2 |
 | Final client, `boot --headless --gpu host`, lab profile | 300 s race without a graphics error. Library installed under the user data folder, the preload and the variable present in the engine process, nothing had to be sent again. A 30 minute race then ran to the end without a graphics error; during it the driver rejected two submissions with no helper program involved, and both were accepted on the first resend, 5 ms later. That is the event the first run through the client died of. |
 | Final client, all types forced, Godot 4.7 game | `kvm run failed Bad address` 9 s after the game started. The client stopped the VM and showed its explanation with "256 MB of 8192 MB, kernel 6.8". |
-| Linux build of the final tree | `cargo fmt` clean, release build with `--features ui`, 157 tests passed, 12 ignored |
+| Repeated after an independent review led to a rewrite of the library's bookkeeping | Provoked rejections: 8 in a 150 s race, all accepted, five after one more attempt in 11–12 ms and three after two more attempts in about 1050 ms. Client, 300 s race: one rejection with no helper program involved, accepted on the first resend after 5 ms. Client, all types forced: VM stopped and explained 11 s after the game started. Client, 30 minute race: one such rejection, accepted after 5 ms, no graphics error. |
+| Linux build of the final tree | `cargo fmt` clean, release build with `--features ui`, 163 tests passed, 12 ignored; one of them builds and runs the library's own test |
 
 ### Expected, not measured
 
@@ -145,17 +146,19 @@ Going by the kernel and driver sources, two things should remove these freezes: 
 
 Other AMD cards, integrated AMD graphics and computers with two AMD cards were not tested.
 
+The client decides from the cards the computer has, not from the card the engine ends up using. With an AMD integrated card next to another vendor's card and the automatic adapter selection, the library is added although the engine may use the other card. It does nothing there, and the **Technical details** line still appears. Selecting the other vendor's adapter in Settings leaves the engine as it was.
+
 ### What you see
 
 **Technical details** on the start screen shows what the client prepared before the engine started, for example `AMD graphics on Linux: video memory protection prepared; with the host GPU, Android sees the whole 8192 MB instead of the 256 MB window.` It does not say which renderer the engine then chose. With the Host GPU mode the engine log has these lines from the library:
 
 - `RustEmuDroid: userptr guard active`, once the driver registers its first buffer.
 - `RustEmuDroid: userptr guard reports all 8192 MiB of video memory as CPU visible (the window is 256 MiB)`, in full size.
-- `RustEmuDroid: userptr guard: the driver rejected a submission (busy pages); accepted after N more attempts in M ms (K so far)`, when a submission had to be sent again. The first eight are printed and then every power of two. `still rejected` in place of `accepted` means the 30 seconds ran out; the engine then ends and the client reports the lost device.
+- `RustEmuDroid: userptr guard: the driver rejected a submission (busy pages); accepted after N more attempts in M ms (K so far)`, when a submission had to be sent again. The first eight are printed and then every power of two. `still rejected` in place of `accepted` means the 10 seconds ran out; the engine then ends and the client reports the lost device.
 
-The library is written to `${XDG_DATA_HOME:-$HOME/.local/share}/RustEmuDroid/lib/`. An existing `LD_PRELOAD` is kept.
+The library is written to `${XDG_DATA_HOME:-$HOME/.local/share}/RustEmuDroid/lib/`, and a library left there by another version of the client is removed once no boot used it for a month. An existing `LD_PRELOAD` is kept. The engine starts without the library, and the **Technical details** line says why, when the library can not be written, when that folder is on a file system mounted `noexec` (a library can not be loaded from it; the client reads `/proc/self/mountinfo`), when the folder's path has a space, a colon or `$`, or when the client was built without the library.
 
-To diagnose, set `RUSTEMUDROID_AMD_LINUX` before starting the client. `off` starts the engine as before. `stock`, `full-size` and `all-types` add the library and force that memory mode. For testing only, `RUSTEMUDROID_USERPTR_GUARD_TEST=allow-fork` makes the library leave the driver's buffers visible to the start of helper programs, which brings back the original rejection on purpose so the second defence can be watched in the engine log. Do not use it for playing.
+To diagnose, set `RUSTEMUDROID_AMD_LINUX` before starting the client. `off` starts the engine as before. `stock`, `full-size` and `all-types` add the library and force that memory mode. For testing only, `RUSTEMUDROID_USERPTR_GUARD_TEST=allow-fork` makes the library leave the driver's buffers visible to the start of helper programs, which brings back the original rejection on purpose so the second defence can be watched in the engine log. Do not use it for playing. The library also has its own test against a simulated driver ([source](../native/linux/userptr_guard_test.c)), which `cargo test` builds and runs on Linux.
 
 ## Boot with a runtime beside the executable
 

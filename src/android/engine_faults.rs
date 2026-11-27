@@ -33,19 +33,35 @@ pub(crate) fn classify(line: &str) -> Option<Fault> {
     }
 }
 
-/// Most bytes read from the log in one poll; the rest waits for the next one.
-const POLL_BYTES: u64 = 1024 * 1024;
+/// How much of the log is read at a time.
+#[derive(Clone, Copy)]
+struct Limits {
+    /// Most bytes read in one poll; the rest waits for the next one.
+    poll_bytes: u64,
+    /// Polls made after the engine exited, to reach the end of the log.
+    final_passes: usize,
+    /// Read from the end of the log when those polls did not reach it.
+    tail_bytes: u64,
+}
+
+/// 1 MiB per poll and 64 MiB forward after the engine exited. An engine that
+/// wrote more than that since the last poll still has its last 1 MiB read,
+/// where it explains why it ended.
+const LIMITS: Limits = Limits {
+    poll_bytes: 1024 * 1024,
+    final_passes: 64,
+    tail_bytes: 1024 * 1024,
+};
 /// A line longer than this is examined in pieces.
 const LINE_BYTES: usize = 16 * 1024;
 /// Kept from a cut line so a marker across the cut is still found.
 const MARKER_BYTES: usize = 64;
-/// Passes over the log after the engine exited (64 MiB at most).
-const FINAL_PASSES: usize = 64;
 
 /// Follows the engine log between polls. Each poll reads only the bytes
 /// appended since the previous one.
 pub(crate) struct LogWatch {
     enabled: bool,
+    limits: Limits,
     offset: u64,
     /// The line being written: bytes after the last line break.
     line: Vec<u8>,
@@ -58,6 +74,7 @@ impl LogWatch {
     pub(crate) fn new(enabled: bool) -> Self {
         Self {
             enabled,
+            limits: LIMITS,
             offset: 0,
             line: Vec::new(),
             device_lost: false,
@@ -89,7 +106,7 @@ impl LogWatch {
         // Whatever was read before an error still counts.
         let _ = fs::File::open(log).and_then(|mut file| {
             file.seek(SeekFrom::Start(self.offset))?;
-            file.take(POLL_BYTES).read_to_end(&mut bytes)
+            file.take(self.limits.poll_bytes).read_to_end(&mut bytes)
         });
         if bytes.is_empty() {
             return false;
@@ -97,6 +114,43 @@ impl LogWatch {
         self.offset += bytes.len() as u64;
         self.feed(&bytes);
         true
+    }
+
+    /// After the engine exited: reads the rest of the log, at most
+    /// `final_passes` polls forward. When that does not reach the end, the
+    /// last `tail_bytes` are examined too, from a line boundary: the engine
+    /// says why it ended in its last lines.
+    fn finish(&mut self, log: &Path) {
+        for _ in 0..self.limits.final_passes {
+            if !self.read(log) {
+                break;
+            }
+        }
+        let length = fs::metadata(log).map_or(0, |metadata| metadata.len());
+        if length > self.offset {
+            let start = self
+                .offset
+                .max(length.saturating_sub(self.limits.tail_bytes));
+            let mut bytes = Vec::new();
+            let _ = fs::File::open(log).and_then(|mut file| {
+                file.seek(SeekFrom::Start(start))?;
+                file.take(self.limits.tail_bytes).read_to_end(&mut bytes)
+            });
+            let mut tail = bytes.as_slice();
+            if start > self.offset {
+                // Bytes were skipped: the line being written is not continued,
+                // and the first line here is cut. Without any line break the
+                // whole piece is examined rather than nothing.
+                self.line.clear();
+                if let Some(end) = tail.iter().position(|byte| *byte == b'\n') {
+                    tail = &tail[end + 1..];
+                }
+            }
+            self.offset = start + bytes.len() as u64;
+            self.feed(tail);
+        }
+        // The engine may have ended in the middle of a line.
+        self.examine();
     }
 
     fn feed(&mut self, mut bytes: &[u8]) {
@@ -181,13 +235,7 @@ impl LogWatch {
         locale: Locale,
     ) -> String {
         if self.enabled {
-            for _ in 0..FINAL_PASSES {
-                if !self.read(log) {
-                    break;
-                }
-            }
-            // The engine may have ended in the middle of a line.
-            self.examine();
+            self.finish(log);
         }
         if let Some(error) = self.frozen_error(log, amd, locale) {
             return error;
@@ -328,14 +376,14 @@ mod tests {
         let (_folder, log) = log();
         let mut watch = LogWatch::new(true);
         // More than two polls' worth, without a line break, then the marker.
-        let filler = "x".repeat(2 * POLL_BYTES as usize + 4096);
+        let filler = "x".repeat(2 * LIMITS.poll_bytes as usize + 4096);
         append(&log, &filler);
         watch.poll(&log);
-        assert_eq!(watch.offset, POLL_BYTES);
+        assert_eq!(watch.offset, LIMITS.poll_bytes);
         assert!(watch.line.len() <= LINE_BYTES);
         append(&log, &format!("{DEVICE_LOST}\n"));
         watch.poll(&log);
-        assert_eq!(watch.offset, 2 * POLL_BYTES);
+        assert_eq!(watch.offset, 2 * LIMITS.poll_bytes);
         assert!(!watch.device_lost, "the rest waits for the next poll");
         // After the engine exits the rest is read in one go.
         let error = watch.exit_error(&log, SIGABRT, "Engine exited", None, Locale::EnUs);
@@ -351,6 +399,122 @@ mod tests {
         fs::write(&log, bytes).unwrap();
         watch.poll(&log);
         assert!(watch.frozen.as_deref().unwrap().ends_with(KVM_FAILED));
+    }
+
+    /// The real limits shrunk, so a test need not write more than 64 MiB:
+    /// 4 KiB per poll, 16 KiB forward after the exit, and the last 1 KiB.
+    const SMALL: Limits = Limits {
+        poll_bytes: 4096,
+        final_passes: 4,
+        tail_bytes: 1024,
+    };
+    const SMALL_FORWARD: usize = SMALL.poll_bytes as usize * SMALL.final_passes;
+
+    /// A watch with the small limits that has polled a log of one line.
+    fn small_watch(log: &Path) -> LogWatch {
+        let mut watch = LogWatch {
+            limits: SMALL,
+            ..LogWatch::new(true)
+        };
+        append(log, &format!("{ORDINARY}\n"));
+        watch.poll(log);
+        assert_eq!(watch.offset, ORDINARY.len() as u64 + 1);
+        watch
+    }
+
+    #[test]
+    fn a_log_longer_than_the_final_scan_still_shows_how_the_engine_ended() {
+        // The engine wrote far more than the forward limit since the last
+        // poll, and then why it ended.
+        let (_folder, log) = log();
+        let mut watch = small_watch(&log);
+        let polled = watch.offset;
+        let chatter = format!("{ORDINARY}\n").repeat(1000);
+        assert!(chatter.len() > 4 * SMALL_FORWARD);
+        append(&log, &chatter);
+        append(
+            &log,
+            &format!("{CS_REJECTED}\n{SUBMIT_FAILED}\n{DEVICE_LOST}\n"),
+        );
+        let length = fs::metadata(&log).unwrap().len();
+        assert!(length - polled > SMALL_FORWARD as u64 + SMALL.tail_bytes);
+        assert_eq!(
+            watch.exit_error(&log, SIGABRT, "Engine exited", None, Locale::EnUs),
+            format!(
+                "The graphics driver lost the device and the engine exited ({SIGABRT}): {}",
+                log.display()
+            )
+        );
+        assert_eq!(watch.offset, length);
+        assert!(watch.line.is_empty());
+
+        // Without those last lines the same log explains nothing.
+        let (_folder, log) = self::log();
+        let mut watch = small_watch(&log);
+        append(&log, &chatter);
+        assert_eq!(
+            watch.exit_error(&log, SIGABRT, "Engine exited", None, Locale::EnUs),
+            format!("Engine exited ({SIGABRT}): {}", log.display())
+        );
+
+        // The end of the log is examined from a line boundary: the line cut
+        // by the start of that piece is left out, the whole ones are read.
+        let (_folder, log) = self::log();
+        let mut watch = small_watch(&log);
+        append(&log, &chatter);
+        let cut = format!(
+            "{}{KVM_FAILED}\n",
+            "c".repeat(2 * SMALL.tail_bytes as usize)
+        );
+        append(&log, &cut);
+        append(&log, &format!("{ORDINARY}\n{DEVICE_LOST}"));
+        let error = watch.exit_error(&log, SIGABRT, "Engine exited", None, Locale::EnUs);
+        assert_eq!(watch.frozen, None);
+        assert!(
+            error.starts_with("The graphics driver lost the device"),
+            "{error}"
+        );
+
+        // A last piece without any line break is examined as it is.
+        let (_folder, log) = self::log();
+        let mut watch = small_watch(&log);
+        append(&log, &chatter);
+        append(&log, &"n".repeat(2 * SMALL.tail_bytes as usize));
+        append(&log, DEVICE_LOST);
+        assert!(
+            watch
+                .exit_error(&log, SIGABRT, "Engine exited", None, Locale::EnUs)
+                .starts_with("The graphics driver lost the device")
+        );
+    }
+
+    #[test]
+    fn the_final_scan_continues_a_line_when_no_bytes_were_skipped() {
+        // The forward polls stop inside the last line and what is left is
+        // shorter than the end piece: the line is continued, not cut.
+        let (_folder, log) = log();
+        let mut watch = small_watch(&log);
+        let mut filler = String::new();
+        while filler.len() + 100 <= SMALL_FORWARD - 10 {
+            filler.push_str(&"z".repeat(99));
+            filler.push('\n');
+        }
+        let rest = SMALL_FORWARD - 10 - filler.len();
+        if rest > 0 {
+            filler.push_str(&"z".repeat(rest - 1));
+            filler.push('\n');
+        }
+        assert_eq!(filler.len(), SMALL_FORWARD - 10);
+        append(&log, &filler);
+        append(&log, &format!("{DEVICE_LOST}\n"));
+        let length = fs::metadata(&log).unwrap().len();
+        assert!(length - watch.offset < SMALL_FORWARD as u64 + SMALL.tail_bytes);
+        assert!(
+            watch
+                .exit_error(&log, SIGABRT, "Engine exited", None, Locale::EnUs)
+                .starts_with("The graphics driver lost the device")
+        );
+        assert_eq!(watch.offset, length);
     }
 
     #[test]

@@ -23,15 +23,24 @@
 //! 1. It writes the library built from `native/linux/userptr_guard.c` next to
 //!    the managed runtime and adds it to the engine's `LD_PRELOAD`. The
 //!    library keeps user-pointer buffers out of fork() and does nothing in a
-//!    process that never registers one.
+//!    process that never registers one. It has its own test against a
+//!    simulated driver, `native/linux/userptr_guard_test.c`, which
+//!    `cargo test` builds and runs on Linux (the last test of this file).
 //!
 //!    As a second line of defence the library resends a submission the
 //!    driver rejected with EBUSY, which means the driver could not get the
 //!    buffers' pages in time and submitted nothing. It first makes those
 //!    pages present and writable again from user space, where there is no
-//!    time limit, and tries for at most 30 seconds. If the driver still
+//!    time limit, and tries for at most 10 seconds. If the driver still
 //!    rejects, the engine ends as before and `engine_faults` reports the
 //!    lost device.
+//!
+//!    The engine starts without the library, and the boot note says why,
+//!    when the library can not be written, when its folder is on a file
+//!    system mounted `noexec` (ld.so would ignore the preload), when the
+//!    folder's path can not be written in `LD_PRELOAD`, or when the client
+//!    was built without it. On a successful install the libraries of other
+//!    client versions are removed from the folder.
 //! 2. It chooses a memory mode ([`Memory`]). A default only uses a mode that
 //!    was measured, and everything was measured on Linux 6.8 (Radeon RX 580
 //!    8 GB with a 256 MB window):
@@ -85,6 +94,7 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     process::Command,
+    time::{Duration, SystemTime},
 };
 
 use sha2::{Digest, Sha256};
@@ -99,10 +109,12 @@ const VISIBLE_VRAM_ALL: &str = "all";
 const PRELOAD_VARIABLE: &str = "LD_PRELOAD";
 const SYSFS_DRM: &str = "/sys/class/drm";
 const KERNEL_RELEASE: &str = "/proc/sys/kernel/osrelease";
+const MOUNT_INFO: &str = "/proc/self/mountinfo";
 /// PCI vendor of AMD graphics cards, as sysfs prints it.
 const AMD_VENDOR: &str = "0x1002";
 
-/// The preload library, compiled by `build.rs` for Linux targets.
+/// The preload library, compiled by `build.rs` for Linux targets. Empty when
+/// the build had no C compiler for the target; the boot note then says so.
 #[cfg(target_os = "linux")]
 const GUARD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libuserptr_guard.so"));
 /// Never used: [`Host::detect`] finds nothing outside Linux.
@@ -593,8 +605,14 @@ impl Decision {
 /// Why the engine starts without the preload library.
 #[derive(Debug)]
 pub(crate) enum GuardError {
+    /// The client was built where the library could not be compiled for
+    /// Linux (see `build.rs`): the embedded library is empty.
+    NotBuilt,
     /// Neither `XDG_DATA_HOME` nor `HOME` names a folder.
     NoDataFolder,
+    /// The folder is on a file system mounted `noexec`: ld.so can not map a
+    /// library from it and would ignore the preload.
+    NoExec(PathBuf),
     /// ld.so splits `LD_PRELOAD` on spaces and colons, expands `$` and has no
     /// way to escape them.
     Path(PathBuf),
@@ -604,6 +622,13 @@ pub(crate) enum GuardError {
 impl GuardError {
     fn reason(&self, locale: Locale) -> String {
         match self {
+            Self::NotBuilt => locale
+                .pick(
+                    "esta compilação não contém a biblioteca de proteção",
+                    "this build does not contain the protection library",
+                    "esta compilación no contiene la biblioteca de protección",
+                )
+                .to_owned(),
             Self::NoDataFolder => locale
                 .pick(
                     "pasta de dados do usuário não encontrada",
@@ -611,6 +636,15 @@ impl GuardError {
                     "no se ha encontrado la carpeta de datos del usuario",
                 )
                 .to_owned(),
+            Self::NoExec(folder) => format!(
+                "{}: {}",
+                locale.pick(
+                    "a pasta está em um sistema de arquivos montado com noexec, de onde bibliotecas não podem ser carregadas",
+                    "the folder is on a file system mounted noexec, from which libraries can not be loaded",
+                    "la carpeta está en un sistema de archivos montado con noexec, desde el que no se pueden cargar bibliotecas",
+                ),
+                folder.display()
+            ),
             Self::Path(folder) => format!(
                 "{}: {}",
                 locale.pick(
@@ -640,36 +674,182 @@ fn preload_accepts(path: &Path) -> bool {
         .any(|byte| byte.is_ascii_whitespace() || matches!(byte, b':' | b'$'))
 }
 
+/// A mount point as `/proc/self/mountinfo` writes it: space, tab, line break
+/// and backslash are `\` and three octal digits (`\040` is a space).
+fn unescape_mount_point(field: &str) -> String {
+    let bytes = field.as_bytes();
+    let mut plain = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        let octal = bytes
+            .get(index + 1..index + 4)
+            .filter(|digits| {
+                bytes[index] == b'\\' && digits.iter().all(|d| (b'0'..=b'7').contains(d))
+            })
+            .map(|digits| {
+                digits
+                    .iter()
+                    .fold(0u32, |value, digit| value * 8 + u32::from(digit - b'0'))
+            });
+        match octal.and_then(|value| u8::try_from(value).ok()) {
+            Some(byte) => {
+                plain.push(byte);
+                index += 4;
+            }
+            None => {
+                plain.push(bytes[index]);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&plain).into_owned()
+}
+
+/// Whether the mount that holds `path` has the `noexec` option. `mount_info`
+/// is the text of `/proc/self/mountinfo`: the fifth field of a line is the
+/// mount point and the sixth its options. The mount with the longest mount
+/// point under which `path` lies decides; of two at the same place, the later
+/// line is mounted over the earlier one.
+fn mounted_noexec(mount_info: &str, path: &Path) -> bool {
+    let mut holder: Option<(usize, bool)> = None;
+    for line in mount_info.lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(point), Some(options)) = (fields.nth(4), fields.next()) else {
+            continue;
+        };
+        let point = unescape_mount_point(point);
+        let point = Path::new(&point);
+        if !path.starts_with(point) {
+            continue;
+        }
+        let depth = point.components().count();
+        if holder.is_none_or(|(deepest, _)| depth >= deepest) {
+            let noexec = options.split(',').any(|option| option == "noexec");
+            holder = Some((depth, noexec));
+        }
+    }
+    holder.is_some_and(|(_, noexec)| noexec)
+}
+
+/// `folder` with its symbolic links resolved, as far as it exists yet.
+fn resolved(folder: &Path) -> PathBuf {
+    for ancestor in folder.ancestors() {
+        if let Ok(real) = fs::canonicalize(ancestor) {
+            return match folder.strip_prefix(ancestor) {
+                Ok(rest) if !rest.as_os_str().is_empty() => real.join(rest),
+                _ => real,
+            };
+        }
+    }
+    folder.to_owned()
+}
+
+/// A library in `folder` could not be loaded because of a `noexec` mount.
+/// A mount table that can not be read says nothing: the folder is used.
+fn folder_is_noexec(mount_info: &Path, folder: &Path) -> bool {
+    fs::read(mount_info)
+        .is_ok_and(|text| mounted_noexec(&String::from_utf8_lossy(&text), &resolved(folder)))
+}
+
 /// Writes the embedded library to the per-user folder and returns its path.
 fn install_guard() -> Result<PathBuf, GuardError> {
-    let folder = guard_folder().ok_or(GuardError::NoDataFolder)?;
+    install_guard_in(guard_folder(), GUARD, Path::new(MOUNT_INFO))
+}
+
+fn install_guard_in(
+    folder: Option<PathBuf>,
+    library: &[u8],
+    mount_info: &Path,
+) -> Result<PathBuf, GuardError> {
+    if library.is_empty() {
+        return Err(GuardError::NotBuilt);
+    }
+    let folder = folder.ok_or(GuardError::NoDataFolder)?;
+    if folder_is_noexec(mount_info, &folder) {
+        return Err(GuardError::NoExec(folder));
+    }
     if !preload_accepts(&folder) {
         return Err(GuardError::Path(folder));
     }
-    install(&folder, GUARD).map_err(|error| GuardError::Write(folder, error))
+    install(&folder, library).map_err(|error| GuardError::Write(folder, error))
 }
+
+const LIBRARY_PREFIX: &str = "libuserptr_guard-";
+const LIBRARY_SUFFIX: &str = ".so";
+/// The library while it is being written.
+const TEMPORARY_PREFIX: &str = ".libuserptr_guard-";
+/// The prefix an earlier build used for the same purpose.
+const EARLIER_TEMPORARY_PREFIX: &str = ".tmp";
+/// A temporary file this old was left by a client that ended while writing.
+/// A younger one may belong to another client that is starting right now.
+const STALE_TEMPORARY: Duration = Duration::from_secs(600);
+/// Another client version's library is removed only after this long without a
+/// boot that used it. Every install refreshes the time of its own library, so
+/// two client versions used side by side never remove each other's library
+/// between its installation and the start of its engine.
+const UNUSED_LIBRARY: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 /// The file name carries a short hash of the contents, so another client
 /// version never replaces a library an engine is about to load.
 fn library_name(library: &[u8]) -> String {
     let hash = format!("{:x}", Sha256::digest(library));
-    format!("libuserptr_guard-{}.so", &hash[..12])
+    format!("{LIBRARY_PREFIX}{}{LIBRARY_SUFFIX}", &hash[..12])
 }
 
 /// Reuses the file when it already holds these bytes; otherwise replaces it
-/// atomically.
+/// atomically. Marks it as used now, then clears what was left in the folder.
 fn install(folder: &Path, library: &[u8]) -> io::Result<PathBuf> {
-    let path = folder.join(library_name(library));
-    if fs::read(&path).is_ok_and(|existing| existing == library) {
-        return Ok(path);
+    let name = library_name(library);
+    let path = folder.join(&name);
+    if !fs::read(&path).is_ok_and(|existing| existing == library) {
+        fs::create_dir_all(folder)?;
+        let mut temp = tempfile::Builder::new()
+            .prefix(TEMPORARY_PREFIX)
+            .suffix(".tmp")
+            .tempfile_in(folder)?;
+        temp.write_all(library)?;
+        temp.as_file().sync_all()?;
+        make_loadable(temp.path())?;
+        temp.persist(&path).map_err(|error| error.error)?;
     }
-    fs::create_dir_all(folder)?;
-    let mut temp = tempfile::NamedTempFile::new_in(folder)?;
-    temp.write_all(library)?;
-    temp.as_file().sync_all()?;
-    make_loadable(temp.path())?;
-    temp.persist(&path).map_err(|error| error.error)?;
+    // Best effort: without it another version may remove the library sooner.
+    let _ = fs::File::options()
+        .write(true)
+        .open(&path)
+        .and_then(|file| file.set_modified(SystemTime::now()));
+    remove_leftovers(folder, &name);
     Ok(path)
+}
+
+/// Best effort, never an error: libraries of other client versions that no
+/// boot used for a long time, and temporary files left behind. The folder is
+/// the client's own. An engine that already mapped an old library keeps it
+/// after the file is removed.
+fn remove_leftovers(folder: &Path, current: &str) {
+    let Ok(entries) = fs::read_dir(folder) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str().filter(|name| *name != current) else {
+            continue;
+        };
+        let age = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| modified.elapsed().ok());
+        let unused_library = name.starts_with(LIBRARY_PREFIX)
+            && name.ends_with(LIBRARY_SUFFIX)
+            && age.is_some_and(|age| age >= UNUSED_LIBRARY);
+        let stale_temporary = (name.starts_with(TEMPORARY_PREFIX)
+            || name.starts_with(EARLIER_TEMPORARY_PREFIX))
+            && age.is_some_and(|age| age >= STALE_TEMPORARY);
+        if (unused_library || stale_temporary) && entry.file_type().is_ok_and(|kind| kind.is_file())
+        {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// Mode 0755: the temporary file starts readable by its owner only.
@@ -1039,10 +1219,18 @@ mod tests {
             assert_eq!(mode & 0o777, 0o755);
         }
 
-        // Same bytes: the file is reused, not rewritten.
-        let written = fs::metadata(&path).unwrap().modified().unwrap();
+        // Same bytes: the file is reused, and marked as used now.
+        let hour_ago = SystemTime::now() - Duration::from_secs(3600);
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(hour_ago)
+            .unwrap();
         assert_eq!(install(&lib, bytes).unwrap(), path);
-        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), written);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        let marked = fs::metadata(&path).unwrap().modified().unwrap();
+        assert!(marked > hour_ago + Duration::from_secs(1800));
 
         // A damaged file is replaced, and nothing temporary stays behind.
         fs::write(&path, b"damaged").unwrap();
@@ -1054,15 +1242,216 @@ mod tests {
             .collect();
         assert_eq!(files, [std::ffi::OsString::from(&name)]);
 
-        // Another build lives beside it under its own name.
+        // Another build gets its own name; the one used a moment ago stays.
         let other = install(&lib, b"\x7fELF second build").unwrap();
         assert_ne!(other, path);
-        assert!(path.is_file() && other.is_file());
+        assert!(other.is_file() && path.is_file());
 
         // A folder that can not be created is an error, not a panic.
         let blocked = folder.path().join("file");
         fs::write(&blocked, b"").unwrap();
         assert!(install(&blocked.join("lib"), bytes).is_err());
+    }
+
+    #[test]
+    fn a_successful_install_clears_what_other_versions_left_behind() {
+        let folder = tempfile::tempdir().unwrap();
+        let lib = folder.path().join("lib");
+        fs::create_dir_all(&lib).unwrap();
+        let bytes = b"\x7fELF this build";
+        let last_used = |name: &str, ago: Duration| {
+            let path = lib.join(name);
+            fs::write(&path, b"old").unwrap();
+            fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(SystemTime::now() - ago)
+                .unwrap();
+        };
+        let hour = Duration::from_secs(3600);
+        let aged = |name: &str| last_used(name, hour);
+        let fresh = |name: &str| fs::write(lib.join(name), b"new").unwrap();
+
+        // Removed: another version's library that no boot used for more than
+        // a month, and temporary files nobody is writing any more.
+        last_used("libuserptr_guard-000000000000.so", 31 * 24 * hour);
+        aged(".libuserptr_guard-AbCdEf.tmp");
+        aged(".tmpQ1w2E3");
+        // Kept: the libraries of versions used lately (one of them may be
+        // about to start its engine), a temporary file another client may be
+        // writing right now, and everything that is not the client's.
+        aged("libuserptr_guard-111111111111.so");
+        last_used("libuserptr_guard-444444444444.so", 29 * 24 * hour);
+        fresh(".libuserptr_guard-ZyXwVu.tmp");
+        fresh(".tmpR4t5Y6");
+        aged("notes.txt");
+        aged("libuserptr_guard.c");
+        aged("libother-000000000000.so");
+        fs::create_dir(lib.join("libuserptr_guard-222222222222.so")).unwrap();
+
+        let path = install(&lib, bytes).unwrap();
+        let mut names: Vec<String> = fs::read_dir(&lib)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        let mut expected = vec![
+            ".libuserptr_guard-ZyXwVu.tmp".to_owned(),
+            ".tmpR4t5Y6".to_owned(),
+            "libother-000000000000.so".to_owned(),
+            "libuserptr_guard-111111111111.so".to_owned(),
+            "libuserptr_guard-222222222222.so".to_owned(),
+            "libuserptr_guard-444444444444.so".to_owned(),
+            "libuserptr_guard.c".to_owned(),
+            "notes.txt".to_owned(),
+            library_name(bytes),
+        ];
+        expected.sort();
+        assert_eq!(names, expected);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+
+        // The same happens when the library was already there.
+        last_used("libuserptr_guard-333333333333.so", 31 * 24 * hour);
+        assert_eq!(install(&lib, bytes).unwrap(), path);
+        assert!(!lib.join("libuserptr_guard-333333333333.so").exists());
+        assert!(path.is_file());
+
+        // A folder that can not be listed is not an error.
+        remove_leftovers(&folder.path().join("missing"), "anything");
+    }
+
+    #[test]
+    fn a_noexec_mount_is_found_from_the_mount_table() {
+        // /proc/self/mountinfo: ID, parent, device, root, mount point, options, ... - type, source, super options.
+        const TABLE: &str = "\
+22 28 0:21 / /sys rw,nosuid,nodev,noexec,relatime shared:7 - sysfs sysfs rw
+28 1 259:2 / / rw,relatime shared:1 - ext4 /dev/nvme0n1p2 rw,errors=remount-ro
+35 28 0:30 / /tmp rw,nosuid,nodev,noexec shared:16 - tmpfs tmpfs rw
+97 28 259:3 / /home rw,nosuid,nodev,noexec,relatime shared:50 - ext4 /dev/nvme0n1p3 rw
+98 97 8:17 / /home/user/.local/share rw,relatime shared:60 - ext4 /dev/sdb1 rw
+99 98 0:55 / /home/user/.local/share/RustEmuDroid/sealed rw,noexec,relatime - tmpfs tmpfs rw
+120 28 8:33 / /media/user/My\\040Disk rw,nosuid,nodev,noexec,relatime shared:70 - vfat /dev/sdc1 rw,noexec
+121 28 8:34 / /media/user/My rw,relatime shared:71 - ext4 /dev/sdc2 rw
+130 28 8:49 / /mnt/data rw,noexec,relatime shared:80 - ext4 /dev/sdd1 rw
+131 28 8:50 / /mnt/data rw,relatime shared:81 - ext4 /dev/sdd2 rw
+";
+        for (path, noexec) in [
+            // Nested mounts: the deepest one that holds the path decides.
+            ("/home/user/.local/share/RustEmuDroid/lib", false),
+            ("/home/user/.local/share/RustEmuDroid/sealed/lib", true),
+            ("/home/user/.config/RustEmuDroid/lib", true),
+            ("/home/other/.local/share/RustEmuDroid/lib", true),
+            // Only the root mount holds these.
+            ("/opt/RustEmuDroid/lib", false),
+            ("/homestead/user/RustEmuDroid/lib", false),
+            ("/", false),
+            ("/tmp/x/RustEmuDroid/lib", true),
+            // A mount point with a space, written as \\040 in the table.
+            ("/media/user/My Disk/RustEmuDroid/lib", true),
+            ("/media/user/My/RustEmuDroid/lib", false),
+            ("/media/user/My Disks/RustEmuDroid/lib", false),
+            // Mounted twice at the same place: the later one is on top.
+            ("/mnt/data/RustEmuDroid/lib", false),
+        ] {
+            assert_eq!(mounted_noexec(TABLE, Path::new(path)), noexec, "{path}");
+        }
+        // A noexec root, and a table that says nothing about the path.
+        let sealed_root = "28 1 259:2 / / rw,noexec,relatime shared:1 - ext4 /dev/sda1 rw\n";
+        assert!(mounted_noexec(sealed_root, Path::new("/home/user/lib")));
+        assert!(!mounted_noexec("", Path::new("/home/user/lib")));
+        assert!(!mounted_noexec(
+            "garbage\n1 2 3\n",
+            Path::new("/home/user/lib")
+        ));
+        // `noexec` must be a whole option of the mount, not part of another word.
+        let lookalike = "28 1 8:1 / / rw,xnoexec,noexecute - ext4 /dev/sda1 rw,noexec\n";
+        assert!(!mounted_noexec(lookalike, Path::new("/home/user/lib")));
+
+        assert_eq!(
+            unescape_mount_point("/media/user/My\\040Disk"),
+            "/media/user/My Disk"
+        );
+        assert_eq!(unescape_mount_point("/a\\011b\\012c\\134d"), "/a\tb\nc\\d");
+        assert_eq!(unescape_mount_point("/plain/path"), "/plain/path");
+        assert_eq!(unescape_mount_point("/odd\\04"), "/odd\\04");
+        assert_eq!(unescape_mount_point("/odd\\999x\\777"), "/odd\\999x\\777");
+    }
+
+    #[test]
+    fn the_library_is_not_installed_where_it_could_not_be_loaded() {
+        let folder = tempfile::tempdir().unwrap();
+        let lib = folder.path().join("RustEmuDroid").join("lib");
+        let missing_table = folder.path().join("no-mountinfo");
+        let bytes = b"\x7fELF this build";
+
+        // A client built without the library: nothing else is looked at.
+        assert!(matches!(
+            install_guard_in(Some(lib.clone()), b"", &missing_table),
+            Err(GuardError::NotBuilt)
+        ));
+        assert!(matches!(
+            install_guard_in(None, b"", &missing_table),
+            Err(GuardError::NotBuilt)
+        ));
+        assert!(matches!(
+            install_guard_in(None, bytes, &missing_table),
+            Err(GuardError::NoDataFolder)
+        ));
+
+        // The mount that holds the folder is noexec: nothing is written there.
+        let table = folder.path().join("mountinfo");
+        let point = resolved(folder.path())
+            .to_str()
+            .unwrap()
+            .replace('\\', "\\134")
+            .replace(' ', "\\040");
+        let line =
+            |options: &str| format!("40 28 8:1 / {point} {options} shared:1 - ext4 /dev/sda1 rw\n");
+        fs::write(&table, line("rw,nosuid,noexec,relatime")).unwrap();
+        assert!(folder_is_noexec(&table, &lib));
+        match install_guard_in(Some(lib.clone()), bytes, &table) {
+            Err(GuardError::NoExec(reported)) => assert_eq!(reported, lib),
+            other => panic!("{other:?}"),
+        }
+        assert!(!lib.exists());
+
+        // The same mount without the option, or a table that can not be read:
+        // the folder is taken as loadable.
+        fs::write(&table, line("rw,nosuid,relatime")).unwrap();
+        assert!(!folder_is_noexec(&table, &lib));
+        assert!(!folder_is_noexec(&missing_table, &lib));
+        for table in [&table, &missing_table] {
+            let result = install_guard_in(Some(lib.clone()), bytes, table);
+            assert!(!matches!(result, Err(GuardError::NoExec(_))), "{result:?}");
+            // Where the temporary folder's own path suits LD_PRELOAD the library is installed.
+            if preload_accepts(&lib) {
+                assert_eq!(result.unwrap(), lib.join(library_name(bytes)));
+            } else {
+                assert!(matches!(result, Err(GuardError::Path(_))), "{result:?}");
+            }
+        }
+
+        for locale in LOCALES {
+            let unbuilt = GuardError::NotBuilt.reason(locale);
+            let sealed =
+                GuardError::NoExec(PathBuf::from("/home/user/.local/share/RustEmuDroid/lib"))
+                    .reason(locale);
+            assert!(sealed.contains("noexec"), "{sealed}");
+            assert!(
+                sealed.ends_with(": /home/user/.local/share/RustEmuDroid/lib"),
+                "{sealed}"
+            );
+            assert_ne!(unbuilt, sealed);
+        }
+        assert_eq!(
+            GuardError::NotBuilt.reason(Locale::EnUs),
+            "this build does not contain the protection library"
+        );
+        assert_eq!(
+            GuardError::NoExec(PathBuf::from("/data/lib")).reason(Locale::EnUs),
+            "the folder is on a file system mounted noexec, from which libraries can not be loaded: /data/lib"
+        );
     }
 
     /// `Some(Some(value))`: set. `Some(None)`: removed from what the engine
@@ -1296,6 +1685,31 @@ mod tests {
             applied.note
         );
 
+        // The same when the folder is on a noexec mount or the build has no
+        // library: no preload, no variable, and the note says which.
+        for (error, reason) in [
+            (
+                GuardError::NoExec(PathBuf::from("/home/user/.local/share/RustEmuDroid/lib")),
+                "(the folder is on a file system mounted noexec, from which libraries can not be loaded: /home/user/.local/share/RustEmuDroid/lib)",
+            ),
+            (
+                GuardError::NotBuilt,
+                "(this build does not contain the protection library)",
+            ),
+        ] {
+            let mut command = Command::new("emulator");
+            let applied = full_size.apply_with(&mut command, true, Err(error), None, Locale::EnUs);
+            assert!(!applied.all_memory_types);
+            assert_eq!(environment(&command, "LD_PRELOAD"), None);
+            assert_eq!(environment(&command, VISIBLE), Some(None));
+            assert_eq!(
+                applied.note,
+                format!(
+                    "AMD graphics on Linux: could not prepare the video memory protection {reason}; Android starts without it and games may close if the graphics driver loses the device; emulator memory options unchanged."
+                )
+            );
+        }
+
         // All types does not depend on the library.
         let all_types = Decision::new(Override::AllTypes, Gpu::Host, "", Some(rx580())).unwrap();
         let mut command = Command::new("emulator");
@@ -1314,7 +1728,9 @@ mod tests {
         for locale in LOCALES {
             for error in [
                 failure(),
+                GuardError::NotBuilt,
                 GuardError::NoDataFolder,
+                GuardError::NoExec(PathBuf::from("/home/user/.local/share/RustEmuDroid/lib")),
                 GuardError::Path(PathBuf::from(
                     "/home/John Doe/.local/share/RustEmuDroid/lib",
                 )),
@@ -1402,6 +1818,51 @@ mod tests {
                 .kvm_mapping_advice(Locale::EsEs)
                 .unwrap()
                 .contains("ventana de memoria pequeña. Activar")
+        );
+    }
+
+    /// The library has its own test against a simulated driver. It needs
+    /// Linux and a C compiler, the one `build.rs` uses for a native build.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_library_passes_its_own_test_against_a_simulated_driver() {
+        const SOURCE: &str = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/native/linux/userptr_guard_test.c"
+        );
+        let folder = tempfile::tempdir().unwrap();
+        let program = folder.path().join("userptr_guard_test");
+        let configured = std::env::var("CC").unwrap_or_default();
+        let mut words = configured.split_whitespace();
+        let compiler = words.next().unwrap_or("cc");
+        let compiled = Command::new(compiler)
+            .args(words)
+            .args(["-O1", "-Wall", "-Wextra", "-o"])
+            .arg(&program)
+            .arg(SOURCE)
+            .args(["-ldl", "-lpthread"])
+            .output()
+            .unwrap_or_else(|error| {
+                panic!(
+                    "this test needs a C compiler: `{compiler}` could not be started ({error}). \
+                     Install one (for example gcc) or set CC."
+                )
+            });
+        assert!(
+            compiled.status.success(),
+            "`{compiler}` could not compile {SOURCE} ({}):\n{}",
+            compiled.status,
+            String::from_utf8_lossy(&compiled.stderr)
+        );
+        let run = Command::new(&program)
+            .output()
+            .unwrap_or_else(|error| panic!("could not start {}: {error}", program.display()));
+        assert!(
+            run.status.success(),
+            "the library's test failed ({}):\n{}{}",
+            run.status,
+            String::from_utf8_lossy(&run.stderr),
+            String::from_utf8_lossy(&run.stdout)
         );
     }
 }
