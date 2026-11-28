@@ -4,6 +4,12 @@
 
 Last updated 2026-11-28. A fresh clone contains the test summaries and benchmark data linked below. On the original Windows test PC, open `.rustemudroid/LOCAL-HANDOFF.md` for the matching traces, build recipes, boot logs and private disk locations.
 
+### Handoff · 2026-11-28, engine exit 0xC0000094 opening a game, v0.26.1
+
+| Work item | State | Where to continue |
+| --- | --- | --- |
+| `Engine exited (exit code: 0xc0000094)` when a game opens (v0.26.1) | Branch `fix/v0.26.1` from `main` (`cd94529`): `1b23678` (the client explains the code in the three languages, names the app that was open, and the failure box holds 8 rows) and the delivering commit (version 0.26.1, release notes, READMEs). Not a v0.26.0 regression: on a disposable profile with the same image and graphics card, the game ended the engine 18–26 s after it started with both engines tried and both panel paths (child panel 7 runs, copied frames 3, default engine 1; 5 of the child runs and 2 of the copied-frames runs on v0.26.1 builds; final exe `9f596f6b…2815`). A debugger attached only to the test engine put the fault inside the graphics card's driver, called from the engine's graphics backend while it answered a request for the memory needed by a texture in a compressed format the card does not support; the backend calls the driver before switching to its own handling of that format. Asking the game for the other graphics API avoids the crash, but the game then refuses to run for lack of a newer version of that API; other driver choices for the game end it inside the guest's processor translation at start. | Fix the engine's graphics backend so that this request skips the driver for formats the engine handles itself, rebuild it and ship it with an engine (distributing modified engine binaries needs the owner's OK). Lab tools, crash records and minidumps: `C:/radev/claude-lab/fix-0261/` (`wk.py`, `catch.py`, `funcs.py`, `dumpinfo.py`, `runs/`). |
+
 ### Handoff · 2026-11-28, the engine's surface in the Windows panel, v0.26.0
 
 | Work item | State | Where to continue |

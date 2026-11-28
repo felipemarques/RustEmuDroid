@@ -300,8 +300,9 @@ impl Launcher {
 }
 
 /// Rows of the failure reason shown on the idle screen; the rest is elided and
-/// stays available on hover and under "Technical details".
-const FAILURE_ROWS: usize = 6;
+/// stays available on hover and under "Technical details". Eight rows hold an
+/// explained engine exit, its log path and the app that was open.
+pub(super) const FAILURE_ROWS: usize = 8;
 
 /// The error behind "The last operation failed", wrapped and selectable so
 /// the user sees why without opening the details.

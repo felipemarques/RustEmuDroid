@@ -855,10 +855,75 @@ fn idle_panel_shows_the_failure_reason_without_expanding_details() {
                 .collect();
             assert_eq!(shown.len(), 1, "{locale:?}");
             let (rect, rows, elided) = shown[0];
-            assert!(rows <= 6, "{locale:?}: {rows}");
+            assert!(
+                rows <= super::session_panel::FAILURE_ROWS,
+                "{locale:?}: {rows}"
+            );
             assert_eq!(elided, text.len() > reason.len(), "{locale:?}");
             assert!(screen.contains_rect(rect), "{locale:?}: {rect:?}");
         }
+    }
+}
+
+#[test]
+fn an_explained_engine_exit_shows_whole_with_its_log_and_the_open_app() {
+    // A long log path; the code's reason from the engine.
+    let log = r"D:\Desktop\RustEmuDroid\.rustemudroid\profiles\profile-number-37\boot-1795868944867-40144.log";
+    let app = "org.example.game";
+    for locale in [Locale::PtBr, Locale::EnUs, Locale::EsEs] {
+        let reason =
+            crate::android::exit_code_reason_for_tests(Some(0xC000_0094_u32 as i32), locale)
+                .unwrap();
+        let text = with_open_app(
+            format!("{reason} (exit code: 0xc0000094): {log}"),
+            Some(app),
+            locale,
+        );
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = dir.path().join("launcher.json");
+        let mut config = LaunchConfig::load(None, dir.path().into(), None, &prefs);
+        config.locale = locale;
+        let brand = ctx.load_texture(
+            "brand",
+            egui::ColorImage::filled([2, 2], INK),
+            Default::default(),
+        );
+        let mut app_state = Launcher::new(brand, config, prefs, false);
+        app_state.failed = true;
+        app_state.status = text.clone();
+        let mut frame = eframe::Frame::_new_kittest();
+        // The smallest window the failure test uses.
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(610., 510.));
+        let mut tick = || {
+            ctx.run(
+                RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |ctx| app_state.update(ctx, &mut frame),
+            )
+        };
+        tick();
+        let out = tick();
+        let shown: Vec<_> = out
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                Shape::Text(shape) if shape.galley.text().starts_with(reason) => Some((
+                    shape.visual_bounding_rect(),
+                    shape.galley.elided,
+                    shape.galley.text().to_owned(),
+                )),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(shown.len(), 1, "{locale:?}");
+        let (rect, elided, shown_text) = &shown[0];
+        assert!(!elided, "{locale:?}: {shown_text}");
+        assert!(shown_text.ends_with(app), "{locale:?}: {shown_text}");
+        assert!(screen.contains_rect(*rect), "{locale:?}: {rect:?}");
     }
 }
 

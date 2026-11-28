@@ -61,6 +61,41 @@ fn version_label(locale: Locale) -> String {
     )
 }
 
+/// A failure of the running VM, followed by the app Android last reported in
+/// the foreground, which is usually the one that brought the engine down.
+fn with_open_app(error: String, app: Option<&str>, locale: Locale) -> String {
+    match app {
+        Some(app) => format!(
+            "{error}\n{} {app}",
+            locale.pick(
+                "App aberto quando aconteceu:",
+                "App open when it happened:",
+                "App abierta cuando ocurrió:",
+            )
+        ),
+        None => error,
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn a_failure_names_the_app_that_was_open() {
+    let error = "Engine exited (exit code: 0xc0000094): C:\\profile\\boot.log".to_string();
+    assert_eq!(
+        with_open_app(error.clone(), Some("org.example.game"), Locale::EnUs),
+        format!("{error}\nApp open when it happened: org.example.game")
+    );
+    assert!(
+        with_open_app(error.clone(), Some("a.b"), Locale::PtBr)
+            .ends_with("\nApp aberto quando aconteceu: a.b")
+    );
+    assert!(
+        with_open_app(error.clone(), Some("a.b"), Locale::EsEs)
+            .ends_with("\nApp abierta cuando ocurrió: a.b")
+    );
+    assert_eq!(with_open_app(error.clone(), None, Locale::EnUs), error);
+}
+
 fn branded_window() -> Result<(eframe::NativeOptions, egui::ColorImage)> {
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/rustemudroid.png"))?;
     let brand = egui::ColorImage::from_rgba_unmultiplied(
@@ -492,7 +527,10 @@ impl Launcher {
         self.native_frame_wait = None;
         self.set_replay_armed(false);
         self.capture.stop();
-        self.controls = None;
+        let open_app = self
+            .controls
+            .take()
+            .and_then(|controls| controls.last_app().map(str::to_owned));
         self.home_ready = false;
         self.playing = false;
         self.play = std::mem::take(&mut self.restart) && !self.closing && result.is_ok();
@@ -511,7 +549,7 @@ impl Launcher {
                 };
             }
             Err(error) => {
-                self.status = error;
+                self.status = with_open_app(error, open_app.as_deref(), self.config.locale);
                 self.failed = true;
             }
         }
@@ -761,6 +799,12 @@ impl Launcher {
             self.home_ready = true;
         }
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+        if self.home_ready
+            && let Some(controls) = &mut self.controls
+        {
+            // Lets a failure name the app that was open.
+            controls.watch_open_app(ctx);
+        }
         if self.home_ready
             && let (Some(controls), Some(display)) = (&mut self.controls, &mut self.display)
             && display.mapping.wants_package()

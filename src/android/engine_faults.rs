@@ -36,6 +36,29 @@ pub(crate) fn classify(line: &str) -> Option<Fault> {
     }
 }
 
+/// The code a process ends with when an integer division by zero is not
+/// handled.
+const DIVIDE_BY_ZERO: u32 = 0xC000_0094;
+
+/// Why the engine ended, from its exit code alone, for the codes whose cause
+/// is known. Its log says nothing in these cases: the process stops at once.
+///
+/// Integer division by zero: some games that use a compressed texture format
+/// the graphics card does not support end the engine this way. The engine
+/// asks the card's driver about such a texture before it switches to its own
+/// handling of the format, and the driver divides by zero inside that call.
+/// Copied frames and the engine's own surface in the panel end the same way.
+pub(crate) fn exit_code_reason(code: Option<i32>, locale: Locale) -> Option<&'static str> {
+    // The code is negative as an i32.
+    (code.map(|code| code as u32) == Some(DIVIDE_BY_ZERO)).then(|| {
+        locale.pick(
+            "O motor parou numa divisão por zero dentro do driver da placa de vídeo (0xC0000094). Isso acontece com alguns jogos que usam um formato de textura comprimida que a placa de vídeo não suporta. Mudar as configurações do emulador não evita; deixe esse jogo fechado",
+            "The engine stopped on a division by zero inside the graphics card's driver (0xC0000094). This is known to happen with some games that use a compressed texture format the graphics card does not support. Changing the emulator's settings does not avoid it; keep that game closed",
+            "El motor se ha detenido en una división por cero dentro del controlador de la tarjeta gráfica (0xC0000094). Ocurre con algunos juegos que usan un formato de textura comprimida que la tarjeta gráfica no admite. Cambiar los ajustes del emulador no lo evita; deja ese juego cerrado",
+        )
+    })
+}
+
 /// One line of the preload library about a submission the driver rejected
 /// with busy pages and the library sent again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1050,5 +1073,64 @@ mod tests {
                 .exit_error(&log, SIGABRT, "Engine exited", None, Locale::EnUs)
                 .starts_with("Android stopped: the processor virtualization (KVM) failed")
         );
+    }
+
+    #[test]
+    fn a_division_by_zero_in_the_engine_is_explained_by_its_code() {
+        // 0xC0000094 as the operating system reports it for the engine.
+        let divide = Some(0xC000_0094_u32 as i32);
+        for locale in LOCALES {
+            let reason = exit_code_reason(divide, locale).unwrap();
+            assert!(reason.contains("0xC0000094"), "{reason}");
+        }
+        assert!(
+            exit_code_reason(divide, Locale::PtBr)
+                .unwrap()
+                .starts_with("O motor parou")
+        );
+        assert!(
+            exit_code_reason(divide, Locale::EsEs)
+                .unwrap()
+                .starts_with("El motor se ha")
+        );
+        // Other codes and signals keep the plain words.
+        for other in [
+            None,
+            Some(0),
+            Some(1),
+            Some(0xC000_0005_u32 as i32),
+            Some(134),
+        ] {
+            assert_eq!(exit_code_reason(other, Locale::EnUs), None, "{other:?}");
+        }
+
+        // The log explains nothing (the process stopped at once): the code's
+        // reason opens the message, followed by the status and the log.
+        let (_folder, log) = log();
+        append(&log, &format!("{ORDINARY}\n"));
+        let reason = exit_code_reason(divide, Locale::EnUs).unwrap();
+        let mut watch = LogWatch::new(true);
+        assert_eq!(
+            watch.exit_error(&log, "exit code: 0xc0000094", reason, None, Locale::EnUs),
+            format!("{reason} (exit code: 0xc0000094): {}", log.display())
+        );
+        // A lost device the log reports still comes first.
+        append(&log, &format!("{DEVICE_LOST}\n"));
+        assert!(
+            LogWatch::new(true)
+                .exit_error(&log, "exit code: 0xc0000094", reason, None, Locale::EnUs)
+                .starts_with("The graphics driver lost the device")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_engines_exit_status_carries_the_division_by_zero_code() {
+        use std::os::windows::process::ExitStatusExt;
+        let status = std::process::ExitStatus::from_raw(0xC000_0094);
+        assert_eq!(status.to_string(), "exit code: 0xc0000094");
+        assert!(exit_code_reason(status.code(), Locale::EnUs).is_some());
+        let ordinary = std::process::ExitStatus::from_raw(1);
+        assert_eq!(exit_code_reason(ordinary.code(), Locale::EnUs), None);
     }
 }
