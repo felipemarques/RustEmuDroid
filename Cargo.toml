@@ -1,7 +1,17 @@
+# The root package is the workspace's first member; crates under `crates/` join
+# it through `members` once they exist. A `members` entry of "." would cover
+# every directory below the root and override `exclude`.
+[workspace]
+# The experiments build on their own, and the private work area holds other
+# checkouts of this repository with their own manifests.
+exclude = ["experiments", ".rustemudroid"]
+resolver = "3"
+
 [package]
 name = "rustemudroid"
 version = "0.26.1"
 edition = "2024"
+license = "AGPL-3.0-only"
 
 [features]
 ui = ["dep:eframe", "dep:tonic", "dep:prost", "dep:tokio", "dep:bytemuck", "dep:rfd", "dep:serde", "dep:ash", "dep:gilrs", "dep:png", "dep:raw-window-handle"]
