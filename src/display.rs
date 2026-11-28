@@ -524,13 +524,32 @@ async fn stream(
         return Ok(());
     };
     let mut control = Grpc::new(channel.clone());
+    let mut sampler = Grpc::new(channel.clone());
     let sensor = channel.clone();
     let video = Grpc::new(channel).max_decoding_message_size(64 * 1024 * 1024);
+    // Liveness samples take their own way to the engine, so a screenshot
+    // never holds back a touch or a key.
+    let (samples, mut sample_requests) = mpsc::unbounded_channel();
     let inputs = async {
         while let Some(event) = input.recv().await {
+            if let Input::Sample(..) = event {
+                let _ = samples.send(event);
+                continue;
+            }
             deliver(event, &mut control, &token).await?
         }
-        Ok(())
+        drop(samples);
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    };
+    let sampling = async {
+        while let Some(event) = sample_requests.recv().await {
+            // A failed sample is no reason to end the session.
+            let _ = deliver(event, &mut sampler, &token).await;
+        }
+    };
+    let inputs = async {
+        let (result, ()) = tokio::join!(inputs, sampling);
+        result
     };
     let fixed_raster = adaptive_video::fixed_raster(&avd);
     let video = adaptive_video::run(
@@ -1129,11 +1148,14 @@ impl Display {
                 ctx.tessellate(shapes, scale)
             };
             let fonts = &mut self.overlay_font;
-            engine.draw_over(slot, &rects, &primitives, scale, || {
+            let waiting = engine.draw_over(slot, &rects, &primitives, scale, || {
                 let (size, fill) =
                     ctx.fonts(|fonts| (fonts.font_image_size(), fonts.font_atlas_fill_ratio()));
                 fonts.get(&primitives, size, fill, || ctx.fonts(|fonts| fonts.image()))
             });
+            if waiting {
+                ctx.request_repaint_after(Duration::from_millis(35));
+            }
         }
         #[cfg(not(windows))]
         let _ = (covered, ctx);

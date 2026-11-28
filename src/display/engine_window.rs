@@ -10,15 +10,19 @@
 //! The stock `-qt-hide-window` creates no render surface at all, and only the
 //! engine's own process may cloak its window, so with stock flags the window
 //! is moved off the desktop. The engine is asked to open it there and not to
-//! bring it back (see `android::prepare_engine_window`); the thread here keeps
-//! it there should it show up anyway.
+//! bring it back (see `android::prepare_engine_window`); the keeper thread
+//! keeps it there should it show up anyway, and brings the engine's dialogs
+//! into view.
 //!
-//! The panel falls back to copied frames, with the reason in the boot details,
-//! when the surface does not appear, stops being usable, its picture on the
-//! screen stands still while the engine's frames change, or the engine's
-//! window stops answering.
+//! The panel copies frames instead, with the reason in the boot details, when
+//! the surface does not appear, stops being usable, its picture on the screen
+//! stands still while the engine's frames change (tried again later), or the
+//! engine's window stops answering. The client's UI thread never waits for
+//! the engine's thread (see `child` and `keeper`).
 
 mod child;
+mod host;
+mod keeper;
 mod liveness;
 mod overlay;
 
@@ -29,42 +33,28 @@ use crate::bluestacks::player_process::process_creation_time;
 use crate::bluestacks::preview::PreviewRect;
 use crate::ui::i18n::Locale;
 use eframe::egui::{ColorImage, epaint::ClippedPrimitive};
+use keeper::{HUNG_AFTER, Keeper};
 use std::{
-    cell::Cell,
     os::windows::io::{FromRawHandle, OwnedHandle},
     ptr,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, AtomicIsize, AtomicU64, Ordering},
-    },
+    sync::{Arc, atomic::Ordering},
     thread,
     time::{Duration, Instant},
 };
 use windows_sys::Win32::{
-    Foundation::{CloseHandle, HWND, INVALID_HANDLE_VALUE, LPARAM, LRESULT, POINT, RECT, WPARAM},
+    Foundation::{CloseHandle, HWND, INVALID_HANDLE_VALUE, LPARAM, POINT, RECT},
     Graphics::Gdi::{ClientToScreen, DeleteObject},
     System::{
         Diagnostics::ToolHelp::{
             CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
             TH32CS_SNAPPROCESS,
         },
-        Threading::{
-            AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-        },
+        Threading::{GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
     },
-    UI::{
-        HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext},
-        WindowsAndMessaging::{
-            CallWindowProcW, DefWindowProcW, EnumChildWindows, EnumWindows, GW_OWNER, GWL_EXSTYLE,
-            GWLP_WNDPROC, GetClassNameW, GetClientRect, GetForegroundWindow, GetSystemMetrics,
-            GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic,
-            IsWindow, IsWindowVisible, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-            SM_YVIRTUALSCREEN, SMTO_ABORTIFHUNG, SMTO_ERRORONEXIT, SW_HIDE, SW_SHOWNOACTIVATE,
-            SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-            SendMessageTimeoutW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos,
-            ShowWindowAsync, WM_NULL, WM_WINDOWPOSCHANGED, WNDPROC, WS_EX_APPWINDOW,
-            WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-        },
+    UI::WindowsAndMessaging::{
+        EnumChildWindows, EnumWindows, GetClassNameW, GetSystemMetrics, GetWindowRect,
+        GetWindowThreadProcessId, IsIconic, IsWindowVisible, SM_CXVIRTUALSCREEN,
+        SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
     },
 };
 
@@ -79,11 +69,10 @@ const APPEAR_TIMEOUT: Duration = Duration::from_secs(30);
 const RECOVER_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const CHECK_INTERVAL: Duration = Duration::from_millis(200);
 const RESIZE_SETTLE: Duration = Duration::from_millis(250);
-/// The engine's window is pinged this often, and waited for this long.
-const PING_INTERVAL: Duration = Duration::from_millis(250);
-/// An engine window that has not answered for this long is taken as hung:
-/// the panel gives its surface back without waiting for it.
-const HUNG_AFTER: Duration = Duration::from_secs(3);
+/// After the content check gave the surface up, the panel tries it again
+/// this much later, at most this many times a session.
+const RETRY_AFTER: Duration = Duration::from_secs(60);
+const RETRIES: u8 = 3;
 const ENGINE_EXE: &str = "qemu-system-x86_64.exe";
 /// A surface still in another shape than the panel this long after the panel
 /// learnt the geometry asks for it again.
@@ -96,16 +85,26 @@ fn turned(slot: PreviewRect, size: (i32, i32)) -> bool {
     (shape(size.0, size.1) / shape(width, height) - 1.0).abs() > 0.03
 }
 
+/// Why a surface that was shown stopped being usable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Lost {
+    /// The engine's window has no visible render surface (any more).
+    NoSurface,
+    /// The render surface belongs to another thread than the engine's window.
+    OtherThread,
+}
+
 /// Why the panel shows copied frames although the engine's surface was wanted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Fault {
     /// No engine window with a render surface appeared in time.
     NoWindow,
-    /// The surface was shown and then stopped being usable; why, in English.
-    Lost(String),
+    /// The surface was shown and then stopped being usable.
+    Lost(Lost),
     /// Windows refused a call: its name and code, verbatim.
     System(String),
-    /// The picture on the screen stood still while the engine's frames changed.
+    /// The picture on the screen stood still while the engine's frames
+    /// changed: tried again later.
     Stale,
     /// The engine's window stopped answering messages.
     Hung,
@@ -142,24 +141,24 @@ impl PanelPath {
         let seconds = APPEAR_TIMEOUT.as_secs();
         let reason = match fault {
             Fault::NoWindow => match locale {
-                Locale::PtBr => {
-                    format!("ela não apareceu em {seconds} segundos.")
-                }
-                Locale::EnUs => {
-                    format!("it did not appear within {seconds} seconds.")
-                }
-                Locale::EsEs => {
-                    format!("no apareció en {seconds} segundos.")
-                }
+                Locale::PtBr => format!("ela não apareceu em {seconds} segundos."),
+                Locale::EnUs => format!("it did not appear within {seconds} seconds."),
+                Locale::EsEs => format!("no apareció en {seconds} segundos."),
             },
-            Fault::Lost(detail) => format!(
-                "{} “{detail}”",
-                locale.pick(
-                    "ela deixou de estar disponível; detalhe:",
-                    "it stopped being available; detail:",
-                    "dejó de estar disponible; detalle:",
+            Fault::Lost(Lost::NoSurface) => locale
+                .pick(
+                    "a janela do motor ficou sem uma superfície de imagem visível.",
+                    "the engine's window no longer had a visible render surface.",
+                    "la ventana del motor se quedó sin una superficie de imagen visible.",
                 )
-            ),
+                .to_string(),
+            Fault::Lost(Lost::OtherThread) => locale
+                .pick(
+                    "a superfície de imagem não pertencia à mesma linha de execução da janela do motor.",
+                    "the render surface did not belong to the same thread as the engine's window.",
+                    "la superficie de imagen no pertenecía al mismo hilo que la ventana del motor.",
+                )
+                .to_string(),
             Fault::System(detail) => format!(
                 "{} “{detail}”",
                 locale.pick(
@@ -168,13 +167,20 @@ impl PanelPath {
                     "Windows rechazó una llamada; mensaje del sistema:",
                 )
             ),
-            Fault::Stale => locale
-                .pick(
-                    "a imagem dela na tela parou enquanto a do Android mudava.",
-                    "its picture on the screen stood still while Android's kept changing.",
-                    "su imagen en la pantalla se quedó quieta mientras la de Android cambiaba.",
-                )
-                .to_string(),
+            Fault::Stale => match locale {
+                Locale::PtBr => format!(
+                    "a imagem dela na tela parou enquanto a do Android mudava. O painel tenta de novo em {} segundos.",
+                    RETRY_AFTER.as_secs()
+                ),
+                Locale::EnUs => format!(
+                    "its picture on the screen stood still while Android's kept changing. The panel tries again in {} seconds.",
+                    RETRY_AFTER.as_secs()
+                ),
+                Locale::EsEs => format!(
+                    "su imagen en la pantalla se quedó quieta mientras la de Android cambiaba. El panel lo vuelve a intentar en {} segundos.",
+                    RETRY_AFTER.as_secs()
+                ),
+            },
             Fault::Hung => match locale {
                 Locale::PtBr => format!(
                     "a janela do motor parou de responder por {} segundos.",
@@ -193,8 +199,6 @@ impl PanelPath {
         format!("{lead} {reason}")
     }
 }
-
-const NO_SURFACE: &str = "The engine window has no visible render surface";
 
 fn window_pid(window: HWND) -> u32 {
     let mut pid = 0;
@@ -439,305 +443,6 @@ fn render_surface(window: HWND) -> Option<isize> {
     found
 }
 
-/// The engine process and whether its window is out of the user's sight.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Found {
-    pid: u32,
-    created: u64,
-    hidden: bool,
-    /// The engine's main window.
-    main: isize,
-    /// Its render surface while that is still inside it.
-    surface: Option<isize>,
-}
-
-/// Shared with the threads that keep the engine's windows off the desktop
-/// and watch whether they answer.
-struct Keeper {
-    launcher: u32,
-    stop: AtomicBool,
-    /// The client's own window, to give the keyboard back to.
-    host: AtomicIsize,
-    found: Mutex<Option<Found>>,
-    /// Size wanted for the render surface, taken by the thread.
-    wanted: Mutex<Option<(i32, i32)>>,
-    /// The render surface the client's window holds (set by the UI thread).
-    adopted: AtomicIsize,
-    epoch: Instant,
-    /// When the engine's main window last answered a message (milliseconds
-    /// after `epoch`, plus one; zero: never).
-    answered: AtomicU64,
-}
-
-impl Keeper {
-    fn now(&self) -> u64 {
-        self.epoch.elapsed().as_millis() as u64 + 1
-    }
-
-    /// Whether the engine's window answered within `within`; `None` before
-    /// its first answer.
-    fn answering(&self, within: Duration) -> Option<bool> {
-        let answered = self.answered.load(Ordering::Acquire);
-        (answered != 0).then(|| self.now().saturating_sub(answered) <= within.as_millis() as u64)
-    }
-
-    /// Pings the engine's main window from a thread of its own: no other code
-    /// of the client ever waits for that window without a time limit.
-    fn watch(&self) {
-        while !self.stop.load(Ordering::Acquire) {
-            let main = self.found.lock().unwrap().map_or(0, |found| found.main);
-            if main != 0 {
-                let mut result = 0;
-                let answered = unsafe {
-                    SendMessageTimeoutW(
-                        main as HWND,
-                        WM_NULL,
-                        0,
-                        0,
-                        SMTO_ABORTIFHUNG | SMTO_ERRORONEXIT,
-                        PING_INTERVAL.as_millis() as u32,
-                        &mut result,
-                    )
-                } != 0;
-                if answered {
-                    self.answered.store(self.now(), Ordering::Release);
-                }
-            }
-            thread::sleep(PING_INTERVAL);
-        }
-    }
-
-    fn run(&self) {
-        // Window coordinates of another process are physical pixels.
-        unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
-        let mut engine: Option<(u32, u64)> = None;
-        let mut first_seen: Option<Instant> = None;
-        let mut restyled = 0;
-        let mut main_window: isize = 0;
-        // The windows asked to move lately: the engine's thread may take a while.
-        let mut moved: Vec<(isize, Instant)> = Vec::new();
-        let mut next_lookup = Instant::now();
-        while !self.stop.load(Ordering::Acquire) {
-            if engine.is_none() && Instant::now() >= next_lookup {
-                next_lookup = Instant::now() + Duration::from_millis(100);
-                engine = engine_process(self.launcher)
-                    .and_then(|pid| creation_time(pid).map(|created| (pid, created)));
-            }
-            let mut hidden = false;
-            if let Some((pid, created)) = engine {
-                if creation_time(pid) != Some(created) {
-                    // The engine exited.
-                    engine = None;
-                    *self.found.lock().unwrap() = None;
-                    continue;
-                }
-                let windows = visible_windows(pid);
-                if !windows.is_empty() {
-                    first_seen.get_or_insert_with(Instant::now);
-                }
-                if !windows.contains(&main_window) {
-                    main_window = 0;
-                }
-                let mut inside = None;
-                for window in windows.iter().map(|window| *window as HWND) {
-                    moved.retain(|(_, at)| at.elapsed() < Duration::from_millis(100));
-                    if window_rect(window).is_some_and(on_desktop)
-                        && !moved.iter().any(|(which, _)| *which == window as isize)
-                    {
-                        // Asynchronous, as everything done to the engine's
-                        // windows here: its thread may be busy or hung.
-                        unsafe {
-                            SetWindowPos(
-                                window,
-                                ptr::null_mut(),
-                                OFF_DESKTOP.0,
-                                OFF_DESKTOP.1,
-                                0,
-                                0,
-                                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
-                            )
-                        };
-                        moved.push((window as isize, Instant::now()));
-                        if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some() {
-                            println!(
-                                "engine_window moved_off_desktop after_ms={}",
-                                first_seen.map_or(0, |seen| seen.elapsed().as_millis())
-                            );
-                        }
-                    }
-                    let surface = render_surface(window);
-                    // The surface leaves the main window: the window it was
-                    // found in stays the main one.
-                    let main = unsafe { GetWindow(window, GW_OWNER) }.is_null()
-                        && (surface.is_some() || window as isize == main_window);
-                    if main {
-                        main_window = window as isize;
-                        inside = surface;
-                        // An engine that puts its styles back keeps its button.
-                        if restyled < 3 && self.keep_out_of_the_taskbar(window) {
-                            restyled += 1;
-                        }
-                        self.resize(window, surface);
-                        hidden = window_rect(window).is_some_and(|rect| !on_desktop(rect));
-                    }
-                }
-                self.give_the_keyboard_back(pid);
-                *self.found.lock().unwrap() = Some(Found {
-                    pid,
-                    created,
-                    hidden,
-                    main: main_window,
-                    surface: inside,
-                });
-            }
-            // The first seconds of the engine's window are watched closely.
-            let settled =
-                hidden && first_seen.is_some_and(|seen| seen.elapsed() > Duration::from_secs(5));
-            thread::sleep(if settled {
-                CHECK_INTERVAL
-            } else {
-                Duration::from_millis(5)
-            });
-        }
-    }
-
-    /// No taskbar button, no Alt+Tab entry, never activated.
-    fn keep_out_of_the_taskbar(&self, window: HWND) -> bool {
-        let style = unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) };
-        let wanted =
-            (style | (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) as isize) & !(WS_EX_APPWINDOW as isize);
-        // Changing a style waits for the engine's thread: only while it answers.
-        if style == wanted || self.answering(Duration::from_millis(500)) != Some(true) {
-            return false;
-        }
-        // The shell only drops the button of a window that is shown again.
-        unsafe {
-            ShowWindowAsync(window, SW_HIDE);
-            SetWindowLongPtrW(window, GWL_EXSTYLE, wanted);
-            ShowWindowAsync(window, SW_SHOWNOACTIVATE);
-        }
-        true
-    }
-
-    fn resize(&self, window: HWND, surface: Option<isize>) {
-        let Some((width, height)) = self.wanted.lock().unwrap().take() else {
-            return;
-        };
-        // The surface is held by the client's window.
-        let adopted = self.adopted.load(Ordering::Acquire);
-        let surface = surface.or_else(|| {
-            (adopted != 0 && unsafe { IsWindow(adopted as HWND) } != 0).then_some(adopted)
-        });
-        let (Some(outer), Some(surface)) = (window_rect(window), surface) else {
-            return;
-        };
-        let mut inner = RECT::default();
-        if unsafe { GetClientRect(surface as HWND, &mut inner) } == 0 {
-            return;
-        }
-        // The engine keeps the aspect of the Android screen and scales its
-        // render surface to the window.
-        let extra_width = (outer.right - outer.left) - (inner.right - inner.left);
-        let extra_height = (outer.bottom - outer.top) - (inner.bottom - inner.top);
-        unsafe {
-            SetWindowPos(
-                window,
-                ptr::null_mut(),
-                0,
-                0,
-                width + extra_width.max(0),
-                height + extra_height.max(0),
-                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
-            )
-        };
-    }
-
-    /// A new engine window takes the keyboard; the client gets it back.
-    fn give_the_keyboard_back(&self, pid: u32) {
-        let host = self.host.load(Ordering::Acquire) as HWND;
-        let foreground = unsafe { GetForegroundWindow() };
-        if host.is_null() || foreground.is_null() || window_pid(foreground) != pid {
-            return;
-        }
-        unsafe {
-            if IsWindow(host) == 0 || IsIconic(host) != 0 {
-                return;
-            }
-            if SetForegroundWindow(host) == 0 {
-                let owner = GetWindowThreadProcessId(foreground, ptr::null_mut());
-                let this = GetCurrentThreadId();
-                if owner != 0 && AttachThreadInput(this, owner, 1) != 0 {
-                    SetForegroundWindow(host);
-                    AttachThreadInput(this, owner, 0);
-                }
-            }
-        }
-    }
-}
-
-thread_local! {
-    /// The window procedure of the client's window before `host_proc`.
-    static HOST_PROC: Cell<isize> = const { Cell::new(0) };
-}
-
-fn host_proc_address() -> isize {
-    host_proc as *const () as isize
-}
-
-/// Keeps the overlay over the panel while Windows moves the client's window,
-/// between two frames of the client.
-unsafe extern "system" fn host_proc(
-    window: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    let previous = HOST_PROC.with(Cell::get);
-    let result = if previous == 0 {
-        unsafe { DefWindowProcW(window, message, wparam, lparam) }
-    } else {
-        // SAFETY: the value was returned by SetWindowLongPtrW(GWLP_WNDPROC) for this window.
-        let previous: WNDPROC = unsafe { std::mem::transmute::<isize, WNDPROC>(previous) };
-        unsafe { CallWindowProcW(previous, window, message, wparam, lparam) }
-    };
-    if message == WM_WINDOWPOSCHANGED {
-        overlay::follow(window);
-    }
-    result
-}
-
-/// The client's window procedure is `host_proc` while the panel holds the
-/// engine's surface.
-struct HostHook {
-    host: isize,
-}
-
-impl HostHook {
-    fn install(host: HWND) -> Self {
-        let previous = unsafe { SetWindowLongPtrW(host, GWLP_WNDPROC, host_proc_address()) };
-        HOST_PROC.with(|cell| cell.set(previous));
-        Self {
-            host: host as isize,
-        }
-    }
-}
-
-impl Drop for HostHook {
-    fn drop(&mut self) {
-        let host = self.host as HWND;
-        unsafe {
-            let previous = HOST_PROC.with(Cell::get);
-            if IsWindow(host) != 0
-                && previous != 0
-                && GetWindowLongPtrW(host, GWLP_WNDPROC) == host_proc_address()
-            {
-                SetWindowLongPtrW(host, GWLP_WNDPROC, previous);
-            }
-            HOST_PROC.with(|cell| cell.set(0));
-        }
-    }
-}
-
 /// What the panel may do in this frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Shown {
@@ -758,17 +463,19 @@ pub(crate) struct EngineWindow {
     /// Where the engine's picture was put last (physical client pixels).
     shown_at: Option<PreviewRect>,
     keeper: Arc<Keeper>,
-    threads: Vec<thread::JoinHandle<()>>,
     /// The client's window that holds the render surface.
     holder: Option<child::Holder>,
     overlay: Option<overlay::Overlay>,
-    hook: Option<HostHook>,
+    hook: Option<host::HostHook>,
     /// Since when the panel has waited for a usable surface.
     waiting: Option<Instant>,
     /// What kept the surface from being shown, should it last.
     pending: Option<Fault>,
     was_live: bool,
     fault: Option<Fault>,
+    /// When a stale surface is tried again, and how often it was.
+    retry_at: Option<Instant>,
+    retries: u8,
     /// The slot the render surface should match, since when, and what was asked.
     resize: Option<(PreviewRect, Instant)>,
     resize_asked: Option<((i32, i32), u8)>,
@@ -784,38 +491,21 @@ pub(crate) struct EngineWindow {
 impl EngineWindow {
     /// `launcher` is the emulator launcher this session started.
     pub(crate) fn watch(launcher: u32) -> Self {
-        let keeper = Arc::new(Keeper {
-            launcher,
-            stop: AtomicBool::new(false),
-            host: AtomicIsize::new(0),
-            found: Mutex::new(None),
-            wanted: Mutex::new(None),
-            adopted: AtomicIsize::new(0),
-            epoch: Instant::now(),
-            answered: AtomicU64::new(0),
-        });
-        let mut threads = Vec::new();
+        let keeper = Arc::new(Keeper::new(launcher));
         let worker = keeper.clone();
-        threads.extend(
-            thread::Builder::new()
-                .name("engine window".into())
-                .spawn(move || worker.run())
-                .ok(),
-        );
+        let _ = thread::Builder::new()
+            .name("engine window".into())
+            .spawn(move || worker.run());
         let watcher = keeper.clone();
-        threads.extend(
-            thread::Builder::new()
-                .name("engine window watchdog".into())
-                .spawn(move || watcher.watch())
-                .ok(),
-        );
+        let _ = thread::Builder::new()
+            .name("engine window watchdog".into())
+            .spawn(move || watcher.watch());
         Self {
             liveness: liveness::Liveness::default(),
             could_sample: false,
             overlay_share: 0.0,
             shown_at: None,
             keeper,
-            threads,
             holder: None,
             overlay: None,
             hook: None,
@@ -823,6 +513,8 @@ impl EngineWindow {
             pending: None,
             was_live: false,
             fault: None,
+            retry_at: None,
+            retries: 0,
             resize: None,
             resize_asked: None,
             turned_at: None,
@@ -839,7 +531,7 @@ impl EngineWindow {
     }
 
     /// Content check of the picture last placed: `true` (and the panel
-    /// returns to copied frames for the session) when it is stale.
+    /// returns to copied frames for a while) when it is stale.
     pub(crate) fn check_live(
         &mut self,
         now: Instant,
@@ -848,8 +540,9 @@ impl EngineWindow {
         let host = self.keeper.host.load(Ordering::Acquire) as HWND;
         let place = self.shown_at.and_then(|at| on_screen(host, at));
         // Small static overlays (control hints) do not hide the picture; a
-        // dialog over most of it does.
-        let hidden = self.overlay_share > 0.25;
+        // dialog over most of it does, and so do a locked session and a
+        // display that is off.
+        let hidden = self.overlay_share > 0.25 || host::screen_away();
         let can_sample = !hidden && place.is_some_and(|rect| sees(host, rect));
         if can_sample != self.could_sample {
             self.could_sample = can_sample;
@@ -879,7 +572,7 @@ impl EngineWindow {
                     self.liveness.judged, self.liveness.followed
                 );
             }
-            self.fail(Fault::Stale);
+            self.fail(Fault::Stale, now);
         }
         stale
     }
@@ -889,9 +582,9 @@ impl EngineWindow {
         self.liveness.waiting()
     }
 
-    /// Still trying to show the engine's surface (it has not been given up).
+    /// Still trying to show the engine's surface, or going to try it again.
     pub(crate) fn active(&self) -> bool {
-        self.fault.is_none()
+        self.fault.is_none() || self.retry_at.is_some()
     }
 
     /// Whether Android turned since the panel was laid out: the copied
@@ -915,13 +608,35 @@ impl EngineWindow {
         }
     }
 
-    fn fail(&mut self, fault: Fault) -> Shown {
+    fn fail(&mut self, fault: Fault, now: Instant) -> Shown {
         self.overlay = None;
         self.drop_holder();
         self.hook = None;
+        // The engine's own picture is not wanted while frames are copied.
+        self.keeper.quiet.store(true, Ordering::Release);
+        self.retry_at =
+            (fault == Fault::Stale && self.retries < RETRIES).then(|| now + RETRY_AFTER);
         self.report(PanelPath::Frames(fault.clone()));
         self.fault = Some(fault);
         Shown::Frames
+    }
+
+    /// The surface given up by the content check is tried again.
+    fn retry(&mut self, now: Instant) {
+        self.retries += 1;
+        self.retry_at = None;
+        self.fault = None;
+        self.keeper.hung.store(false, Ordering::Release);
+        self.keeper.mark_answered();
+        self.keeper.quiet.store(false, Ordering::Release);
+        self.waiting = Some(now);
+        self.was_live = false;
+        self.pending = None;
+        self.shown_at = None;
+        self.liveness.reset();
+        if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some() {
+            println!("engine_child retry={}", self.retries);
+        }
     }
 
     /// Stops showing the engine's surface for now (the panel is not drawn).
@@ -934,25 +649,19 @@ impl EngineWindow {
         }
     }
 
-    /// Whether the engine's window answers (or has not been asked yet).
-    fn engine_answers(&self) -> bool {
-        self.keeper
-            .answering(Duration::from_millis(1500))
-            .unwrap_or(true)
-    }
-
     fn drop_holder(&mut self) {
-        if let Some(holder) = self.holder.take() {
-            holder.release(self.engine_answers());
-        }
         self.keeper.adopted.store(0, Ordering::Release);
+        if let Some(holder) = self.holder.take() {
+            holder.release();
+        }
     }
 
     /// What the client drew over the panel at `slot` in this frame:
     /// `covered`, the parts it covers (physical client pixels), and
     /// `primitives`, the same shapes tessellated at `scale` pixels per point.
     /// They are shown on top of the engine's picture; `font` gives the font
-    /// atlas when the overlay must be redrawn.
+    /// atlas when the overlay must be redrawn. `true` when a change waits for
+    /// its turn (the caller should paint again shortly).
     pub(crate) fn draw_over(
         &mut self,
         slot: PreviewRect,
@@ -960,18 +669,22 @@ impl EngineWindow {
         primitives: &[ClippedPrimitive],
         scale: f32,
         font: impl FnOnce() -> Arc<ColorImage>,
-    ) {
+    ) -> bool {
         self.overlay_share = child::share(slot, &child::cut_out(slot, covered));
         let host = self.keeper.host.load(Ordering::Acquire) as HWND;
         let Some(overlay) = &mut self.overlay else {
-            return;
+            return false;
         };
-        if self.holder.as_mut().and_then(child::Holder::held).is_none() {
+        if self.keeper.adopted.load(Ordering::Acquire) == 0 {
             overlay.hide();
-            return;
+            return false;
         }
-        if let Err(fault) = overlay.show(host, slot, primitives, scale, font) {
-            self.fail(fault);
+        match overlay.show(host, slot, primitives, scale, font) {
+            Ok(waiting) => waiting,
+            Err(fault) => {
+                self.fail(fault, Instant::now());
+                false
+            }
         }
     }
 
@@ -985,7 +698,16 @@ impl EngineWindow {
     /// in physical client pixels of the client's window), or says why not.
     pub(crate) fn show(&mut self, slot: Option<PreviewRect>, now: Instant) -> Shown {
         if self.fault.is_some() {
-            return Shown::Frames;
+            if self.retry_at.is_some_and(|at| now >= at) {
+                self.retry(now);
+            } else {
+                return Shown::Frames;
+            }
+        }
+        // The watchdog took the surface back from a hung engine (whether or
+        // not the panel was drawn meanwhile).
+        if self.keeper.hung.load(Ordering::Acquire) {
+            return self.fail(Fault::Hung, now);
         }
         let host = self.keeper.host.load(Ordering::Acquire);
         if host != 0 && unsafe { IsIconic(host as HWND) } != 0 {
@@ -1000,14 +722,6 @@ impl EngineWindow {
             self.hide();
             return self.wait(waiting, now);
         };
-        if self.holder.is_some() && self.keeper.answering(HUNG_AFTER) == Some(false) {
-            // The joined input queues must not let the engine's thread hold
-            // the client's input any longer.
-            if let Some(holder) = &mut self.holder {
-                holder.detach();
-            }
-            return self.fail(Fault::Hung);
-        }
         self.show_child(host as HWND, slot, found, waiting, now)
     }
 
@@ -1016,50 +730,61 @@ impl EngineWindow {
         &mut self,
         host: HWND,
         slot: PreviewRect,
-        found: Found,
+        found: keeper::Found,
         waiting: Instant,
         now: Instant,
     ) -> Shown {
         if self.holder.is_none() {
             match child::Holder::create(host) {
                 Ok(holder) => self.holder = Some(holder),
-                Err(fault) => return self.fail(fault),
+                Err(fault) => return self.fail(fault, now),
             }
         }
         if self.overlay.is_none() {
             match overlay::Overlay::create(host) {
                 Ok(overlay) => self.overlay = Some(overlay),
-                Err(fault) => return self.fail(fault),
+                Err(fault) => return self.fail(fault, now),
             }
-            self.hook = Some(HostHook::install(host));
+            self.hook = Some(host::HostHook::install(host));
         }
-        let answers = self.engine_answers();
+        let answers = self
+            .keeper
+            .answering(Duration::from_millis(1500))
+            .unwrap_or(true);
         let holder = self.holder.as_mut().unwrap();
-        let mut surface = holder.held();
+        let surface = match holder.held() {
+            Ok(surface) => surface,
+            Err(fault) => return self.fail(fault, now),
+        };
         if surface.is_none()
+            && !holder.taking()
             && let Some(inside) = found.surface
             && answers
         {
             // Placed first, so the surface lands where it is shown.
             holder.place(slot);
+            self.keeper
+                .ui_thread
+                .store(unsafe { GetCurrentThreadId() }, Ordering::Release);
             if let Err(fault) = holder.adopt(inside, found.main) {
-                return self.fail(fault);
+                return self.fail(fault, now);
             }
-            surface = Some(inside);
         }
         self.keeper
             .adopted
             .store(surface.unwrap_or(0), Ordering::Release);
         let Some(surface) = surface else {
-            // A rotation replaces the surface inside the engine's window.
-            holder.hide();
-            self.pending = Some(Fault::Lost(NO_SURFACE.into()));
+            if !holder.taking() {
+                // A rotation replaces the surface inside the engine's window.
+                holder.hide();
+            }
+            self.pending = Some(Fault::Lost(Lost::NoSurface));
             return self.wait(waiting, now);
         };
         holder.place(slot);
         let Some(size) = holder.centre(surface) else {
             holder.hide();
-            self.pending = Some(Fault::Lost(NO_SURFACE.into()));
+            self.pending = Some(Fault::Lost(Lost::NoSurface));
             return self.wait(waiting, now);
         };
         self.waiting = Some(now);
@@ -1097,7 +822,7 @@ impl EngineWindow {
             Some(fault) if self.was_live => fault,
             _ => Fault::NoWindow,
         };
-        self.fail(fault)
+        self.fail(fault, now)
     }
 
     /// Asks the engine for a render surface of the size shown, so that the
@@ -1142,32 +867,33 @@ impl EngineWindow {
 }
 
 impl Drop for EngineWindow {
+    /// Nothing here waits for the engine: the surface is given back from a
+    /// thread of its own and the keeper's threads end by themselves.
     fn drop(&mut self) {
         self.keeper.stop.store(true, Ordering::Release);
         self.overlay = None;
         self.drop_holder();
         self.hook = None;
-        for thread in self.threads.drain(..) {
-            let _ = thread.join();
-        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyWindow, WS_OVERLAPPEDWINDOW};
 
     #[test]
     fn the_panel_path_is_described_in_every_language() {
         let paths = [
             PanelPath::EngineChild,
             PanelPath::Frames(Fault::NoWindow),
-            PanelPath::Frames(Fault::Lost(NO_SURFACE.into())),
+            PanelPath::Frames(Fault::Lost(Lost::NoSurface)),
             PanelPath::Frames(Fault::System(
                 "SetParent: Access is denied. (os error 5)".into(),
             )),
             PanelPath::Frames(Fault::Stale),
             PanelPath::Frames(Fault::Hung),
+            PanelPath::Frames(Fault::Lost(Lost::OtherThread)),
         ];
         for locale in [Locale::PtBr, Locale::EnUs, Locale::EsEs] {
             let texts: Vec<_> = paths.iter().map(|path| path.describe(locale)).collect();
@@ -1178,10 +904,10 @@ mod tests {
                     "{text}"
                 );
             }
-            // English details and the system's words are quoted verbatim.
-            assert!(texts[2].ends_with(&format!("“{NO_SURFACE}”")));
+            // The system's words are quoted verbatim.
             assert!(texts[3].ends_with("“SetParent: Access is denied. (os error 5)”"));
             assert!(texts[1].contains("30"));
+            assert!(texts[4].contains("60"));
             assert!(texts[5].contains('3'));
         }
         assert_eq!(
@@ -1189,16 +915,16 @@ mod tests {
             "Panel: the engine's render surface, inside the client's window; the engine presents straight to the screen and no frame is copied."
         );
         assert_eq!(
-            paths[1].describe(Locale::EnUs),
-            "Panel: frames copied from the engine; the engine's surface was not used because it did not appear within 30 seconds."
+            paths[2].describe(Locale::PtBr),
+            "Painel: quadros copiados do motor; a superfície do motor não foi usada porque a janela do motor ficou sem uma superfície de imagem visível."
         );
         assert_eq!(
             paths[5].describe(Locale::PtBr),
             "Painel: quadros copiados do motor; a superfície do motor não foi usada porque a janela do motor parou de responder por 3 segundos."
         );
         assert_eq!(
-            paths[3].describe(Locale::EsEs),
-            "Panel: fotogramas copiados del motor; no se usó la superficie del motor porque Windows rechazó una llamada; mensaje del sistema: “SetParent: Access is denied. (os error 5)”"
+            paths[6].describe(Locale::EsEs),
+            "Panel: fotogramas copiados del motor; no se usó la superficie del motor porque la superficie de imagen no pertenecía al mismo hilo que la ventana del motor."
         );
     }
 
@@ -1241,14 +967,17 @@ mod tests {
     }
 
     #[test]
-    fn only_an_engine_started_by_this_launcher_is_looked_for() {
-        // This test process started no emulator.
+    fn this_test_process_started_no_engine_to_look_for() {
+        // Only an engine whose parent chain reaches the launcher counts; this
+        // process launched none (other engines on the machine are ignored).
         assert_eq!(engine_process(std::process::id()), None);
     }
 
     #[test]
-    fn a_session_without_an_engine_window_falls_back_and_says_so_once() {
+    fn a_session_whose_engine_window_never_appears_falls_back_and_says_so_once() {
+        let host = child::tests::window(WS_OVERLAPPEDWINDOW, ptr::null_mut());
         let mut panel = EngineWindow::watch(std::process::id());
+        panel.set_host(host as isize);
         let slot = PreviewRect::from_points([0., 0.], [160., 90.], 1.);
         let start = Instant::now();
         assert_eq!(panel.show(slot, start), Shown::Frames);
@@ -1266,28 +995,133 @@ mod tests {
         assert_eq!(panel.show(slot, start + APPEAR_TIMEOUT * 2), Shown::Frames);
         assert_eq!(panel.take_path_change(), None);
         assert!(!panel.overlay_visible());
+        assert!(panel.keeper.quiet.load(Ordering::Acquire));
+        drop(panel);
+        unsafe { DestroyWindow(host) };
     }
 
+    /// A surface given up by the content check comes back after a while,
+    /// a limited number of times; meanwhile the engine's window is quiet.
     #[test]
-    fn an_engine_window_is_judged_by_its_last_answer() {
-        let keeper = Keeper {
-            launcher: 0,
-            stop: AtomicBool::new(false),
-            host: AtomicIsize::new(0),
-            found: Mutex::new(None),
-            wanted: Mutex::new(None),
-            adopted: AtomicIsize::new(0),
-            epoch: Instant::now() - Duration::from_secs(60),
-            answered: AtomicU64::new(0),
+    fn a_stale_surface_is_tried_again_later_a_few_times() {
+        let host = child::tests::window(WS_OVERLAPPEDWINDOW, ptr::null_mut());
+        let engine = child::tests::Engine::start();
+        let mut panel = EngineWindow::watch(std::process::id());
+        panel.set_host(host as isize);
+        let found = keeper::Found {
+            pid: std::process::id(),
+            created: 0,
+            hidden: true,
+            main: engine.main,
+            surface: Some(engine.surface),
         };
-        assert_eq!(keeper.answering(HUNG_AFTER), None);
-        keeper.answered.store(keeper.now(), Ordering::Release);
-        assert_eq!(keeper.answering(HUNG_AFTER), Some(true));
-        keeper.answered.store(
-            keeper.now() - HUNG_AFTER.as_millis() as u64 - 100,
-            Ordering::Release,
+        *panel.keeper.found.lock().unwrap() = Some(found);
+        let slot = PreviewRect::from_points([0., 0.], [320., 180.], 1.);
+        let mut clock = Instant::now();
+        for attempt in 0..=RETRIES {
+            let mut shown = Shown::Frames;
+            child::tests::pump_until(
+                || {
+                    shown = panel.show(slot, clock);
+                    matches!(shown, Shown::Child(_))
+                },
+                Duration::from_secs(5),
+            );
+            assert!(
+                matches!(shown, Shown::Child(_)),
+                "attempt {attempt}: {shown:?}"
+            );
+            assert_eq!(panel.take_path_change(), Some(PanelPath::EngineChild));
+            assert_eq!(panel.fail(Fault::Stale, clock), Shown::Frames);
+            assert!(panel.keeper.quiet.load(Ordering::Acquire));
+            assert_eq!(
+                panel.take_path_change(),
+                Some(PanelPath::Frames(Fault::Stale))
+            );
+            // The surface goes home (the keeper would report it there again).
+            child::tests::pump_until(
+                || unsafe {
+                    windows_sys::Win32::UI::WindowsAndMessaging::GetParent(engine.surface as HWND)
+                        == engine.main as HWND
+                },
+                Duration::from_secs(5),
+            );
+            assert_eq!(panel.show(slot, clock + RETRY_AFTER / 2), Shown::Frames);
+            clock += RETRY_AFTER;
+            if attempt < RETRIES {
+                assert!(panel.active());
+            }
+        }
+        // Retries used up: copied frames for the rest of the session.
+        assert!(!panel.active());
+        assert_eq!(panel.show(slot, clock + RETRY_AFTER * 5), Shown::Frames);
+        drop(panel);
+        child::tests::pump_until(|| false, Duration::from_millis(300));
+        drop(engine);
+        unsafe { DestroyWindow(host) };
+    }
+
+    /// The panel's whole path against windows of another thread: the surface
+    /// is taken, shown, the engine hangs, the watchdog takes the surface back
+    /// on its own (nothing drawn meanwhile), and the panel falls back.
+    #[test]
+    fn a_hung_engine_loses_its_surface_without_the_panel_waiting_for_it() {
+        let host = child::tests::window(WS_OVERLAPPEDWINDOW, ptr::null_mut());
+        let engine = child::tests::Engine::start();
+        let mut panel = EngineWindow::watch(std::process::id());
+        panel.set_host(host as isize);
+        *panel.keeper.found.lock().unwrap() = Some(keeper::Found {
+            pid: std::process::id(),
+            created: 0,
+            hidden: true,
+            main: engine.main,
+            surface: Some(engine.surface),
+        });
+        let slot = PreviewRect::from_points([0., 0.], [320., 180.], 1.);
+        let mut shown = Shown::Frames;
+        child::tests::pump_until(
+            || {
+                shown = panel.show(slot, Instant::now());
+                matches!(shown, Shown::Child(_))
+            },
+            Duration::from_secs(5),
         );
-        assert_eq!(keeper.answering(HUNG_AFTER), Some(false));
-        assert_eq!(keeper.answering(HUNG_AFTER * 2), Some(true));
+        assert!(matches!(shown, Shown::Child(_)), "{shown:?}");
+        assert_eq!(panel.take_path_change(), Some(PanelPath::EngineChild));
+        // The engine stops reading messages for longer than the watchdog
+        // allows; the UI thread keeps running and draws nothing meanwhile.
+        engine.stall(HUNG_AFTER + Duration::from_secs(2));
+        let started = Instant::now();
+        child::tests::pump_until(
+            || panel.keeper.hung.load(Ordering::Acquire),
+            HUNG_AFTER + Duration::from_secs(2),
+        );
+        assert!(panel.keeper.hung.load(Ordering::Acquire));
+        assert!(started.elapsed() < HUNG_AFTER + Duration::from_secs(2));
+        let frame = Instant::now();
+        assert_eq!(panel.show(slot, Instant::now()), Shown::Frames);
+        assert!(frame.elapsed() < Duration::from_millis(50));
+        assert_eq!(
+            panel.take_path_change(),
+            Some(PanelPath::Frames(Fault::Hung))
+        );
+        // Once the engine reads messages again, its surface is back home.
+        child::tests::pump_until(
+            || unsafe {
+                windows_sys::Win32::UI::WindowsAndMessaging::GetParent(engine.surface as HWND)
+                    == engine.main as HWND
+            },
+            Duration::from_secs(10),
+        );
+        assert_eq!(
+            unsafe {
+                windows_sys::Win32::UI::WindowsAndMessaging::GetParent(engine.surface as HWND)
+            },
+            engine.main as HWND
+        );
+        drop(panel);
+        child::tests::pump_until(|| false, Duration::from_millis(300));
+        drop(engine);
+        unsafe { DestroyWindow(host) };
     }
 }

@@ -1133,10 +1133,20 @@ impl Mapping {
         } else {
             self.gestures.waiting()
         };
-        if (poll_pad && self.gamepad.is_some()) || tick_gestures || !self.wheel_releases.is_empty()
-        {
+        // Gamepads are read 60 times a second only while one is connected:
+        // a client that repaints that often costs the engine's own picture
+        // (Windows) a quarter of the game's frame rate. Without one, a
+        // connection is noticed within a quarter of a second.
+        let pad_connected = self
+            .gamepad
+            .as_ref()
+            .is_some_and(|pads| pads.gamepads().next().is_some());
+        if (poll_pad && pad_connected) || tick_gestures || !self.wheel_releases.is_empty() {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(16));
+        } else if poll_pad && self.gamepad.is_some() {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(250));
         }
         changes
     }

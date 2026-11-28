@@ -506,33 +506,57 @@ impl Launcher {
 fn trace_input(ctx: &egui::Context) {
     use std::cell::Cell;
     thread_local! {
-        static SINCE: Cell<(Option<Instant>, usize, usize)> = const { Cell::new((None, 0, 0)) };
+        static SINCE: Cell<(Option<Instant>, usize, usize, usize)> = const { Cell::new((None, 0, 0, 0)) };
+        static FRAMES: Cell<(Option<Instant>, u32)> = const { Cell::new((None, 0)) };
     }
     if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_none() {
         return;
     }
-    let (events, buttons) = ctx.input(|input| {
-        let buttons = input
-            .events
-            .iter()
-            .filter(|event| matches!(event, egui::Event::PointerButton { .. }))
-            .count();
-        (input.events.len(), buttons)
+    // How often the client repaints, and what asked for the last repaint.
+    FRAMES.with(|frames| {
+        let (since, count) = frames.get();
+        let now = Instant::now();
+        match since {
+            Some(since) if now.duration_since(since) >= Duration::from_secs(2) => {
+                let causes: Vec<String> = ctx
+                    .repaint_causes()
+                    .iter()
+                    .map(|cause| format!("{}:{}", cause.file, cause.line))
+                    .collect();
+                println!(
+                    "client_frames at_ms={} per_s={:.1} last_causes={causes:?}",
+                    crate::display::trace_clock_ms(),
+                    f64::from(count + 1) / now.duration_since(since).as_secs_f64()
+                );
+                frames.set((Some(now), 0));
+            }
+            Some(since) => frames.set((Some(since), count + 1)),
+            None => frames.set((Some(now), 0)),
+        }
+    });
+    let (events, buttons, keys) = ctx.input(|input| {
+        let count =
+            |wanted: fn(&egui::Event) -> bool| input.events.iter().filter(|e| wanted(e)).count();
+        (
+            input.events.len(),
+            count(|event| matches!(event, egui::Event::PointerButton { .. })),
+            count(|event| matches!(event, egui::Event::Key { .. })),
+        )
     });
     SINCE.with(|since| {
-        let (last, count, pressed) = since.get();
-        let (count, pressed) = (count + events, pressed + buttons);
+        let (last, count, pressed, typed) = since.get();
+        let (count, pressed, typed) = (count + events, pressed + buttons, typed + keys);
         let now = Instant::now();
         if count > 0
             && last.is_none_or(|last| now.duration_since(last) >= Duration::from_millis(250))
         {
             println!(
-                "client_input at_ms={} events={count} buttons={pressed}",
+                "client_input at_ms={} events={count} buttons={pressed} keys={typed}",
                 crate::display::trace_clock_ms()
             );
-            since.set((Some(now), 0, 0));
+            since.set((Some(now), 0, 0, 0));
         } else {
-            since.set((last, count, pressed));
+            since.set((last, count, pressed, typed));
         }
     });
 }

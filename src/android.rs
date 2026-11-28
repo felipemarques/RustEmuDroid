@@ -842,40 +842,96 @@ const ENGINE_WINDOW_AT: (i32, i32) = (-25_000, -25_000);
 /// before it moves there.
 const ENGINE_WINDOW_SCALE: &str = "0.200000";
 
+const USER_INI: &str = "emulator-user.ini";
+/// The engine's own window entries of `emulator-user.ini` as they were before
+/// the client changed them, to be put back when frames are copied.
+const USER_INI_BACKUP: &str = "rustemudroid-window-before.ini";
+const WINDOW_KEYS: [&str; 3] = ["window.x", "window.y", "window.scale"];
+
+fn key_of(line: &str) -> &str {
+    line.split('=').next().unwrap_or_default().trim()
+}
+
+/// Replaces `path` with `text` in one step (a file next to it renamed over
+/// it), so that an interrupted write never leaves half a file.
+fn write_atomically(path: &Path, text: &str) -> io::Result<()> {
+    let temporary = path.with_extension("ini.rustemudroid-new");
+    fs::write(&temporary, text)?;
+    fs::rename(&temporary, path).inspect_err(|_| {
+        let _ = fs::remove_file(&temporary);
+    })
+}
+
+fn read_or_empty(path: &Path) -> io::Result<String> {
+    match fs::read_to_string(path) {
+        Ok(text) => Ok(text),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(error),
+    }
+}
+
 /// Asks the engine (through its per-AVD UI settings, `emulator-user.ini`) to
 /// open its window off the desktop and small. Together with `-fixed-scale`,
 /// which skips the engine's check that moves a window back onto a monitor,
 /// the window leaves the desktop by itself right after it first shows. The
-/// other entries of the file are kept.
+/// other entries of the file are kept; the window entries it had are kept
+/// aside the first time and put back by `restore_engine_window`.
 fn prepare_engine_window(avd: &Path) -> io::Result<()> {
-    let path = avd.join("emulator-user.ini");
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(error),
+    let path = avd.join(USER_INI);
+    let text = read_or_empty(&path)?;
+    let backup = avd.join(USER_INI_BACKUP);
+    if !backup.exists() {
+        let before: Vec<&str> = text
+            .lines()
+            .filter(|line| {
+                WINDOW_KEYS
+                    .iter()
+                    .any(|key| key_of(line).eq_ignore_ascii_case(key))
+            })
+            .collect();
+        write_atomically(&backup, &(before.join("\n") + "\n"))?;
+    }
+    write_atomically(&path, &engine_window_settings(&text))
+}
+
+/// Frames are copied: the engine's window entries go back to what they were
+/// before the client changed them (or away, if there were none).
+fn restore_engine_window(avd: &Path) -> io::Result<()> {
+    let backup = avd.join(USER_INI_BACKUP);
+    let Ok(before) = fs::read_to_string(&backup) else {
+        return Ok(());
     };
-    fs::write(&path, engine_window_settings(&text))
+    let path = avd.join(USER_INI);
+    let text = read_or_empty(&path)?;
+    write_atomically(
+        &path,
+        &with_window_entries(&text, before.lines().filter(|line| !line.trim().is_empty())),
+    )?;
+    fs::remove_file(backup)
 }
 
 fn engine_window_settings(text: &str) -> String {
     let wanted = [
-        ("window.x", ENGINE_WINDOW_AT.0.to_string()),
-        ("window.y", ENGINE_WINDOW_AT.1.to_string()),
-        ("window.scale", ENGINE_WINDOW_SCALE.to_string()),
+        format!("window.x = {}", ENGINE_WINDOW_AT.0),
+        format!("window.y = {}", ENGINE_WINDOW_AT.1),
+        format!("window.scale = {ENGINE_WINDOW_SCALE}"),
     ];
-    let mut lines: Vec<String> = text
-        .lines()
-        .filter(|line| {
-            let key = line.split('=').next().unwrap_or_default().trim();
-            !wanted
-                .iter()
-                .any(|(name, _)| key.eq_ignore_ascii_case(name))
-        })
-        .map(str::to_owned)
-        .collect();
-    for (index, (name, value)) in wanted.iter().enumerate() {
-        lines.insert(index, format!("{name} = {value}"));
-    }
+    with_window_entries(text, wanted.iter().map(String::as_str))
+}
+
+/// `text` with its window entries replaced by `entries`, first, and every
+/// other line kept in its order.
+fn with_window_entries<'a>(text: &str, entries: impl Iterator<Item = &'a str>) -> String {
+    let mut lines: Vec<String> = entries.map(str::to_owned).collect();
+    lines.extend(
+        text.lines()
+            .filter(|line| {
+                !WINDOW_KEYS
+                    .iter()
+                    .any(|key| key_of(line).eq_ignore_ascii_case(key))
+            })
+            .map(str::to_owned),
+    );
     let mut out = lines.join("\n");
     out.push('\n');
     out
@@ -1298,8 +1354,12 @@ pub fn boot(
     let engine_window = engine_window_panel(env::var(PANEL_ENV).ok().as_deref(), engine_panel)
         && embedded
         && runtime.is_none();
+    let avd = profile.avd_home.join(format!("{AVD}.avd"));
+    if !engine_window && embedded {
+        // Not fatal: the hidden window of this path never shows.
+        let _ = restore_engine_window(&avd);
+    }
     if engine_window {
-        let avd = profile.avd_home.join(format!("{AVD}.avd"));
         match prepare_engine_window(&avd) {
             Ok(()) => {
                 command.arg("-fixed-scale");
@@ -2354,7 +2414,7 @@ mod tests {
     }
 
     #[test]
-    fn the_engine_window_is_asked_to_open_off_the_desktop_and_small() {
+    fn the_engine_window_is_asked_to_open_off_the_desktop_and_small_and_put_back_later() {
         let saved = "window.x = 100\nwindow.y = 100\nwindow.scale = -1.000000\nresizable.config.id = -1\nposture = 0\nuuid = 1795717770811\n";
         let wanted = "window.x = -25000\nwindow.y = -25000\nwindow.scale = 0.200000\nresizable.config.id = -1\nposture = 0\nuuid = 1795717770811\n";
         assert_eq!(super::engine_window_settings(saved), wanted);
@@ -2365,13 +2425,34 @@ mod tests {
             "window.x = -25000\nwindow.y = -25000\nwindow.scale = 0.200000\n"
         );
         let dir = tempfile::tempdir().unwrap();
+        let ini = dir.path().join("emulator-user.ini");
+        std::fs::write(&ini, saved).unwrap();
         super::prepare_engine_window(dir.path()).unwrap();
-        std::fs::write(dir.path().join("emulator-user.ini"), saved).unwrap();
+        assert_eq!(std::fs::read_to_string(&ini).unwrap(), wanted);
+        // The engine rewrites its file meanwhile; the first values are kept.
+        std::fs::write(&ini, wanted.replace("uuid = 1795717770811", "uuid = 7")).unwrap();
         super::prepare_engine_window(dir.path()).unwrap();
+        super::restore_engine_window(dir.path()).unwrap();
         assert_eq!(
-            std::fs::read_to_string(dir.path().join("emulator-user.ini")).unwrap(),
-            wanted
+            std::fs::read_to_string(&ini).unwrap(),
+            saved.replace("uuid = 1795717770811", "uuid = 7")
         );
+        assert!(!dir.path().join(super::USER_INI_BACKUP).exists());
+        // Nothing to put back: nothing changes.
+        super::restore_engine_window(dir.path()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&ini).unwrap(),
+            saved.replace("uuid = 1795717770811", "uuid = 7")
+        );
+        // A file without window entries gets none back.
+        let empty = tempfile::tempdir().unwrap();
+        super::prepare_engine_window(empty.path()).unwrap();
+        super::restore_engine_window(empty.path()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(empty.path().join("emulator-user.ini")).unwrap(),
+            "\n"
+        );
+        assert_eq!(std::fs::read_dir(empty.path()).unwrap().count(), 1);
     }
 
     #[test]

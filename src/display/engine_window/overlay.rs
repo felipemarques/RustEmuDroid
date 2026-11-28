@@ -24,6 +24,7 @@ use std::{
     hash::{Hash, Hasher},
     ptr,
     sync::{Arc, Mutex, OnceLock},
+    time::{Duration, Instant},
 };
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM},
@@ -233,6 +234,10 @@ pub(super) struct Overlay {
     shown: Option<Shown>,
     /// Updates of the window's picture, for the diagnostics.
     pub(super) redrawn: u64,
+    /// When the picture was last redrawn, and the pixels it was drawn into
+    /// (kept for the next one).
+    redrawn_at: Option<Instant>,
+    canvas: Vec<[u8; 4]>,
 }
 
 impl Overlay {
@@ -277,6 +282,8 @@ impl Overlay {
                 bitmap: None,
                 shown: None,
                 redrawn: 0,
+                redrawn_at: None,
+                canvas: Vec::new(),
             })
         }
     }
@@ -295,6 +302,8 @@ impl Overlay {
     /// Shows `primitives` (tessellated at `scale` pixels per point) over the
     /// part of the client's window `host` they cover inside `slot`. `font`
     /// gives the font atlas, asked for only when the picture must be redrawn.
+    /// The picture is redrawn at most every [`REDRAW_EVERY`]: `Ok(true)` when
+    /// a change waits for its turn.
     pub(super) fn show(
         &mut self,
         host: HWND,
@@ -302,15 +311,15 @@ impl Overlay {
         primitives: &[ClippedPrimitive],
         scale: f32,
         font: impl FnOnce() -> Arc<ColorImage>,
-    ) -> Result<(), Fault> {
+    ) -> Result<bool, Fault> {
         let Some(at) = bounds(primitives, scale, slot) else {
             self.hide();
-            return Ok(());
+            return Ok(false);
         };
         let mut origin = POINT { x: 0, y: 0 };
         if unsafe { ClientToScreen(host, &mut origin) } == 0 {
             self.hide();
-            return Ok(());
+            return Ok(false);
         }
         let fingerprint = fingerprint(primitives, scale, at);
         let wanted = Shown { at, fingerprint };
@@ -318,7 +327,16 @@ impl Overlay {
         if self.shown == Some(wanted) {
             // Same picture at the same place in the client: follow a move.
             follow(host);
-            return Ok(());
+            return Ok(false);
+        }
+        // Hover animations and the like change the picture every frame of
+        // the client: it follows them at a bounded rate.
+        if self.shown.is_some()
+            && self
+                .redrawn_at
+                .is_some_and(|at| at.elapsed() < REDRAW_EVERY)
+        {
+            return Ok(true);
         }
         let (width, height) = (at.right - at.left, at.bottom - at.top);
         if self
@@ -337,7 +355,8 @@ impl Overlay {
         let bitmap = self.bitmap.as_mut().unwrap();
         let font = font();
         let known = textures().lock().unwrap();
-        let picture = rasterize(
+        rasterize_into(
+            &mut self.canvas,
             primitives,
             scale,
             [at.left, at.top],
@@ -351,7 +370,7 @@ impl Overlay {
             },
         );
         drop(known);
-        for (out, [r, g, b, a]) in bitmap.pixels().iter_mut().zip(picture) {
+        for (out, [r, g, b, a]) in bitmap.pixels().iter_mut().zip(self.canvas.iter().copied()) {
             *out = u32::from_le_bytes([b, g, r, a]);
         }
         let position = POINT {
@@ -393,7 +412,8 @@ impl Overlay {
         }
         self.shown = Some(wanted);
         self.redrawn += 1;
-        Ok(())
+        self.redrawn_at = Some(Instant::now());
+        Ok(false)
     }
 }
 
@@ -476,6 +496,9 @@ fn fingerprint(primitives: &[ClippedPrimitive], scale: f32, at: PreviewRect) -> 
     hasher.finish()
 }
 
+/// The overlay's picture is redrawn at most this often.
+const REDRAW_EVERY: Duration = Duration::from_millis(33);
+
 /// Sub-pixel steps of the rasteriser's fixed-point coordinates.
 const SUB: i64 = 256;
 
@@ -484,6 +507,7 @@ const SUB: i64 = 256;
 /// egui's own renderer does: premultiplied sRGB colours and texels, blended in
 /// gamma space, sampled at pixel centres, each pixel covered by exactly one of
 /// two triangles sharing an edge. Returns premultiplied RGBA pixels.
+#[cfg(test)]
 pub(super) fn rasterize<'a>(
     primitives: &[ClippedPrimitive],
     scale: f32,
@@ -491,7 +515,22 @@ pub(super) fn rasterize<'a>(
     size: [usize; 2],
     texture: &dyn Fn(TextureId) -> Option<&'a ColorImage>,
 ) -> Vec<[u8; 4]> {
-    let mut out = vec![[0u8; 4]; size[0] * size[1]];
+    let mut out = Vec::new();
+    rasterize_into(&mut out, primitives, scale, origin, size, texture);
+    out
+}
+
+/// [`rasterize`] into `out`, whose allocation is reused.
+pub(super) fn rasterize_into<'a>(
+    out: &mut Vec<[u8; 4]>,
+    primitives: &[ClippedPrimitive],
+    scale: f32,
+    origin: [i32; 2],
+    size: [usize; 2],
+    texture: &dyn Fn(TextureId) -> Option<&'a ColorImage>,
+) {
+    out.clear();
+    out.resize(size[0] * size[1], [0u8; 4]);
     for clipped in primitives {
         let Primitive::Mesh(mesh) = &clipped.primitive else {
             continue;
@@ -527,10 +566,9 @@ pub(super) fn rasterize<'a>(
             if area < 0 {
                 corners.swap(1, 2);
             }
-            fill(&mut out, size, clip_px, &corners, area.abs(), image);
+            fill(out, size, clip_px, &corners, area.abs(), image);
         }
     }
-    out
 }
 
 type Corner<'a> = (i64, i64, &'a eframe::egui::epaint::Vertex);
