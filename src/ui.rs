@@ -366,8 +366,8 @@ impl Launcher {
                     let mut display = Display::open(console, rpc, avd, ctx);
                     display.enable_native_texture(gl);
                     #[cfg(windows)]
-                    if let Some(launcher) = engine_window {
-                        display.watch_engine_window(launcher);
+                    if let Some((launcher, child)) = engine_window {
+                        display.watch_engine_window(launcher, child);
                     }
                     #[cfg(not(windows))]
                     let _ = engine_window;
@@ -598,6 +598,11 @@ impl eframe::App for Launcher {
             self.show_help(ctx);
         }
         self.show_runtime_setup(ctx);
+        // Last: whatever this frame drew over the panel stays visible over
+        // an engine surface held by the client's window.
+        if let Some(display) = &mut self.display {
+            display.end_frame(ctx);
+        }
     }
 }
 
@@ -631,11 +636,8 @@ impl Launcher {
         {
             display.set_package(controls.foreground_package(ctx));
         }
-        // A panel that shows the engine's own window processes no frames to count.
-        let through = self
-            .display
-            .as_ref()
-            .is_some_and(Display::panel_is_transparent);
+        // A panel that shows the engine's own picture processes no frames to count.
+        let through = self.display.as_ref().is_some_and(Display::frames_bypassed);
         let android_fps = self.config.show_fps && (self.config.android_fps || through);
         let native_fps = android_fps && self.playing && self.home_ready && !self.stopping();
         if let Some(controls) = &mut self.controls {

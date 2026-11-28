@@ -59,6 +59,13 @@ impl PanelPath {
 
 type DisplayResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+/// The panel's place in physical client pixels (Windows: the engine's own
+/// picture is put there).
+#[cfg(windows)]
+type PanelSlot = crate::bluestacks::preview::PreviewRect;
+#[cfg(not(windows))]
+type PanelSlot = ();
+
 #[derive(Clone, PartialEq, Message)]
 struct Format {
     #[prost(int32, tag = "1")]
@@ -127,6 +134,10 @@ struct Empty {}
 enum Input {
     Touch(TouchEvent),
     Key(Keyboard),
+    /// The current frame at a tiny size (RGB), for the liveness check of a
+    /// panel that shows the engine's own picture; `None` when it failed.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Sample(tokio::sync::oneshot::Sender<Option<Vec<u8>>>, [u32; 2]),
 }
 
 fn credentials(console: u16, rpc: u16, avd: &Path) -> Option<MetadataValue<Ascii>> {
@@ -189,6 +200,32 @@ async fn deliver(
 ) -> DisplayResult<()> {
     client.ready().await?;
     let _: tonic::Response<Empty> = match input {
+        Input::Sample(reply, [width, height]) => {
+            // A failed sample is no reason to end the session.
+            let frame: Result<tonic::Response<Frame>, _> = client
+                .unary(
+                    authorized(
+                        Format {
+                            format: 1,
+                            width,
+                            height,
+                            ..Default::default()
+                        },
+                        token,
+                    ),
+                    PathAndQuery::from_static(
+                        "/android.emulation.control.EmulatorController/getScreenshot",
+                    ),
+                    ProstCodec::default(),
+                )
+                .await;
+            let pixels = frame
+                .ok()
+                .map(|frame| frame.into_inner().pixels.to_vec())
+                .filter(|pixels| !pixels.is_empty());
+            let _ = reply.send(pixels);
+            return Ok(());
+        }
         Input::Touch(event) => {
             client
                 .unary(
@@ -522,6 +559,11 @@ pub struct Display {
     engine_window: Option<engine_window::EngineWindow>,
     // The panel was left unpainted over the engine's window in the last frame.
     through: bool,
+    // The engine's own picture is at this part of the panel (points, and
+    // physical client pixels) in the frame being drawn, and it was in the
+    // last one.
+    covered: Option<(Rect, PanelSlot)>,
+    covering: bool,
     // The texture is older than the last pause of the frame stream.
     stale: bool,
     // A capture feature needs pixels although the panel does not.
@@ -596,6 +638,8 @@ impl Display {
             #[cfg(windows)]
             engine_window: None,
             through: false,
+            covered: None,
+            covering: false,
             stale: false,
             frames_wanted: false,
             geometry_until: None,
@@ -664,11 +708,18 @@ impl Display {
         !self.stream_failed
     }
 
-    /// Windows: show the window of the engine started by the launcher process
-    /// `launcher` instead of copying its frames, for as long as that works.
+    /// Windows: show the picture of the engine started by the launcher
+    /// process `launcher` instead of copying its frames, for as long as that
+    /// works: its window through a thumbnail, or its render surface as a
+    /// child of the client's window.
     #[cfg(windows)]
-    pub(crate) fn watch_engine_window(&mut self, launcher: u32) {
-        self.engine_window = Some(engine_window::EngineWindow::watch(launcher));
+    pub(crate) fn watch_engine_window(&mut self, launcher: u32, child: bool) {
+        let mode = if child {
+            engine_window::Mode::Child
+        } else {
+            engine_window::Mode::Thumbnail
+        };
+        self.engine_window = Some(engine_window::EngineWindow::watch(launcher, mode));
     }
 
     /// The client's own native window.
@@ -1009,8 +1060,11 @@ impl Display {
         let scale = (viewport.width() / size.x).min(viewport.height() / size.y);
         let rect = Rect::from_center_size(viewport.center(), size * scale);
         let texture = texture.id();
-        // Windows: where the engine's own window shows behind the panel.
-        let hole = self.place_engine_window(ui.ctx(), rect);
+        // Windows: where the engine's own picture shows: behind the panel
+        // (thumbnail) or over it (child window).
+        let placed = self.place_engine_window(ui.ctx(), rect);
+        let hole = placed.map(|(hole, ..)| hole);
+        let behind = placed.is_some_and(|(_, behind, _)| behind);
         if hole.is_none()
             && let Some(preference) = &mut self.video_preference
         {
@@ -1024,16 +1078,17 @@ impl Display {
         }
         if transparent {
             paint_background(ui, hole);
-        } else if hole.is_some() {
+        } else if behind {
             // The caller leaves the panel unpainted from the next frame on.
             ui.ctx().request_repaint();
         }
-        // Over the hole nothing is drawn; a texture from before a pause of the
-        // frame stream is not the screen any more.
-        let draw = if hole.is_some() {
-            !transparent
-        } else {
-            !self.stale
+        // Over the hole nothing is drawn (under the engine's surface only
+        // black is seen where the client draws over the panel); a texture
+        // from before a pause of the frame stream is not the screen any more.
+        let draw = match placed {
+            Some((_, true, _)) => !transparent,
+            Some((_, false, _)) => false,
+            None => !self.stale,
         };
         if draw {
             if ui.is_rect_visible(rect)
@@ -1048,22 +1103,87 @@ impl Display {
                 egui::Color32::WHITE,
             );
         }
-        self.through = hole.is_some();
+        self.through = behind;
+        self.covered = placed.map(|(hole, _, slot)| (hole, slot));
         self.game_input(ui, rect, outer, interactive, locale);
+    }
+
+    /// Windows: after everything of this frame is drawn, tells the engine's
+    /// picture what the client drew over it (in child mode that is left to
+    /// the client's picture). A frame that did not show the panel hides it.
+    pub(crate) fn end_frame(&mut self, ctx: &egui::Context) {
+        let covered = std::mem::take(&mut self.covered);
+        #[cfg(windows)]
+        if let Some(engine) = &mut self.engine_window {
+            use crate::bluestacks::preview::PreviewRect;
+            let Some((hole, slot)) = covered else {
+                if self.covering {
+                    engine.hide();
+                }
+                self.covering = false;
+                return;
+            };
+            self.covering = true;
+            let scale = ctx.pixels_per_point();
+            // Whole pixels that cover each shape.
+            let shapes: Vec<PreviewRect> = drawn_over(ctx, hole)
+                .into_iter()
+                .map(|shape| PreviewRect {
+                    left: (shape.min.x * scale).floor() as i32,
+                    top: (shape.min.y * scale).floor() as i32,
+                    right: (shape.max.x * scale).ceil() as i32,
+                    bottom: (shape.max.y * scale).ceil() as i32,
+                })
+                .collect();
+            engine.cut_out(slot, &shapes);
+        }
+        #[cfg(not(windows))]
+        let _ = (covered, ctx);
+    }
+
+    /// No frame passes through the panel (the engine's own picture shows).
+    pub(crate) fn frames_bypassed(&self) -> bool {
+        self.through || self.covering
     }
 
     /// Windows: puts the engine's own window behind `rect` and returns the
     /// part of the panel to leave unpainted over it. The frame stream runs
     /// only while the panel or a capture feature needs pixels.
     #[cfg(windows)]
-    fn place_engine_window(&mut self, ctx: &egui::Context, rect: Rect) -> Option<Rect> {
+    fn place_engine_window(
+        &mut self,
+        ctx: &egui::Context,
+        rect: Rect,
+    ) -> Option<(Rect, bool, PanelSlot)> {
         use crate::bluestacks::preview::PreviewRect;
         use engine_window::Shown;
         let engine = self.engine_window.as_mut()?;
         let scale = ctx.pixels_per_point();
         let slot = PreviewRect::from_points(rect.min.into(), rect.max.into(), scale);
         let now = Instant::now();
-        let shown = engine.show(slot, now);
+        // The controls editor works on the copied picture: the engine's
+        // surface would cover it.
+        let mut shown = if self.mapping.editing && engine.mode() == engine_window::Mode::Child {
+            engine.hide();
+            engine_window::Shown::Frames
+        } else {
+            engine.show(slot, now)
+        };
+        if matches!(shown, Shown::Through(_) | Shown::Child(_)) {
+            // The picture on the screen must follow the engine's frames.
+            let input = &self.input;
+            let stale = engine.check_live(now, || {
+                let (reply, sample) = tokio::sync::oneshot::channel();
+                let size = [engine_window::SAMPLE.0, engine_window::SAMPLE.1];
+                input.send(Input::Sample(reply, size)).ok()?;
+                Some(sample)
+            });
+            if stale {
+                shown = Shown::Frames;
+            } else if engine.sampling() {
+                ctx.request_repaint_after(Duration::from_millis(50));
+            }
+        }
         if engine.active() {
             // No frame wakes the panel up: it follows the engine's window and
             // notices a lost one by itself.
@@ -1094,17 +1214,25 @@ impl Display {
         if let Some(until) = self.geometry_until {
             ctx.request_repaint_after(until.saturating_duration_since(now));
         }
-        match shown {
-            Shown::Through(fitted) => Some(Rect::from_min_max(
+        let points = |fitted: PreviewRect| {
+            Rect::from_min_max(
                 Pos2::new(fitted.left as f32 / scale, fitted.top as f32 / scale),
                 Pos2::new(fitted.right as f32 / scale, fitted.bottom as f32 / scale),
-            )),
+            )
+        };
+        match shown {
+            Shown::Through(fitted) => Some((points(fitted), true, fitted)),
+            Shown::Child(slot) => Some((points(slot), false, slot)),
             Shown::Frames | Shown::Unseen => None,
         }
     }
 
     #[cfg(not(windows))]
-    fn place_engine_window(&mut self, _: &egui::Context, _: Rect) -> Option<Rect> {
+    fn place_engine_window(
+        &mut self,
+        _: &egui::Context,
+        _: Rect,
+    ) -> Option<(Rect, bool, PanelSlot)> {
         None
     }
 
@@ -1267,6 +1395,48 @@ impl Display {
             _ => (x, y),
         }
     }
+}
+
+/// What this frame drew over `hole` (points), except the panel's own
+/// background: every shape of a layer above the background, and the shapes of
+/// the background layer that do not cover the whole hole (a panel's fill does).
+fn drawn_over(ctx: &egui::Context, hole: Rect) -> Vec<Rect> {
+    let mut ids = vec![egui::LayerId::background()];
+    ctx.memory(|memory| {
+        ids.extend(
+            memory
+                .layer_ids()
+                .filter(|id| *id != egui::LayerId::background()),
+        )
+    });
+    ctx.graphics(|layers| {
+        let mut found = Vec::new();
+        for id in ids {
+            let Some(layer) = layers.get(id) else {
+                continue;
+            };
+            {
+                let background = id.order == egui::Order::Background;
+                for clipped in layer.all_entries() {
+                    if matches!(clipped.shape, egui::Shape::Noop) {
+                        continue;
+                    }
+                    let rect = clipped
+                        .shape
+                        .visual_bounding_rect()
+                        .intersect(clipped.clip_rect);
+                    if !rect.is_positive() || !rect.intersects(hole) {
+                        continue;
+                    }
+                    if background && rect.contains_rect(hole) {
+                        continue;
+                    }
+                    found.push(rect.intersect(hole));
+                }
+            }
+        }
+        found
+    })
 }
 
 /// Black over the visible panel, except where the engine's window shows.

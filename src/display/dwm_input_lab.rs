@@ -273,6 +273,8 @@ fn play_qt_android_through_dwm() {
                             );
                             1
                         }
+                        // The lab shows no engine picture to check.
+                        Input::Sample(..) => continue,
                     };
                     let reply = tokio::time::timeout(
                         Duration::from_secs(3),

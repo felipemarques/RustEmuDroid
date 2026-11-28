@@ -14,6 +14,19 @@
 //! stock `-qt-hide-window` creates no render surface at all, and only the
 //! engine's own process may cloak its window (a cloaked window of one's own
 //! stays live), so with stock flags the window is moved off the desktop.
+//!
+//! The child mode (`RUSTEMUDROID_PANEL=engine-child`) takes the engine's
+//! render surface itself (its `subWin`) out of the engine's window and makes
+//! it a child of a window of the client that covers the panel, so the engine
+//! presents straight into the client's window and the compositor has no
+//! thumbnail to draw. Whatever the client paints over the panel (control
+//! hints, notices, menus, dialogs) is cut out of that window's region, so it
+//! shows over a black panel instead of over the game.
+
+mod child;
+mod liveness;
+
+pub(crate) use liveness::SAMPLE;
 
 use crate::bluestacks::{
     player_process::process_creation_time,
@@ -80,6 +93,15 @@ pub(crate) const CHECK_INTERVAL: Duration = Duration::from_millis(200);
 const RESIZE_SETTLE: Duration = Duration::from_millis(250);
 const ENGINE_EXE: &str = "qemu-system-x86_64.exe";
 
+/// How the engine's own picture reaches the panel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Mode {
+    /// A DWM thumbnail of the engine's window, behind a transparent panel.
+    Thumbnail,
+    /// The engine's render surface as a child window over the panel.
+    Child,
+}
+
 /// Why the panel shows copied frames although the engine's window was wanted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Fault {
@@ -92,6 +114,8 @@ pub(crate) enum Fault {
     System(String),
     /// The engine's picture kept another shape than the Android screen.
     OtherShape,
+    /// The picture on the screen stood still while the engine's frames changed.
+    Stale,
 }
 
 /// What the panel shows, for the boot details.
@@ -99,6 +123,8 @@ pub(crate) enum Fault {
 pub(crate) enum PanelPath {
     /// The engine's own window, composed by Windows.
     EngineWindow,
+    /// The engine's render surface, presenting inside the client's window.
+    EngineChild,
     /// Frames copied from the engine, and why.
     Frames(Fault),
 }
@@ -112,6 +138,15 @@ impl PanelPath {
                         "Painel: a janela do próprio motor, mostrada pela composição do Windows; nenhum quadro é copiado para o cliente.",
                         "Panel: the engine's own window, shown through the Windows compositor; no frame is copied into the client.",
                         "Panel: la ventana del propio motor, mostrada por el compositor de Windows; no se copia ningún fotograma al cliente.",
+                    )
+                    .into();
+            }
+            Self::EngineChild => {
+                return locale
+                    .pick(
+                        "Painel: a superfície de imagem do motor, dentro da janela do cliente; o motor apresenta direto na tela e nenhum quadro é copiado.",
+                        "Panel: the engine's render surface, inside the client's window; the engine presents straight to the screen and no frame is copied.",
+                        "Panel: la superficie de imagen del motor, dentro de la ventana del cliente; el motor presenta directo en la pantalla y no se copia ningún fotograma.",
                     )
                     .into();
             }
@@ -151,6 +186,13 @@ impl PanelPath {
                     "Windows rechazó una llamada; mensaje del sistema:",
                 )
             ),
+            Fault::Stale => locale
+                .pick(
+                    "a imagem dela na tela parou enquanto a do Android mudava.",
+                    "its picture on the screen stood still while Android's kept changing.",
+                    "su imagen en la pantalla se quedó quieta mientras la de Android cambiaba.",
+                )
+                .to_string(),
             Fault::OtherShape => locale
                 .pick(
                     "a imagem dela ficou com um formato diferente do da tela do Android.",
@@ -206,6 +248,110 @@ fn on_desktop(rect: RECT) -> bool {
         )
     };
     rect.left < left + width && rect.right > left && rect.top < top + height && rect.bottom > top
+}
+
+/// `rect` (physical client pixels of `host`) in screen pixels.
+fn on_screen(host: HWND, rect: PreviewRect) -> Option<RECT> {
+    let mut origin = POINT { x: 0, y: 0 };
+    (unsafe { ClientToScreen(host, &mut origin) } != 0).then_some(RECT {
+        left: origin.x + rect.left,
+        top: origin.y + rect.top,
+        right: origin.x + rect.right,
+        bottom: origin.y + rect.bottom,
+    })
+}
+
+/// Nothing covers the client's window at the middle and the corners of
+/// `rect` (screen pixels).
+fn sees(host: HWND, rect: RECT) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, WindowFromPoint};
+    if host.is_null() || unsafe { IsIconic(host) } != 0 {
+        return false;
+    }
+    let inset = |a: i32, b: i32| (a + 2).min(b - 1);
+    let points = [
+        ((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2),
+        (inset(rect.left, rect.right), inset(rect.top, rect.bottom)),
+        (rect.right - 3, rect.bottom - 3),
+        (inset(rect.left, rect.right), rect.bottom - 3),
+        (rect.right - 3, inset(rect.top, rect.bottom)),
+    ];
+    points.into_iter().all(|(x, y)| {
+        let under = unsafe { WindowFromPoint(POINT { x, y }) };
+        !under.is_null() && unsafe { GetAncestor(under, GA_ROOT) } == host
+    })
+}
+
+/// The screen inside `rect` at the liveness sample size, as RGB.
+fn screen_sample(rect: RECT) -> Option<Vec<u8>> {
+    use windows_sys::Win32::Graphics::Gdi::{
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleBitmap, CreateCompatibleDC,
+        DIB_RGB_COLORS, DeleteDC, GetDC, GetDIBits, HALFTONE, ReleaseDC, SRCCOPY, SelectObject,
+        SetStretchBltMode, StretchBlt,
+    };
+    let (width, height) = (SAMPLE.0 as i32, SAMPLE.1 as i32);
+    if rect.right - rect.left < width || rect.bottom - rect.top < height {
+        return None;
+    }
+    unsafe {
+        let screen = GetDC(ptr::null_mut());
+        if screen.is_null() {
+            return None;
+        }
+        let memory = CreateCompatibleDC(screen);
+        let bitmap = CreateCompatibleBitmap(screen, width, height);
+        let previous = SelectObject(memory, bitmap);
+        SetStretchBltMode(memory, HALFTONE);
+        let copied = StretchBlt(
+            memory,
+            0,
+            0,
+            width,
+            height,
+            screen,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+            SRCCOPY,
+        ) != 0;
+        SelectObject(memory, previous);
+        let mut info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                biHeight: -height,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut pixels = vec![0u8; (width * height * 4) as usize];
+        let rows = if copied {
+            GetDIBits(
+                memory,
+                bitmap,
+                0,
+                height as u32,
+                pixels.as_mut_ptr().cast(),
+                &mut info,
+                DIB_RGB_COLORS,
+            )
+        } else {
+            0
+        };
+        DeleteObject(bitmap);
+        DeleteDC(memory);
+        ReleaseDC(ptr::null_mut(), screen);
+        (rows == height).then(|| {
+            pixels
+                .chunks_exact(4)
+                .flat_map(|bgra| [bgra[2], bgra[1], bgra[0]])
+                .collect()
+        })
+    }
 }
 
 /// The emulator process started by the launcher `launcher`: the QEMU binary
@@ -325,6 +471,10 @@ struct Found {
     pid: u32,
     created: u64,
     hidden: bool,
+    /// The engine's main window.
+    main: isize,
+    /// Its render surface while that is still inside it.
+    surface: Option<isize>,
 }
 
 /// Shared with the thread that keeps the engine's windows off the desktop.
@@ -336,6 +486,8 @@ struct Keeper {
     found: Mutex<Option<Found>>,
     /// Size wanted for the render surface, taken by the thread.
     wanted: Mutex<Option<(i32, i32)>>,
+    /// Child mode: the render surface the client's window holds (set by the UI thread).
+    adopted: AtomicIsize,
 }
 
 impl Keeper {
@@ -345,6 +497,7 @@ impl Keeper {
         let mut engine: Option<(u32, u64)> = None;
         let mut first_seen: Option<Instant> = None;
         let mut restyled = 0;
+        let mut main_window: isize = 0;
         let mut next_lookup = Instant::now();
         while !self.stop.load(Ordering::Acquire) {
             if engine.is_none() && Instant::now() >= next_lookup {
@@ -364,6 +517,10 @@ impl Keeper {
                 if !windows.is_empty() {
                     first_seen.get_or_insert_with(Instant::now);
                 }
+                if !windows.contains(&main_window) {
+                    main_window = 0;
+                }
+                let mut inside = None;
                 for window in windows.iter().map(|window| *window as HWND) {
                     if window_rect(window).is_some_and(on_desktop) {
                         unsafe {
@@ -378,14 +535,19 @@ impl Keeper {
                             )
                         };
                     }
+                    let surface = render_surface(window);
+                    // In child mode the surface leaves the main window: the
+                    // window it was found in stays the main one.
                     let main = unsafe { GetWindow(window, GW_OWNER) }.is_null()
-                        && render_surface(window).is_some();
+                        && (surface.is_some() || window as isize == main_window);
                     if main {
+                        main_window = window as isize;
+                        inside = surface;
                         // An engine that puts its styles back keeps its button.
                         if restyled < 3 && self.keep_out_of_the_taskbar(window) {
                             restyled += 1;
                         }
-                        self.resize(window);
+                        self.resize(window, surface);
                         hidden = window_rect(window).is_some_and(|rect| !on_desktop(rect));
                     }
                 }
@@ -394,6 +556,8 @@ impl Keeper {
                     pid,
                     created,
                     hidden,
+                    main: main_window,
+                    surface: inside,
                 });
             }
             // The engine recentres its window once right after creating it, so
@@ -425,11 +589,16 @@ impl Keeper {
         true
     }
 
-    fn resize(&self, window: HWND) {
+    fn resize(&self, window: HWND, surface: Option<isize>) {
         let Some((width, height)) = self.wanted.lock().unwrap().take() else {
             return;
         };
-        let (Some(outer), Some(surface)) = (window_rect(window), render_surface(window)) else {
+        // In child mode the surface is held by the client's window.
+        let adopted = self.adopted.load(Ordering::Acquire);
+        let surface = surface.or_else(|| {
+            (adopted != 0 && unsafe { IsWindow(adopted as HWND) } != 0).then_some(adopted)
+        });
+        let (Some(outer), Some(surface)) = (window_rect(window), surface) else {
             return;
         };
         let mut inner = RECT::default();
@@ -758,6 +927,9 @@ impl Drop for Backdrop {
 pub(crate) enum Shown {
     /// The engine's window is behind `0` (physical client pixels): leave it unpainted.
     Through(PreviewRect),
+    /// The engine's render surface covers `0` (physical client pixels): what
+    /// is drawn there is seen only where `cut_out` leaves it to the client.
+    Child(PreviewRect),
     /// Not yet, or not at the moment: paint the copied frames.
     Frames,
     /// The client's window is minimised: nothing is seen and nothing is needed.
@@ -765,9 +937,18 @@ pub(crate) enum Shown {
 }
 
 pub(crate) struct EngineWindow {
+    mode: Mode,
+    liveness: liveness::Liveness,
+    could_sample: bool,
+    /// The share of the picture the client drew over in the last frame.
+    overlay_share: f32,
+    /// Where the engine's picture was put last (physical client pixels).
+    shown_at: Option<PreviewRect>,
     keeper: Arc<Keeper>,
     thread: Option<thread::JoinHandle<()>>,
     backdrop: Option<Backdrop>,
+    /// Child mode: the client's window that holds the render surface.
+    holder: Option<child::Holder>,
     hook: Option<HostHook>,
     preview: Option<ThumbnailPreview>,
     /// The slot last given to the thumbnail, its answer and when.
@@ -789,13 +970,14 @@ pub(crate) struct EngineWindow {
 
 impl EngineWindow {
     /// `launcher` is the emulator launcher this session started.
-    pub(crate) fn watch(launcher: u32) -> Self {
+    pub(crate) fn watch(launcher: u32, mode: Mode) -> Self {
         let keeper = Arc::new(Keeper {
             launcher,
             stop: AtomicBool::new(false),
             host: AtomicIsize::new(0),
             found: Mutex::new(None),
             wanted: Mutex::new(None),
+            adopted: AtomicIsize::new(0),
         });
         let worker = keeper.clone();
         let thread = thread::Builder::new()
@@ -803,9 +985,15 @@ impl EngineWindow {
             .spawn(move || worker.run())
             .ok();
         Self {
+            mode,
+            liveness: liveness::Liveness::default(),
+            could_sample: false,
+            overlay_share: 0.0,
+            shown_at: None,
             keeper,
             thread,
             backdrop: None,
+            holder: None,
             hook: None,
             preview: None,
             layout: None,
@@ -827,9 +1015,63 @@ impl EngineWindow {
         self.keeper.host.store(host, Ordering::Release);
         // As early as possible: a client window that covered a monitor once
         // could not show the engine's window again.
-        if host != 0 && self.hook.is_none() && self.fault.is_none() {
+        if host != 0 && self.hook.is_none() && self.fault.is_none() && self.mode == Mode::Thumbnail
+        {
             self.hook = Some(HostHook::install(host as HWND));
         }
+    }
+
+    pub(crate) fn mode(&self) -> Mode {
+        self.mode
+    }
+
+    /// Content check of the picture last placed: `true` (and the panel
+    /// returns to copied frames for the session) when it is stale.
+    pub(crate) fn check_live(
+        &mut self,
+        now: Instant,
+        sample: impl FnOnce() -> Option<liveness::EngineSample>,
+    ) -> bool {
+        let host = self.keeper.host.load(Ordering::Acquire) as HWND;
+        let place = self.shown_at.and_then(|at| on_screen(host, at));
+        // Small static overlays (control hints) do not hide the picture; a
+        // dialog over most of it does.
+        let hidden = self.overlay_share > 0.25;
+        let can_sample = !hidden && place.is_some_and(|rect| sees(host, rect));
+        if can_sample != self.could_sample {
+            self.could_sample = can_sample;
+            if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some() {
+                println!("engine_liveness sampling={can_sample}");
+            }
+        }
+        let judged = self.liveness.judged;
+        let stale = self
+            .liveness
+            .poll(now, can_sample, sample, || place.and_then(screen_sample));
+        if self.liveness.judged != judged
+            && self.liveness.judged % 20 == 1
+            && std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some()
+        {
+            println!(
+                "engine_liveness judged={} followed={}",
+                self.liveness.judged, self.liveness.followed
+            );
+        }
+        if stale {
+            if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some() {
+                println!(
+                    "engine_liveness stale judged={} followed={}",
+                    self.liveness.judged, self.liveness.followed
+                );
+            }
+            self.fail(Fault::Stale);
+        }
+        stale
+    }
+
+    /// A liveness sample is on its way.
+    pub(crate) fn sampling(&self) -> bool {
+        self.liveness.waiting()
     }
 
     /// Still trying to show the engine's window (it has not been given up).
@@ -856,6 +1098,7 @@ impl EngineWindow {
         self.preview = None;
         self.layout = None;
         self.backdrop = None;
+        self.drop_holder();
         self.hook = None;
         self.report(PanelPath::Frames(fault.clone()));
         self.fault = Some(fault);
@@ -867,7 +1110,26 @@ impl EngineWindow {
         if let Some(preview) = &mut self.preview {
             let _ = preview.hide();
         }
+        if let Some(holder) = &mut self.holder {
+            holder.hide();
+        }
         self.layout = None;
+    }
+
+    fn drop_holder(&mut self) {
+        self.holder = None;
+        self.keeper.adopted.store(0, Ordering::Release);
+    }
+
+    /// What the client draws over the engine's picture at `slot` (`shapes`,
+    /// physical client pixels). Child mode leaves those parts to the client's
+    /// own picture.
+    pub(crate) fn cut_out(&mut self, slot: PreviewRect, shapes: &[PreviewRect]) {
+        let cut = child::cut_out(slot, shapes);
+        self.overlay_share = child::share(slot, &cut);
+        if let Some(holder) = &mut self.holder {
+            holder.apply_cut(cut, slot);
+        }
     }
 
     /// Places the engine's picture behind `slot` (the fitted Android picture
@@ -890,6 +1152,9 @@ impl EngineWindow {
             self.hide();
             return self.wait(waiting, now);
         };
+        if self.mode == Mode::Child {
+            return self.show_child(host as HWND, slot, found, waiting, now);
+        }
         if self.backdrop.is_none() {
             match Backdrop::create(host as HWND) {
                 Ok(backdrop) => self.backdrop = Some(backdrop),
@@ -942,7 +1207,66 @@ impl EngineWindow {
         self.pending = None;
         self.match_surface(slot, now);
         self.report(PanelPath::EngineWindow);
+        if self.shown_at != Some(fitted) {
+            self.liveness.reset();
+            self.shown_at = Some(fitted);
+        }
         Shown::Through(fitted)
+    }
+
+    /// Child mode: the engine's render surface, held by a window of the
+    /// client at `slot`.
+    fn show_child(
+        &mut self,
+        host: HWND,
+        slot: PreviewRect,
+        found: Found,
+        waiting: Instant,
+        now: Instant,
+    ) -> Shown {
+        if self.holder.is_none() {
+            match child::Holder::create(host) {
+                Ok(holder) => self.holder = Some(holder),
+                Err(fault) => return self.fail(fault),
+            }
+        }
+        let holder = self.holder.as_mut().unwrap();
+        let mut surface = holder.held();
+        if surface.is_none()
+            && let Some(inside) = found.surface
+        {
+            // Placed first, so the surface lands where it is shown.
+            holder.place(slot);
+            if let Err(fault) = holder.adopt(inside, found.main) {
+                return self.fail(fault);
+            }
+            surface = Some(inside);
+        }
+        self.keeper
+            .adopted
+            .store(surface.unwrap_or(0), Ordering::Release);
+        let Some(surface) = surface else {
+            // A rotation replaces the surface inside the engine's window.
+            holder.hide();
+            self.pending = Some(Fault::Lost(detail(&PreviewError::NoSource)));
+            return self.wait(waiting, now);
+        };
+        holder.place(slot);
+        let Some(size) = holder.centre(surface) else {
+            holder.hide();
+            self.pending = Some(Fault::Lost(detail(&PreviewError::NoSource)));
+            return self.wait(waiting, now);
+        };
+        self.waiting = Some(now);
+        self.was_live = true;
+        self.pending = None;
+        self.match_size(slot, size, now);
+        self.report(PanelPath::EngineChild);
+        if self.shown_at != Some(slot) {
+            self.liveness.reset();
+            self.shown_at = Some(slot);
+        }
+        Shown::Child(slot)
     }
 
     fn wait(&mut self, waiting: Instant, now: Instant) -> Shown {
@@ -991,6 +1315,10 @@ impl EngineWindow {
         else {
             return;
         };
+        self.match_size(slot, source, now);
+    }
+
+    fn match_size(&mut self, slot: PreviewRect, source: (i32, i32), now: Instant) {
         let wanted = (slot.right - slot.left, slot.bottom - slot.top);
         if self.trace != Some((slot, source)) {
             self.trace = Some((slot, source));
@@ -1034,6 +1362,7 @@ impl Drop for EngineWindow {
         self.keeper.stop.store(true, Ordering::Release);
         self.preview = None;
         self.backdrop = None;
+        self.drop_holder();
         self.hook = None;
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
@@ -1049,6 +1378,7 @@ mod tests {
     fn the_panel_path_is_described_in_every_language() {
         let paths = [
             PanelPath::EngineWindow,
+            PanelPath::EngineChild,
             PanelPath::Frames(Fault::NoWindow),
             PanelPath::Frames(Fault::Lost(
                 "The engine window is minimised, hidden or cloaked".into(),
@@ -1068,9 +1398,9 @@ mod tests {
                 );
             }
             // The system's and the thumbnail code's own words are quoted verbatim.
-            assert!(texts[2].ends_with("“The engine window is minimised, hidden or cloaked”"));
-            assert!(texts[3].ends_with("“DwmRegisterThumbnail: HRESULT 0x80263001”"));
-            assert!(texts[1].contains("30"));
+            assert!(texts[3].ends_with("“The engine window is minimised, hidden or cloaked”"));
+            assert!(texts[4].ends_with("“DwmRegisterThumbnail: HRESULT 0x80263001”"));
+            assert!(texts[2].contains("30"));
         }
         assert_eq!(
             paths[0].describe(Locale::PtBr),
@@ -1078,10 +1408,14 @@ mod tests {
         );
         assert_eq!(
             paths[1].describe(Locale::EnUs),
+            "Panel: the engine's render surface, inside the client's window; the engine presents straight to the screen and no frame is copied."
+        );
+        assert_eq!(
+            paths[2].describe(Locale::EnUs),
             "Panel: frames copied from the engine; the engine's window was not used because it did not appear with a render surface within 30 seconds."
         );
         assert_eq!(
-            paths[3].describe(Locale::EsEs),
+            paths[4].describe(Locale::EsEs),
             "Panel: fotogramas copiados del motor; no se usó la ventana del motor porque Windows rechazó una llamada; mensaje del sistema: “DwmRegisterThumbnail: HRESULT 0x80263001”"
         );
     }
@@ -1149,7 +1483,7 @@ mod tests {
 
     #[test]
     fn a_session_without_an_engine_window_falls_back_and_says_so_once() {
-        let mut panel = EngineWindow::watch(std::process::id());
+        let mut panel = EngineWindow::watch(std::process::id(), Mode::Thumbnail);
         let slot = PreviewRect::from_points([0., 0.], [160., 90.], 1.);
         let start = Instant::now();
         assert_eq!(panel.show(slot, start), Shown::Frames);

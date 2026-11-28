@@ -807,19 +807,33 @@ pub enum BootEvent {
         #[cfg(feature = "ui")]
         adb: PathBuf,
         /// Windows: the engine keeps its own window, to be shown by the panel
-        /// through the desktop compositor. The process ID of its launcher.
+        /// through the desktop compositor, or (`true`) its render surface is
+        /// to be held by the client's window. The process ID of its launcher.
         #[cfg(feature = "ui")]
-        engine_window: Option<u32>,
+        engine_window: Option<(u32, bool)>,
     },
 }
 
 /// `RUSTEMUDROID_PANEL=engine-window` (Windows, off by default): the engine
 /// runs with its own window and the panel shows that window through the
 /// desktop compositor instead of copying every frame.
+/// `RUSTEMUDROID_PANEL=engine-child` (Windows, off by default): the engine's
+/// render surface becomes a child of the client's window and presents there.
 pub(crate) const PANEL_ENV: &str = "RUSTEMUDROID_PANEL";
 
-fn engine_window_panel(value: Option<&str>) -> bool {
-    cfg!(windows) && value.is_some_and(|value| value.trim().eq_ignore_ascii_case("engine-window"))
+/// `None`: copied frames; `Some(child)`: the engine's own picture.
+fn engine_window_panel(value: Option<&str>) -> Option<bool> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let value = value?.trim();
+    if value.eq_ignore_ascii_case("engine-window") {
+        Some(false)
+    } else if value.eq_ignore_ascii_case("engine-child") {
+        Some(true)
+    } else {
+        None
+    }
 }
 
 impl std::fmt::Display for BootEvent {
@@ -1235,8 +1249,9 @@ pub fn boot(
     // The stock flag that hides the Qt window also keeps the engine from
     // creating its render surface, so the window stays and the panel keeps it
     // out of sight.
-    let engine_window =
-        embedded && runtime.is_none() && engine_window_panel(env::var(PANEL_ENV).ok().as_deref());
+    let engine_panel = engine_window_panel(env::var(PANEL_ENV).ok().as_deref())
+        .filter(|_| embedded && runtime.is_none());
+    let engine_window = engine_panel.is_some();
     let rpc_socket = if embedded {
         let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         let rpc = socket.local_addr()?.port();
@@ -1335,7 +1350,7 @@ pub fn boot(
             #[cfg(feature = "ui")]
             adb: sdk.adb.clone(),
             #[cfg(feature = "ui")]
-            engine_window: engine_window.then(|| vm.0.id()),
+            engine_window: engine_panel.map(|child| (vm.0.id(), child)),
         });
     }
     if let Some(applied) = amd_applied {
@@ -2256,11 +2271,26 @@ mod tests {
 
     #[test]
     fn the_engine_window_panel_is_asked_for_by_name_and_only_exists_on_windows() {
-        for off in [None, Some(""), Some("frames"), Some("engine window")] {
-            assert!(!super::engine_window_panel(off));
+        for off in [
+            None,
+            Some(""),
+            Some("frames"),
+            Some("engine window"),
+            Some("child"),
+        ] {
+            assert_eq!(super::engine_window_panel(off), None);
         }
         for on in ["engine-window", " Engine-Window\n"] {
-            assert_eq!(super::engine_window_panel(Some(on)), cfg!(windows));
+            assert_eq!(
+                super::engine_window_panel(Some(on)),
+                cfg!(windows).then_some(false)
+            );
+        }
+        for on in ["engine-child", "ENGINE-CHILD "] {
+            assert_eq!(
+                super::engine_window_panel(Some(on)),
+                cfg!(windows).then_some(true)
+            );
         }
     }
 

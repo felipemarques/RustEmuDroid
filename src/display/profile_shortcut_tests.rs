@@ -108,6 +108,7 @@ fn fullscreen_profile_chord_releases_game_input_cycles_and_respects_overlays() {
                 assert_eq!(key.event, 1);
                 released_keys.push(key.key);
             }
+            Input::Sample(..) => panic!("a panel without an engine window asked for a sample"),
         }
     }
     released_touches.sort();

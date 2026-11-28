@@ -82,7 +82,7 @@ impl Launcher {
                         let through = self
                             .display
                             .as_ref()
-                            .is_some_and(crate::display::Display::panel_is_transparent);
+                            .is_some_and(crate::display::Display::frames_bypassed);
                         if self.config.android_fps || through {
                             let fps = self.controls.as_ref().and_then(|c| c.surface_fps.value());
                             #[cfg(windows)]
