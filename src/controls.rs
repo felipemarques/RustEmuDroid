@@ -12,6 +12,8 @@ use eframe::egui;
 use crate::ui::i18n::Locale;
 
 const HOME_PACKAGE: &str = "org.rustemudroid.home";
+/// How often [`Controls::watch_open_app`] asks Android for the foreground app.
+const OPEN_APP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 const HOME_ACTIVITY: &str = "org.rustemudroid.home/.HomeActivity";
 const HOME_APK_VERSION: u32 = 4;
 
@@ -460,6 +462,10 @@ pub struct Controls {
     queue: VecDeque<Action>,
     pub message: Option<Result<String, String>>,
     foreground: Option<String>,
+    /// The last app Android reported in the foreground. Kept when a later
+    /// query fails, as it does once the engine has stopped.
+    last_app: Option<String>,
+    next_open_app: std::time::Instant,
     foreground_query: Option<mpsc::Receiver<Option<String>>>,
     next_foreground: std::time::Instant,
     library_delta: i32,
@@ -495,6 +501,8 @@ impl Controls {
             queue: VecDeque::new(),
             message: None,
             foreground: None,
+            last_app: None,
+            next_open_app: std::time::Instant::now(),
             foreground_query: None,
             next_foreground: std::time::Instant::now(),
             library_delta: 0,
@@ -588,10 +596,38 @@ impl Controls {
         }
     }
 
+    /// The last app other than Home that Android reported in the foreground,
+    /// if it is still the last one reported: the app that was open when the
+    /// engine stopped.
+    pub(crate) fn last_app(&self) -> Option<&str> {
+        self.last_app
+            .as_deref()
+            .filter(|package| *package != HOME_PACKAGE)
+    }
+
+    /// Asks Android for the app in the foreground at most every
+    /// [`OPEN_APP_INTERVAL`] while nothing else asks for it (the control
+    /// mappings and the Android FPS counter ask every second), so that a
+    /// failure can name the app that was open.
+    pub(crate) fn watch_open_app(&mut self, ctx: &egui::Context) {
+        let now = std::time::Instant::now();
+        if self.foreground_query.is_some() {
+            // An answer may be waiting; collecting it starts no new question
+            // before `next_foreground`.
+            self.foreground_package(ctx);
+        } else if now >= self.next_open_app {
+            self.next_open_app = now + OPEN_APP_INTERVAL;
+            self.foreground_package(ctx);
+        }
+    }
+
     pub fn foreground_package(&mut self, ctx: &egui::Context) -> Option<&str> {
         if let Some(query) = &self.foreground_query {
             match query.try_recv() {
                 Ok(package) => {
+                    if package.is_some() {
+                        self.last_app.clone_from(&package);
+                    }
                     self.foreground = package;
                     self.foreground_query = None;
                     self.next_foreground =
@@ -694,6 +730,30 @@ mod tests {
     use super::*;
     use egui::{Event, Modifiers, PointerButton, RawInput, pos2, vec2};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn the_last_open_app_survives_a_failed_query_and_skips_home() {
+        let folder = tempfile::tempdir().unwrap();
+        let mut controls =
+            Controls::new(folder.path().join("no-adb.exe"), 5556, folder.path().into());
+        let ctx = egui::Context::default();
+        let answer = |controls: &mut Controls, package: Option<&str>| {
+            let (tx, rx) = mpsc::channel();
+            tx.send(package.map(str::to_owned)).unwrap();
+            controls.foreground_query = Some(rx);
+            controls.foreground_package(&ctx);
+        };
+        assert_eq!(controls.last_app(), None);
+        answer(&mut controls, Some("org.example.game"));
+        assert_eq!(controls.last_app(), Some("org.example.game"));
+        // The engine stopped: the query fails, the app that was open stays known.
+        answer(&mut controls, None);
+        assert_eq!(controls.foreground, None);
+        assert_eq!(controls.last_app(), Some("org.example.game"));
+        // Home came back last: nothing to name.
+        answer(&mut controls, Some(HOME_PACKAGE));
+        assert_eq!(controls.last_app(), None);
+    }
 
     #[test]
     #[ignore = "requires the selected AVD to be showing an animated game SurfaceView"]

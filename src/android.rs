@@ -6,6 +6,8 @@ mod performance;
 mod power;
 mod refresh;
 
+#[cfg(test)]
+pub(crate) use engine_faults::exit_code_reason as exit_code_reason_for_tests;
 pub use performance::PerformanceEngine;
 
 /// Desktop start: undo a power mode overlay left by a session that crashed.
@@ -1713,18 +1715,17 @@ pub fn boot(
                         if status.success() {
                             return Ok(());
                         }
-                        return Err(faults
-                            .exit_error(
-                                &log_path,
-                                status,
+                        // A code with a known cause explains more than the bare words.
+                        let fallback = engine_faults::exit_code_reason(status.code(), sdk.locale)
+                            .unwrap_or_else(|| {
                                 sdk.locale.pick(
                                     "Motor encerrou",
                                     "Engine exited",
                                     "El motor se cerró",
-                                ),
-                                amd_host,
-                                sdk.locale,
-                            )
+                                )
+                            });
+                        return Err(faults
+                            .exit_error(&log_path, status, fallback, amd_host, sdk.locale)
                             .into());
                     }
                     if stop.load(Ordering::Acquire) {
