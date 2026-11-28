@@ -1,64 +1,53 @@
-//! Windows: the engine's own window shown through the desktop compositor.
+//! Windows: the engine presents straight into the client's window.
 //!
-//! The engine runs with its real window, which presents with its own
-//! swapchain, kept off the desktop. A DWM thumbnail of that window is drawn in
-//! a backdrop window that sits right behind the client's window, and the
-//! client leaves its panel transparent over it. No pixel of the game passes
-//! through this process, and everything the client paints over the game
-//! (control markers, the controls editor, notices, menus) stays on top.
+//! The engine runs with its real Qt window kept off the desktop, out of the
+//! taskbar and away from the keyboard. Its render surface (the `subWin` child
+//! that gfxstream's swapchain presents to) is taken out of that window and made
+//! a child of a window of the client that covers the panel, so no frame passes
+//! through this process. What the client draws over the panel is shown above
+//! the engine's picture by a click-through overlay window (see `overlay`).
 //!
-//! Measured on Windows 11 (RTX 5070 Ti, Android Emulator with the native
-//! Vulkan swapchain): a thumbnail of the engine's window stays live while the
-//! window is off the desktop, without a taskbar button, resized from outside
-//! and rotated; it goes stale when the window is minimised or hidden. The
-//! stock `-qt-hide-window` creates no render surface at all, and only the
-//! engine's own process may cloak its window (a cloaked window of one's own
-//! stays live), so with stock flags the window is moved off the desktop.
+//! The stock `-qt-hide-window` creates no render surface at all, and only the
+//! engine's own process may cloak its window, so with stock flags the window
+//! is moved off the desktop. The engine is asked to open it there and not to
+//! bring it back (see `android::prepare_engine_window`); the thread here keeps
+//! it there should it show up anyway.
 //!
-//! The child mode (`RUSTEMUDROID_PANEL=engine-child`) takes the engine's
-//! render surface itself (its `subWin`) out of the engine's window and makes
-//! it a child of a window of the client that covers the panel, so the engine
-//! presents straight into the client's window and the compositor has no
-//! thumbnail to draw. Whatever the client paints over the panel (control
-//! hints, notices, menus, dialogs) is cut out of that window's region, so it
-//! shows over a black panel instead of over the game.
+//! The panel falls back to copied frames, with the reason in the boot details,
+//! when the surface does not appear, stops being usable, its picture on the
+//! screen stands still while the engine's frames change, or the engine's
+//! window stops answering.
 
 mod child;
 mod liveness;
+mod overlay;
 
 pub(crate) use liveness::SAMPLE;
+pub(crate) use overlay::{FontCopy, remember_texture};
 
-use crate::bluestacks::{
-    player_process::process_creation_time,
-    preview::{PreviewError, PreviewRect, ThumbnailPreview},
-};
+use crate::bluestacks::player_process::process_creation_time;
+use crate::bluestacks::preview::PreviewRect;
 use crate::ui::i18n::Locale;
+use eframe::egui::{ColorImage, epaint::ClippedPrimitive};
 use std::{
     cell::Cell,
     os::windows::io::{FromRawHandle, OwnedHandle},
     ptr,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicIsize, Ordering},
+        atomic::{AtomicBool, AtomicIsize, AtomicU64, Ordering},
     },
     thread,
     time::{Duration, Instant},
 };
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HWND, INVALID_HANDLE_VALUE, LPARAM, LRESULT, POINT, RECT, WPARAM},
-    Graphics::{
-        Dwm::{DWM_BB_BLURREGION, DWM_BB_ENABLE, DWM_BLURBEHIND, DwmEnableBlurBehindWindow},
-        Gdi::{
-            BLACK_BRUSH, ClientToScreen, CreateRectRgn, DeleteObject, GetMonitorInfoW,
-            GetStockObject, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromRect,
-        },
-    },
+    Graphics::Gdi::{ClientToScreen, DeleteObject},
     System::{
         Diagnostics::ToolHelp::{
             CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
             TH32CS_SNAPPROCESS,
         },
-        LibraryLoader::GetModuleHandleW,
         Threading::{
             AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
         },
@@ -66,63 +55,65 @@ use windows_sys::Win32::{
     UI::{
         HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext},
         WindowsAndMessaging::{
-            CallWindowProcW, CreateWindowExW, DefWindowProcW, DestroyWindow, EnumChildWindows,
-            EnumWindows, GW_HWNDNEXT, GW_OWNER, GWL_EXSTYLE, GWLP_WNDPROC, GetClassNameW,
-            GetClientRect, GetForegroundWindow, GetSystemMetrics, GetWindow, GetWindowLongPtrW,
-            GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
-            MA_NOACTIVATE, RegisterClassW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-            SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE,
-            SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetForegroundWindow,
-            SetWindowLongPtrW, SetWindowPos, ShowWindow, WINDOWPOS, WM_MOUSEACTIVATE,
-            WM_WINDOWPOSCHANGED, WM_WINDOWPOSCHANGING, WNDCLASSW, WNDPROC, WS_DISABLED,
-            WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
+            CallWindowProcW, DefWindowProcW, EnumChildWindows, EnumWindows, GW_OWNER, GWL_EXSTYLE,
+            GWLP_WNDPROC, GetClassNameW, GetClientRect, GetForegroundWindow, GetSystemMetrics,
+            GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic,
+            IsWindow, IsWindowVisible, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+            SM_YVIRTUALSCREEN, SMTO_ABORTIFHUNG, SMTO_ERRORONEXIT, SW_HIDE, SW_SHOWNOACTIVATE,
+            SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+            SendMessageTimeoutW, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos,
+            ShowWindowAsync, WM_NULL, WM_WINDOWPOSCHANGED, WNDPROC, WS_EX_APPWINDOW,
+            WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
         },
     },
 };
 
 /// Where the engine's windows are kept: far outside any monitor arrangement
 /// and inside the 16-bit range of window coordinates.
-const OFF_DESKTOP: (i32, i32) = (-25_000, -25_000);
+pub(crate) const OFF_DESKTOP: (i32, i32) = (-25_000, -25_000);
 /// The engine's render surface must show up within this time once the panel
 /// has a picture from the frame stream.
 const APPEAR_TIMEOUT: Duration = Duration::from_secs(30);
-/// A thumbnail that was live and broke (rotation recreates the surface) gets
-/// this long to come back.
+/// A surface that was shown and went away (rotation recreates it) gets this
+/// long to come back.
 const RECOVER_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const CHECK_INTERVAL: Duration = Duration::from_millis(200);
 const RESIZE_SETTLE: Duration = Duration::from_millis(250);
+/// The engine's window is pinged this often, and waited for this long.
+const PING_INTERVAL: Duration = Duration::from_millis(250);
+/// An engine window that has not answered for this long is taken as hung:
+/// the panel gives its surface back without waiting for it.
+const HUNG_AFTER: Duration = Duration::from_secs(3);
 const ENGINE_EXE: &str = "qemu-system-x86_64.exe";
+/// A surface still in another shape than the panel this long after the panel
+/// learnt the geometry asks for it again.
+const TURN_RECHECK: Duration = Duration::from_secs(4);
 
-/// How the engine's own picture reaches the panel.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Mode {
-    /// A DWM thumbnail of the engine's window, behind a transparent panel.
-    Thumbnail,
-    /// The engine's render surface as a child window over the panel.
-    Child,
+/// Whether a surface of `size` has another shape than `slot`.
+fn turned(slot: PreviewRect, size: (i32, i32)) -> bool {
+    let shape = |width: i32, height: i32| width.max(1) as f32 / height.max(1) as f32;
+    let (width, height) = (slot.right - slot.left, slot.bottom - slot.top);
+    (shape(size.0, size.1) / shape(width, height) - 1.0).abs() > 0.03
 }
 
-/// Why the panel shows copied frames although the engine's window was wanted.
+/// Why the panel shows copied frames although the engine's surface was wanted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Fault {
     /// No engine window with a render surface appeared in time.
     NoWindow,
-    /// The window was shown and then stopped being usable; the reason in the
-    /// thumbnail code's own words.
+    /// The surface was shown and then stopped being usable; why, in English.
     Lost(String),
     /// Windows refused a call: its name and code, verbatim.
     System(String),
-    /// The engine's picture kept another shape than the Android screen.
-    OtherShape,
     /// The picture on the screen stood still while the engine's frames changed.
     Stale,
+    /// The engine's window stopped answering messages.
+    Hung,
 }
 
 /// What the panel shows, for the boot details.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PanelPath {
-    /// The engine's own window, composed by Windows.
-    EngineWindow,
     /// The engine's render surface, presenting inside the client's window.
     EngineChild,
     /// Frames copied from the engine, and why.
@@ -132,15 +123,6 @@ pub(crate) enum PanelPath {
 impl PanelPath {
     pub(crate) fn describe(&self, locale: Locale) -> String {
         let fault = match self {
-            Self::EngineWindow => {
-                return locale
-                    .pick(
-                        "Painel: a janela do próprio motor, mostrada pela composição do Windows; nenhum quadro é copiado para o cliente.",
-                        "Panel: the engine's own window, shown through the Windows compositor; no frame is copied into the client.",
-                        "Panel: la ventana del propio motor, mostrada por el compositor de Windows; no se copia ningún fotograma al cliente.",
-                    )
-                    .into();
-            }
             Self::EngineChild => {
                 return locale
                     .pick(
@@ -153,21 +135,21 @@ impl PanelPath {
             Self::Frames(fault) => fault,
         };
         let lead = locale.pick(
-            "Painel: quadros copiados do motor; a janela do motor não foi usada porque",
-            "Panel: frames copied from the engine; the engine's window was not used because",
-            "Panel: fotogramas copiados del motor; no se usó la ventana del motor porque",
+            "Painel: quadros copiados do motor; a superfície do motor não foi usada porque",
+            "Panel: frames copied from the engine; the engine's surface was not used because",
+            "Panel: fotogramas copiados del motor; no se usó la superficie del motor porque",
         );
         let seconds = APPEAR_TIMEOUT.as_secs();
         let reason = match fault {
             Fault::NoWindow => match locale {
                 Locale::PtBr => {
-                    format!("ela não apareceu com uma superfície de imagem em {seconds} segundos.")
+                    format!("ela não apareceu em {seconds} segundos.")
                 }
                 Locale::EnUs => {
-                    format!("it did not appear with a render surface within {seconds} seconds.")
+                    format!("it did not appear within {seconds} seconds.")
                 }
                 Locale::EsEs => {
-                    format!("no apareció con una superficie de imagen en {seconds} segundos.")
+                    format!("no apareció en {seconds} segundos.")
                 }
             },
             Fault::Lost(detail) => format!(
@@ -193,39 +175,26 @@ impl PanelPath {
                     "su imagen en la pantalla se quedó quieta mientras la de Android cambiaba.",
                 )
                 .to_string(),
-            Fault::OtherShape => locale
-                .pick(
-                    "a imagem dela ficou com um formato diferente do da tela do Android.",
-                    "its picture kept a different shape from the Android screen.",
-                    "su imagen quedó con una forma distinta de la pantalla de Android.",
-                )
-                .to_string(),
+            Fault::Hung => match locale {
+                Locale::PtBr => format!(
+                    "a janela do motor parou de responder por {} segundos.",
+                    HUNG_AFTER.as_secs()
+                ),
+                Locale::EnUs => format!(
+                    "the engine's window stopped responding for {} seconds.",
+                    HUNG_AFTER.as_secs()
+                ),
+                Locale::EsEs => format!(
+                    "la ventana del motor dejó de responder durante {} segundos.",
+                    HUNG_AFTER.as_secs()
+                ),
+            },
         };
         format!("{lead} {reason}")
     }
 }
 
-/// The thumbnail code's words for the engine (they name BlueStacks for the
-/// player it was written for); system errors stay verbatim.
-fn detail(error: &PreviewError) -> String {
-    match error {
-        PreviewError::NoSource => "The engine window has no visible render surface".into(),
-        PreviewError::AmbiguousSource => {
-            "The engine has more than one visible render surface".into()
-        }
-        PreviewError::SourceUnavailable => {
-            "The engine window is minimised, hidden or cloaked".into()
-        }
-        PreviewError::InvalidCrop => "The render surface is outside the engine window".into(),
-        PreviewError::InvalidPlayer | PreviewError::PlayerIdentityChanged => {
-            "The process is not the engine this session started".into()
-        }
-        PreviewError::PlayerUnavailable => "The engine process has exited".into(),
-        PreviewError::EmptySlot => "The panel has no client pixels".into(),
-        PreviewError::InvalidDestination => "The panel's window is unavailable".into(),
-        other => other.to_string(),
-    }
-}
+const NO_SURFACE: &str = "The engine window has no visible render surface";
 
 fn window_pid(window: HWND) -> u32 {
     let mut pid = 0;
@@ -264,7 +233,9 @@ fn on_screen(host: HWND, rect: PreviewRect) -> Option<RECT> {
 /// Nothing covers the client's window at the middle and the corners of
 /// `rect` (screen pixels).
 fn sees(host: HWND, rect: RECT) -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GA_ROOT, GetAncestor, WindowFromPoint};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GA_ROOT, GA_ROOTOWNER, GetAncestor, WindowFromPoint,
+    };
     if host.is_null() || unsafe { IsIconic(host) } != 0 {
         return false;
     }
@@ -278,7 +249,10 @@ fn sees(host: HWND, rect: RECT) -> bool {
     ];
     points.into_iter().all(|(x, y)| {
         let under = unsafe { WindowFromPoint(POINT { x, y }) };
-        !under.is_null() && unsafe { GetAncestor(under, GA_ROOT) } == host
+        // The overlay is owned by the client's window and takes no input.
+        !under.is_null()
+            && (unsafe { GetAncestor(under, GA_ROOT) } == host
+                || unsafe { GetAncestor(under, GA_ROOTOWNER) } == host)
     })
 }
 
@@ -477,7 +451,8 @@ struct Found {
     surface: Option<isize>,
 }
 
-/// Shared with the thread that keeps the engine's windows off the desktop.
+/// Shared with the threads that keep the engine's windows off the desktop
+/// and watch whether they answer.
 struct Keeper {
     launcher: u32,
     stop: AtomicBool,
@@ -486,11 +461,52 @@ struct Keeper {
     found: Mutex<Option<Found>>,
     /// Size wanted for the render surface, taken by the thread.
     wanted: Mutex<Option<(i32, i32)>>,
-    /// Child mode: the render surface the client's window holds (set by the UI thread).
+    /// The render surface the client's window holds (set by the UI thread).
     adopted: AtomicIsize,
+    epoch: Instant,
+    /// When the engine's main window last answered a message (milliseconds
+    /// after `epoch`, plus one; zero: never).
+    answered: AtomicU64,
 }
 
 impl Keeper {
+    fn now(&self) -> u64 {
+        self.epoch.elapsed().as_millis() as u64 + 1
+    }
+
+    /// Whether the engine's window answered within `within`; `None` before
+    /// its first answer.
+    fn answering(&self, within: Duration) -> Option<bool> {
+        let answered = self.answered.load(Ordering::Acquire);
+        (answered != 0).then(|| self.now().saturating_sub(answered) <= within.as_millis() as u64)
+    }
+
+    /// Pings the engine's main window from a thread of its own: no other code
+    /// of the client ever waits for that window without a time limit.
+    fn watch(&self) {
+        while !self.stop.load(Ordering::Acquire) {
+            let main = self.found.lock().unwrap().map_or(0, |found| found.main);
+            if main != 0 {
+                let mut result = 0;
+                let answered = unsafe {
+                    SendMessageTimeoutW(
+                        main as HWND,
+                        WM_NULL,
+                        0,
+                        0,
+                        SMTO_ABORTIFHUNG | SMTO_ERRORONEXIT,
+                        PING_INTERVAL.as_millis() as u32,
+                        &mut result,
+                    )
+                } != 0;
+                if answered {
+                    self.answered.store(self.now(), Ordering::Release);
+                }
+            }
+            thread::sleep(PING_INTERVAL);
+        }
+    }
+
     fn run(&self) {
         // Window coordinates of another process are physical pixels.
         unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
@@ -498,6 +514,8 @@ impl Keeper {
         let mut first_seen: Option<Instant> = None;
         let mut restyled = 0;
         let mut main_window: isize = 0;
+        // The windows asked to move lately: the engine's thread may take a while.
+        let mut moved: Vec<(isize, Instant)> = Vec::new();
         let mut next_lookup = Instant::now();
         while !self.stop.load(Ordering::Acquire) {
             if engine.is_none() && Instant::now() >= next_lookup {
@@ -522,7 +540,12 @@ impl Keeper {
                 }
                 let mut inside = None;
                 for window in windows.iter().map(|window| *window as HWND) {
-                    if window_rect(window).is_some_and(on_desktop) {
+                    moved.retain(|(_, at)| at.elapsed() < Duration::from_millis(100));
+                    if window_rect(window).is_some_and(on_desktop)
+                        && !moved.iter().any(|(which, _)| *which == window as isize)
+                    {
+                        // Asynchronous, as everything done to the engine's
+                        // windows here: its thread may be busy or hung.
                         unsafe {
                             SetWindowPos(
                                 window,
@@ -531,13 +554,20 @@ impl Keeper {
                                 OFF_DESKTOP.1,
                                 0,
                                 0,
-                                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
                             )
                         };
+                        moved.push((window as isize, Instant::now()));
+                        if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some() {
+                            println!(
+                                "engine_window moved_off_desktop after_ms={}",
+                                first_seen.map_or(0, |seen| seen.elapsed().as_millis())
+                            );
+                        }
                     }
                     let surface = render_surface(window);
-                    // In child mode the surface leaves the main window: the
-                    // window it was found in stays the main one.
+                    // The surface leaves the main window: the window it was
+                    // found in stays the main one.
                     let main = unsafe { GetWindow(window, GW_OWNER) }.is_null()
                         && (surface.is_some() || window as isize == main_window);
                     if main {
@@ -560,14 +590,13 @@ impl Keeper {
                     surface: inside,
                 });
             }
-            // The engine recentres its window once right after creating it, so
-            // the first seconds are watched closely.
+            // The first seconds of the engine's window are watched closely.
             let settled =
                 hidden && first_seen.is_some_and(|seen| seen.elapsed() > Duration::from_secs(5));
             thread::sleep(if settled {
                 CHECK_INTERVAL
             } else {
-                Duration::from_millis(10)
+                Duration::from_millis(5)
             });
         }
     }
@@ -577,14 +606,15 @@ impl Keeper {
         let style = unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) };
         let wanted =
             (style | (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) as isize) & !(WS_EX_APPWINDOW as isize);
-        if style == wanted {
+        // Changing a style waits for the engine's thread: only while it answers.
+        if style == wanted || self.answering(Duration::from_millis(500)) != Some(true) {
             return false;
         }
         // The shell only drops the button of a window that is shown again.
         unsafe {
-            ShowWindow(window, SW_HIDE);
+            ShowWindowAsync(window, SW_HIDE);
             SetWindowLongPtrW(window, GWL_EXSTYLE, wanted);
-            ShowWindow(window, SW_SHOWNOACTIVATE);
+            ShowWindowAsync(window, SW_SHOWNOACTIVATE);
         }
         true
     }
@@ -593,7 +623,7 @@ impl Keeper {
         let Some((width, height)) = self.wanted.lock().unwrap().take() else {
             return;
         };
-        // In child mode the surface is held by the client's window.
+        // The surface is held by the client's window.
         let adopted = self.adopted.load(Ordering::Acquire);
         let surface = surface.or_else(|| {
             (adopted != 0 && unsafe { IsWindow(adopted as HWND) } != 0).then_some(adopted)
@@ -617,7 +647,7 @@ impl Keeper {
                 0,
                 width + extra_width.max(0),
                 height + extra_height.max(0),
-                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
             )
         };
     }
@@ -646,59 +676,16 @@ impl Keeper {
 }
 
 thread_local! {
-    /// The backdrop that follows the client's window (both live on the UI thread).
-    static BACKDROP: Cell<isize> = const { Cell::new(0) };
     /// The window procedure of the client's window before `host_proc`.
     static HOST_PROC: Cell<isize> = const { Cell::new(0) };
-}
-
-/// Puts the backdrop exactly under the client area of `host`, right behind it.
-fn follow(host: HWND) {
-    let backdrop = BACKDROP.with(Cell::get) as HWND;
-    if backdrop.is_null() {
-        return;
-    }
-    unsafe {
-        if IsIconic(host) != 0 || IsWindowVisible(host) == 0 {
-            ShowWindow(backdrop, SW_HIDE);
-            return;
-        }
-        let mut client = RECT::default();
-        let mut origin = POINT { x: 0, y: 0 };
-        if GetClientRect(host, &mut client) == 0 || ClientToScreen(host, &mut origin) == 0 {
-            return;
-        }
-        let wanted = RECT {
-            left: origin.x,
-            top: origin.y,
-            right: origin.x + client.right,
-            bottom: origin.y + client.bottom,
-        };
-        let placed = window_rect(backdrop).is_some_and(|rect| {
-            (rect.left, rect.top, rect.right, rect.bottom)
-                == (wanted.left, wanted.top, wanted.right, wanted.bottom)
-        });
-        if placed && IsWindowVisible(backdrop) != 0 && GetWindow(host, GW_HWNDNEXT) == backdrop {
-            return;
-        }
-        SetWindowPos(
-            backdrop,
-            host,
-            wanted.left,
-            wanted.top,
-            wanted.right - wanted.left,
-            wanted.bottom - wanted.top,
-            SWP_NOACTIVATE | SWP_SHOWWINDOW,
-        );
-    }
 }
 
 fn host_proc_address() -> isize {
     host_proc as *const () as isize
 }
 
-/// Keeps the backdrop glued to the client's window while Windows moves,
-/// resizes, minimises or restacks it, between two frames of the client.
+/// Keeps the overlay over the panel while Windows moves the client's window,
+/// between two frames of the client.
 unsafe extern "system" fn host_proc(
     window: HWND,
     message: u32,
@@ -713,95 +700,22 @@ unsafe extern "system" fn host_proc(
         let previous: WNDPROC = unsafe { std::mem::transmute::<isize, WNDPROC>(previous) };
         unsafe { CallWindowProcW(previous, window, message, wparam, lparam) }
     };
-    if message == WM_WINDOWPOSCHANGING && lparam != 0 {
-        // SAFETY: for this message lparam points to the WINDOWPOS being applied.
-        keep_off_full_cover(window, unsafe { &mut *(lparam as *mut WINDOWPOS) });
-    }
     if message == WM_WINDOWPOSCHANGED {
-        follow(window);
+        overlay::follow(window);
     }
     result
 }
 
-/// A window that covers a whole monitor is presented by the graphics driver
-/// past the compositor (independent flip): the alpha of the panel stops
-/// counting and the engine's window behind it is hidden, and for the OpenGL
-/// context of this client that stays so even after the window is made
-/// smaller again. So the client's window stays one pixel short of covering a
-/// monitor (fullscreen keeps a one-pixel line at the bottom).
-fn keep_off_full_cover(window: HWND, position: &mut WINDOWPOS) {
-    if position.flags & SWP_NOSIZE != 0 {
-        return;
-    }
-    let (left, top) = if position.flags & SWP_NOMOVE != 0 {
-        match window_rect(window) {
-            Some(rect) => (rect.left, rect.top),
-            None => return,
-        }
-    } else {
-        (position.x, position.y)
-    };
-    let wanted = RECT {
-        left,
-        top,
-        right: left + position.cx,
-        bottom: top + position.cy,
-    };
-    if let Some(bottom) = short_of_full_cover(wanted, monitor_of(wanted)) {
-        position.cy = bottom - top;
-    }
-}
-
-fn monitor_of(rect: RECT) -> Option<RECT> {
-    let monitor = unsafe { MonitorFromRect(&rect, MONITOR_DEFAULTTONULL) };
-    if monitor.is_null() {
-        return None;
-    }
-    let mut info = MONITORINFO {
-        cbSize: size_of::<MONITORINFO>() as u32,
-        ..Default::default()
-    };
-    (unsafe { GetMonitorInfoW(monitor, &mut info) } != 0).then_some(info.rcMonitor)
-}
-
-/// The bottom edge that keeps `rect` from covering all of `monitor`.
-fn short_of_full_cover(rect: RECT, monitor: Option<RECT>) -> Option<i32> {
-    let monitor = monitor?;
-    (rect.left <= monitor.left
-        && rect.top <= monitor.top
-        && rect.right >= monitor.right
-        && rect.bottom >= monitor.bottom
-        && monitor.bottom - 1 > rect.top)
-        .then_some(monitor.bottom - 1)
-}
-
-/// The client's window procedure is `host_proc` while the engine's window
-/// may be shown behind the panel.
+/// The client's window procedure is `host_proc` while the panel holds the
+/// engine's surface.
 struct HostHook {
     host: isize,
 }
 
 impl HostHook {
     fn install(host: HWND) -> Self {
-        unsafe {
-            let previous = SetWindowLongPtrW(host, GWLP_WNDPROC, host_proc_address());
-            HOST_PROC.with(|cell| cell.set(previous));
-            // Already covering a monitor (fullscreen before Android started):
-            // made one pixel shorter now, through host_proc.
-            if let Some(rect) = window_rect(host)
-                && short_of_full_cover(rect, monitor_of(rect)).is_some()
-            {
-                SetWindowPos(
-                    host,
-                    ptr::null_mut(),
-                    rect.left,
-                    rect.top,
-                    rect.right - rect.left,
-                    rect.bottom - rect.top,
-                    SWP_NOZORDER | SWP_NOACTIVATE,
-                );
-            }
-        }
+        let previous = unsafe { SetWindowLongPtrW(host, GWLP_WNDPROC, host_proc_address()) };
+        HOST_PROC.with(|cell| cell.set(previous));
         Self {
             host: host as isize,
         }
@@ -824,111 +738,11 @@ impl Drop for HostHook {
     }
 }
 
-unsafe extern "system" fn backdrop_proc(
-    window: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    if message == WM_MOUSEACTIVATE {
-        return MA_NOACTIVATE as LRESULT;
-    }
-    unsafe { DefWindowProcW(window, message, wparam, lparam) }
-}
-
-/// The black window behind the client's window that carries the thumbnail.
-struct Backdrop {
-    window: isize,
-    host: isize,
-}
-
-impl Backdrop {
-    fn create(host: HWND) -> Result<Self, Fault> {
-        let system =
-            |api: &str| Fault::System(format!("{api}: {}", std::io::Error::last_os_error()));
-        let class: Vec<u16> = "RustEmuDroidEnginePanel\0".encode_utf16().collect();
-        unsafe {
-            let instance = GetModuleHandleW(ptr::null());
-            let definition = WNDCLASSW {
-                lpfnWndProc: Some(backdrop_proc),
-                hInstance: instance,
-                hbrBackground: GetStockObject(BLACK_BRUSH),
-                lpszClassName: class.as_ptr(),
-                ..Default::default()
-            };
-            // A second session in this process finds the class registered.
-            RegisterClassW(&definition);
-            let window = CreateWindowExW(
-                WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-                class.as_ptr(),
-                ptr::null(),
-                WS_POPUP | WS_DISABLED,
-                0,
-                0,
-                1,
-                1,
-                ptr::null_mut(),
-                ptr::null_mut(),
-                instance,
-                ptr::null(),
-            );
-            if window.is_null() {
-                return Err(system("CreateWindowExW"));
-            }
-            let backdrop = Self {
-                window: window as isize,
-                host: host as isize,
-            };
-            // The alpha of the client's picture now reaches the compositor:
-            // where the panel is left unpainted the backdrop shows through.
-            let region = CreateRectRgn(0, 0, -1, -1);
-            let blur = DWM_BLURBEHIND {
-                dwFlags: DWM_BB_ENABLE | DWM_BB_BLURREGION,
-                fEnable: 1,
-                hRgnBlur: region,
-                fTransitionOnMaximized: 0,
-            };
-            let code = DwmEnableBlurBehindWindow(host, &blur);
-            DeleteObject(region);
-            if code < 0 {
-                return Err(Fault::System(format!(
-                    "DwmEnableBlurBehindWindow: HRESULT 0x{:08X}",
-                    code as u32
-                )));
-            }
-            BACKDROP.with(|cell| cell.set(backdrop.window));
-            follow(host);
-            Ok(backdrop)
-        }
-    }
-}
-
-impl Drop for Backdrop {
-    fn drop(&mut self) {
-        let host = self.host as HWND;
-        unsafe {
-            if IsWindow(host) != 0 {
-                let blur = DWM_BLURBEHIND {
-                    dwFlags: DWM_BB_ENABLE,
-                    fEnable: 0,
-                    hRgnBlur: ptr::null_mut(),
-                    fTransitionOnMaximized: 0,
-                };
-                DwmEnableBlurBehindWindow(host, &blur);
-            }
-            BACKDROP.with(|cell| cell.set(0));
-            DestroyWindow(self.window as HWND);
-        }
-    }
-}
-
 /// What the panel may do in this frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Shown {
-    /// The engine's window is behind `0` (physical client pixels): leave it unpainted.
-    Through(PreviewRect),
     /// The engine's render surface covers `0` (physical client pixels): what
-    /// is drawn there is seen only where `cut_out` leaves it to the client.
+    /// the client draws there is shown by the overlay.
     Child(PreviewRect),
     /// Not yet, or not at the moment: paint the copied frames.
     Frames,
@@ -937,7 +751,6 @@ pub(crate) enum Shown {
 }
 
 pub(crate) struct EngineWindow {
-    mode: Mode,
     liveness: liveness::Liveness,
     could_sample: bool,
     /// The share of the picture the client drew over in the last frame.
@@ -945,24 +758,24 @@ pub(crate) struct EngineWindow {
     /// Where the engine's picture was put last (physical client pixels).
     shown_at: Option<PreviewRect>,
     keeper: Arc<Keeper>,
-    thread: Option<thread::JoinHandle<()>>,
-    backdrop: Option<Backdrop>,
-    /// Child mode: the client's window that holds the render surface.
+    threads: Vec<thread::JoinHandle<()>>,
+    /// The client's window that holds the render surface.
     holder: Option<child::Holder>,
+    overlay: Option<overlay::Overlay>,
     hook: Option<HostHook>,
-    preview: Option<ThumbnailPreview>,
-    /// The slot last given to the thumbnail, its answer and when.
-    layout: Option<(PreviewRect, PreviewRect, Instant)>,
-    /// Since when the panel has waited for a usable engine window.
+    /// Since when the panel has waited for a usable surface.
     waiting: Option<Instant>,
-    retry_at: Option<Instant>,
-    /// What kept the engine's window from being shown, should it last.
+    /// What kept the surface from being shown, should it last.
     pending: Option<Fault>,
     was_live: bool,
     fault: Option<Fault>,
     /// The slot the render surface should match, since when, and what was asked.
     resize: Option<(PreviewRect, Instant)>,
     resize_asked: Option<((i32, i32), u8)>,
+    /// When the surface was last found in another shape than the panel
+    /// (Android turned), and whether the panel should learn the new geometry.
+    turned_at: Option<Instant>,
+    geometry_wanted: bool,
     reported: Option<PanelPath>,
     report_pending: Option<PanelPath>,
     trace: Option<(PreviewRect, (i32, i32))>,
@@ -970,7 +783,7 @@ pub(crate) struct EngineWindow {
 
 impl EngineWindow {
     /// `launcher` is the emulator launcher this session started.
-    pub(crate) fn watch(launcher: u32, mode: Mode) -> Self {
+    pub(crate) fn watch(launcher: u32) -> Self {
         let keeper = Arc::new(Keeper {
             launcher,
             stop: AtomicBool::new(false),
@@ -978,32 +791,42 @@ impl EngineWindow {
             found: Mutex::new(None),
             wanted: Mutex::new(None),
             adopted: AtomicIsize::new(0),
+            epoch: Instant::now(),
+            answered: AtomicU64::new(0),
         });
+        let mut threads = Vec::new();
         let worker = keeper.clone();
-        let thread = thread::Builder::new()
-            .name("engine window".into())
-            .spawn(move || worker.run())
-            .ok();
+        threads.extend(
+            thread::Builder::new()
+                .name("engine window".into())
+                .spawn(move || worker.run())
+                .ok(),
+        );
+        let watcher = keeper.clone();
+        threads.extend(
+            thread::Builder::new()
+                .name("engine window watchdog".into())
+                .spawn(move || watcher.watch())
+                .ok(),
+        );
         Self {
-            mode,
             liveness: liveness::Liveness::default(),
             could_sample: false,
             overlay_share: 0.0,
             shown_at: None,
             keeper,
-            thread,
-            backdrop: None,
+            threads,
             holder: None,
+            overlay: None,
             hook: None,
-            preview: None,
-            layout: None,
             waiting: None,
-            retry_at: None,
             pending: None,
             was_live: false,
             fault: None,
             resize: None,
             resize_asked: None,
+            turned_at: None,
+            geometry_wanted: false,
             reported: None,
             report_pending: None,
             trace: None,
@@ -1013,16 +836,6 @@ impl EngineWindow {
     /// The client's own window, as soon as it is known.
     pub(crate) fn set_host(&mut self, host: isize) {
         self.keeper.host.store(host, Ordering::Release);
-        // As early as possible: a client window that covered a monitor once
-        // could not show the engine's window again.
-        if host != 0 && self.hook.is_none() && self.fault.is_none() && self.mode == Mode::Thumbnail
-        {
-            self.hook = Some(HostHook::install(host as HWND));
-        }
-    }
-
-    pub(crate) fn mode(&self) -> Mode {
-        self.mode
     }
 
     /// Content check of the picture last placed: `true` (and the panel
@@ -1053,8 +866,10 @@ impl EngineWindow {
             && std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some()
         {
             println!(
-                "engine_liveness judged={} followed={}",
-                self.liveness.judged, self.liveness.followed
+                "engine_liveness judged={} followed={} overlay_redrawn={}",
+                self.liveness.judged,
+                self.liveness.followed,
+                self.overlay.as_ref().map_or(0, |overlay| overlay.redrawn),
             );
         }
         if stale {
@@ -1074,9 +889,15 @@ impl EngineWindow {
         self.liveness.waiting()
     }
 
-    /// Still trying to show the engine's window (it has not been given up).
+    /// Still trying to show the engine's surface (it has not been given up).
     pub(crate) fn active(&self) -> bool {
         self.fault.is_none()
+    }
+
+    /// Whether Android turned since the panel was laid out: the copied
+    /// frames tell the new geometry. Once per turn.
+    pub(crate) fn take_geometry_request(&mut self) -> bool {
+        std::mem::take(&mut self.geometry_wanted)
     }
 
     /// The path the panel is on, once per change.
@@ -1095,9 +916,7 @@ impl EngineWindow {
     }
 
     fn fail(&mut self, fault: Fault) -> Shown {
-        self.preview = None;
-        self.layout = None;
-        self.backdrop = None;
+        self.overlay = None;
         self.drop_holder();
         self.hook = None;
         self.report(PanelPath::Frames(fault.clone()));
@@ -1105,36 +924,65 @@ impl EngineWindow {
         Shown::Frames
     }
 
-    /// Stops showing the engine's window for now (the panel is not drawn).
+    /// Stops showing the engine's surface for now (the panel is not drawn).
     pub(crate) fn hide(&mut self) {
-        if let Some(preview) = &mut self.preview {
-            let _ = preview.hide();
-        }
         if let Some(holder) = &mut self.holder {
             holder.hide();
         }
-        self.layout = None;
-    }
-
-    fn drop_holder(&mut self) {
-        self.holder = None;
-        self.keeper.adopted.store(0, Ordering::Release);
-    }
-
-    /// What the client draws over the engine's picture at `slot` (`shapes`,
-    /// physical client pixels). Child mode leaves those parts to the client's
-    /// own picture.
-    pub(crate) fn cut_out(&mut self, slot: PreviewRect, shapes: &[PreviewRect]) {
-        let cut = child::cut_out(slot, shapes);
-        self.overlay_share = child::share(slot, &cut);
-        if let Some(holder) = &mut self.holder {
-            holder.apply_cut(cut, slot);
+        if let Some(overlay) = &mut self.overlay {
+            overlay.hide();
         }
     }
 
-    /// Places the engine's picture behind `slot` (the fitted Android picture
-    /// in physical client pixels of the client's window) and says whether the
-    /// panel can be left transparent over it.
+    /// Whether the engine's window answers (or has not been asked yet).
+    fn engine_answers(&self) -> bool {
+        self.keeper
+            .answering(Duration::from_millis(1500))
+            .unwrap_or(true)
+    }
+
+    fn drop_holder(&mut self) {
+        if let Some(holder) = self.holder.take() {
+            holder.release(self.engine_answers());
+        }
+        self.keeper.adopted.store(0, Ordering::Release);
+    }
+
+    /// What the client drew over the panel at `slot` in this frame:
+    /// `covered`, the parts it covers (physical client pixels), and
+    /// `primitives`, the same shapes tessellated at `scale` pixels per point.
+    /// They are shown on top of the engine's picture; `font` gives the font
+    /// atlas when the overlay must be redrawn.
+    pub(crate) fn draw_over(
+        &mut self,
+        slot: PreviewRect,
+        covered: &[PreviewRect],
+        primitives: &[ClippedPrimitive],
+        scale: f32,
+        font: impl FnOnce() -> Arc<ColorImage>,
+    ) {
+        self.overlay_share = child::share(slot, &child::cut_out(slot, covered));
+        let host = self.keeper.host.load(Ordering::Acquire) as HWND;
+        let Some(overlay) = &mut self.overlay else {
+            return;
+        };
+        if self.holder.as_mut().and_then(child::Holder::held).is_none() {
+            overlay.hide();
+            return;
+        }
+        if let Err(fault) = overlay.show(host, slot, primitives, scale, font) {
+            self.fail(fault);
+        }
+    }
+
+    /// Whether the overlay shows anything at the moment.
+    #[cfg(test)]
+    fn overlay_visible(&self) -> bool {
+        self.overlay.as_ref().is_some_and(overlay::Overlay::visible)
+    }
+
+    /// Places the engine's surface over `slot` (the fitted Android picture
+    /// in physical client pixels of the client's window), or says why not.
     pub(crate) fn show(&mut self, slot: Option<PreviewRect>, now: Instant) -> Shown {
         if self.fault.is_some() {
             return Shown::Frames;
@@ -1152,70 +1000,18 @@ impl EngineWindow {
             self.hide();
             return self.wait(waiting, now);
         };
-        if self.mode == Mode::Child {
-            return self.show_child(host as HWND, slot, found, waiting, now);
-        }
-        if self.backdrop.is_none() {
-            match Backdrop::create(host as HWND) {
-                Ok(backdrop) => self.backdrop = Some(backdrop),
-                Err(fault) => return self.fail(fault),
+        if self.holder.is_some() && self.keeper.answering(HUNG_AFTER) == Some(false) {
+            // The joined input queues must not let the engine's thread hold
+            // the client's input any longer.
+            if let Some(holder) = &mut self.holder {
+                holder.detach();
             }
+            return self.fail(Fault::Hung);
         }
-        let backdrop = self.backdrop.as_ref().unwrap().window;
-        follow(host as HWND);
-        if self.preview.is_none() {
-            if self.retry_at.is_some_and(|at| now < at) {
-                return self.wait(waiting, now);
-            }
-            self.retry_at = Some(now + Duration::from_millis(500));
-            match ThumbnailPreview::attach_qt_emulator(backdrop as HWND, found.pid, found.created) {
-                Ok(preview) => self.preview = Some(preview),
-                Err(error) => return self.unavailable(error, waiting, now),
-            }
-        }
-        // DWM updates the picture by itself. The source geometry is checked a
-        // few times per second and at once when the panel changes.
-        let fitted = match self.layout {
-            Some((previous, fitted, checked))
-                if previous == slot && now.duration_since(checked) < CHECK_INTERVAL =>
-            {
-                fitted
-            }
-            _ => match self.preview.as_mut().unwrap().position(slot) {
-                Ok(fitted) => {
-                    self.layout = Some((slot, fitted, now));
-                    fitted
-                }
-                Err(error) => {
-                    self.preview = None;
-                    self.layout = None;
-                    return self.unavailable(error, waiting, now);
-                }
-            },
-        };
-        // A picture of another shape means Android is turning: the frames
-        // bring the new geometry.
-        let close = |a: i32, b: i32| (a - b).abs() <= 2 + b / 50;
-        if !close(fitted.right - fitted.left, slot.right - slot.left)
-            || !close(fitted.bottom - fitted.top, slot.bottom - slot.top)
-        {
-            self.pending = Some(Fault::OtherShape);
-            return self.wait(waiting, now);
-        }
-        self.waiting = Some(now);
-        self.was_live = true;
-        self.pending = None;
-        self.match_surface(slot, now);
-        self.report(PanelPath::EngineWindow);
-        if self.shown_at != Some(fitted) {
-            self.liveness.reset();
-            self.shown_at = Some(fitted);
-        }
-        Shown::Through(fitted)
+        self.show_child(host as HWND, slot, found, waiting, now)
     }
 
-    /// Child mode: the engine's render surface, held by a window of the
-    /// client at `slot`.
+    /// The engine's render surface, held by a window of the client at `slot`.
     fn show_child(
         &mut self,
         host: HWND,
@@ -1230,10 +1026,19 @@ impl EngineWindow {
                 Err(fault) => return self.fail(fault),
             }
         }
+        if self.overlay.is_none() {
+            match overlay::Overlay::create(host) {
+                Ok(overlay) => self.overlay = Some(overlay),
+                Err(fault) => return self.fail(fault),
+            }
+            self.hook = Some(HostHook::install(host));
+        }
+        let answers = self.engine_answers();
         let holder = self.holder.as_mut().unwrap();
         let mut surface = holder.held();
         if surface.is_none()
             && let Some(inside) = found.surface
+            && answers
         {
             // Placed first, so the surface lands where it is shown.
             holder.place(slot);
@@ -1248,18 +1053,28 @@ impl EngineWindow {
         let Some(surface) = surface else {
             // A rotation replaces the surface inside the engine's window.
             holder.hide();
-            self.pending = Some(Fault::Lost(detail(&PreviewError::NoSource)));
+            self.pending = Some(Fault::Lost(NO_SURFACE.into()));
             return self.wait(waiting, now);
         };
         holder.place(slot);
         let Some(size) = holder.centre(surface) else {
             holder.hide();
-            self.pending = Some(Fault::Lost(detail(&PreviewError::NoSource)));
+            self.pending = Some(Fault::Lost(NO_SURFACE.into()));
             return self.wait(waiting, now);
         };
         self.waiting = Some(now);
         self.was_live = true;
         self.pending = None;
+        // The engine keeps the shape of the Android screen: a surface of
+        // another shape than the panel means Android turned.
+        if turned(slot, size)
+            && self
+                .turned_at
+                .is_none_or(|at| now.duration_since(at) > TURN_RECHECK)
+        {
+            self.turned_at = Some(now);
+            self.geometry_wanted = true;
+        }
         self.match_size(slot, size, now);
         self.report(PanelPath::EngineChild);
         if self.shown_at != Some(slot) {
@@ -1279,45 +1094,14 @@ impl EngineWindow {
             return Shown::Frames;
         }
         let fault = match self.pending.take() {
-            Some(Fault::OtherShape) => Fault::OtherShape,
             Some(fault) if self.was_live => fault,
             _ => Fault::NoWindow,
         };
         self.fail(fault)
     }
 
-    fn unavailable(&mut self, error: PreviewError, waiting: Instant, now: Instant) -> Shown {
-        match error {
-            // The render surface is created a moment after the window, and a
-            // rotation replaces it.
-            PreviewError::NoSource
-            | PreviewError::SourceUnavailable
-            | PreviewError::InvalidCrop
-            | PreviewError::EmptySlot
-            | PreviewError::InvalidDestination => {
-                self.pending = Some(Fault::Lost(detail(&error)));
-                self.wait(waiting, now)
-            }
-            PreviewError::Win32(..) | PreviewError::Dwm(..) => {
-                self.fail(Fault::System(error.to_string()))
-            }
-            other => self.fail(Fault::Lost(detail(&other))),
-        }
-    }
-
     /// Asks the engine for a render surface of the size shown, so that the
-    /// compositor does not scale the picture.
-    fn match_surface(&mut self, slot: PreviewRect, now: Instant) {
-        let Some(source) = self
-            .preview
-            .as_ref()
-            .and_then(ThumbnailPreview::source_size)
-        else {
-            return;
-        };
-        self.match_size(slot, source, now);
-    }
-
+    /// picture is not scaled.
     fn match_size(&mut self, slot: PreviewRect, source: (i32, i32), now: Instant) {
         let wanted = (slot.right - slot.left, slot.bottom - slot.top);
         if self.trace != Some((slot, source)) {
@@ -1360,11 +1144,10 @@ impl EngineWindow {
 impl Drop for EngineWindow {
     fn drop(&mut self) {
         self.keeper.stop.store(true, Ordering::Release);
-        self.preview = None;
-        self.backdrop = None;
+        self.overlay = None;
         self.drop_holder();
         self.hook = None;
-        if let Some(thread) = self.thread.take() {
+        for thread in self.threads.drain(..) {
             let _ = thread.join();
         }
     }
@@ -1377,16 +1160,14 @@ mod tests {
     #[test]
     fn the_panel_path_is_described_in_every_language() {
         let paths = [
-            PanelPath::EngineWindow,
             PanelPath::EngineChild,
             PanelPath::Frames(Fault::NoWindow),
-            PanelPath::Frames(Fault::Lost(
-                "The engine window is minimised, hidden or cloaked".into(),
-            )),
+            PanelPath::Frames(Fault::Lost(NO_SURFACE.into())),
             PanelPath::Frames(Fault::System(
-                "DwmRegisterThumbnail: HRESULT 0x80263001".into(),
+                "SetParent: Access is denied. (os error 5)".into(),
             )),
-            PanelPath::Frames(Fault::OtherShape),
+            PanelPath::Frames(Fault::Stale),
+            PanelPath::Frames(Fault::Hung),
         ];
         for locale in [Locale::PtBr, Locale::EnUs, Locale::EsEs] {
             let texts: Vec<_> = paths.iter().map(|path| path.describe(locale)).collect();
@@ -1397,27 +1178,40 @@ mod tests {
                     "{text}"
                 );
             }
-            // The system's and the thumbnail code's own words are quoted verbatim.
-            assert!(texts[3].ends_with("“The engine window is minimised, hidden or cloaked”"));
-            assert!(texts[4].ends_with("“DwmRegisterThumbnail: HRESULT 0x80263001”"));
-            assert!(texts[2].contains("30"));
+            // English details and the system's words are quoted verbatim.
+            assert!(texts[2].ends_with(&format!("“{NO_SURFACE}”")));
+            assert!(texts[3].ends_with("“SetParent: Access is denied. (os error 5)”"));
+            assert!(texts[1].contains("30"));
+            assert!(texts[5].contains('3'));
         }
         assert_eq!(
-            paths[0].describe(Locale::PtBr),
-            "Painel: a janela do próprio motor, mostrada pela composição do Windows; nenhum quadro é copiado para o cliente."
-        );
-        assert_eq!(
-            paths[1].describe(Locale::EnUs),
+            paths[0].describe(Locale::EnUs),
             "Panel: the engine's render surface, inside the client's window; the engine presents straight to the screen and no frame is copied."
         );
         assert_eq!(
-            paths[2].describe(Locale::EnUs),
-            "Panel: frames copied from the engine; the engine's window was not used because it did not appear with a render surface within 30 seconds."
+            paths[1].describe(Locale::EnUs),
+            "Panel: frames copied from the engine; the engine's surface was not used because it did not appear within 30 seconds."
         );
         assert_eq!(
-            paths[4].describe(Locale::EsEs),
-            "Panel: fotogramas copiados del motor; no se usó la ventana del motor porque Windows rechazó una llamada; mensaje del sistema: “DwmRegisterThumbnail: HRESULT 0x80263001”"
+            paths[5].describe(Locale::PtBr),
+            "Painel: quadros copiados do motor; a superfície do motor não foi usada porque a janela do motor parou de responder por 3 segundos."
         );
+        assert_eq!(
+            paths[3].describe(Locale::EsEs),
+            "Panel: fotogramas copiados del motor; no se usó la superficie del motor porque Windows rechazó una llamada; mensaje del sistema: “SetParent: Access is denied. (os error 5)”"
+        );
+    }
+
+    #[test]
+    fn a_surface_of_another_shape_means_android_turned() {
+        let slot = PreviewRect::from_points([0., 0.], [1154., 648.], 1.).unwrap();
+        // Same shape, rounded by the engine, smaller or larger.
+        for size in [(1152, 648), (1600, 900), (371, 209)] {
+            assert!(!turned(slot, size), "{size:?}");
+        }
+        for size in [(364, 648), (648, 1152), (1000, 1000)] {
+            assert!(turned(slot, size), "{size:?}");
+        }
     }
 
     #[test]
@@ -1447,35 +1241,6 @@ mod tests {
     }
 
     #[test]
-    fn the_client_window_stays_one_pixel_short_of_covering_a_monitor() {
-        let rect = |left, top, right, bottom| RECT {
-            left,
-            top,
-            right,
-            bottom,
-        };
-        let monitor = Some(rect(0, 1080, 1920, 2160));
-        // Fullscreen, or larger than the monitor: the bottom edge moves up.
-        assert_eq!(
-            short_of_full_cover(rect(0, 1080, 1920, 2160), monitor),
-            Some(2159)
-        );
-        assert_eq!(
-            short_of_full_cover(rect(-8, 1072, 1928, 2168), monitor),
-            Some(2159)
-        );
-        // Maximised above a taskbar, windowed, or one pixel short already.
-        for kept in [
-            rect(-8, 1072, 1928, 2120),
-            rect(40, 1120, 1240, 1920),
-            rect(0, 1080, 1920, 2159),
-        ] {
-            assert_eq!(short_of_full_cover(kept, monitor), None);
-        }
-        assert_eq!(short_of_full_cover(rect(0, 1080, 1920, 2160), None), None);
-    }
-
-    #[test]
     fn only_an_engine_started_by_this_launcher_is_looked_for() {
         // This test process started no emulator.
         assert_eq!(engine_process(std::process::id()), None);
@@ -1483,7 +1248,7 @@ mod tests {
 
     #[test]
     fn a_session_without_an_engine_window_falls_back_and_says_so_once() {
-        let mut panel = EngineWindow::watch(std::process::id(), Mode::Thumbnail);
+        let mut panel = EngineWindow::watch(std::process::id());
         let slot = PreviewRect::from_points([0., 0.], [160., 90.], 1.);
         let start = Instant::now();
         assert_eq!(panel.show(slot, start), Shown::Frames);
@@ -1500,5 +1265,29 @@ mod tests {
         );
         assert_eq!(panel.show(slot, start + APPEAR_TIMEOUT * 2), Shown::Frames);
         assert_eq!(panel.take_path_change(), None);
+        assert!(!panel.overlay_visible());
+    }
+
+    #[test]
+    fn an_engine_window_is_judged_by_its_last_answer() {
+        let keeper = Keeper {
+            launcher: 0,
+            stop: AtomicBool::new(false),
+            host: AtomicIsize::new(0),
+            found: Mutex::new(None),
+            wanted: Mutex::new(None),
+            adopted: AtomicIsize::new(0),
+            epoch: Instant::now() - Duration::from_secs(60),
+            answered: AtomicU64::new(0),
+        };
+        assert_eq!(keeper.answering(HUNG_AFTER), None);
+        keeper.answered.store(keeper.now(), Ordering::Release);
+        assert_eq!(keeper.answering(HUNG_AFTER), Some(true));
+        keeper.answered.store(
+            keeper.now() - HUNG_AFTER.as_millis() as u64 - 100,
+            Ordering::Release,
+        );
+        assert_eq!(keeper.answering(HUNG_AFTER), Some(false));
+        assert_eq!(keeper.answering(HUNG_AFTER * 2), Some(true));
     }
 }

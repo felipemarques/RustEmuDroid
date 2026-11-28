@@ -46,10 +46,53 @@ pub(super) struct LaunchConfig {
     pub android_fps: bool,
     #[serde(default)]
     pub adaptive_video: bool,
+    /// Windows: how the Android screen reaches the panel. Read leniently:
+    /// older files have none, and a choice this client does not know is
+    /// taken as the default.
+    #[serde(default, deserialize_with = "lenient_choice")]
+    pub panel: PanelChoice,
     #[serde(default = "super::mascot::enabled_by_default")]
     pub animate_mascot: bool,
     #[serde(default)]
     pub locale: Locale,
+}
+
+/// How the Android screen reaches the panel (Windows).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum PanelChoice {
+    /// The engine presents straight into the client's window when it can;
+    /// otherwise, and whenever that stops working, frames are copied.
+    #[default]
+    Automatic,
+    /// Frames are always copied from the engine (shared memory or gRPC).
+    CopyFrames,
+}
+
+impl PanelChoice {
+    pub(super) fn label(self, locale: Locale) -> &'static str {
+        match self {
+            Self::Automatic => locale.pick(
+                "Automática (o motor desenha direto na janela)",
+                "Automatic (the engine draws straight into the window)",
+                "Automática (el motor dibuja directamente en la ventana)",
+            ),
+            Self::CopyFrames => locale.pick(
+                "Sempre copiar os quadros",
+                "Always copy the frames",
+                "Copiar siempre los fotogramas",
+            ),
+        }
+    }
+}
+
+fn lenient_choice<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
 }
 
 /// A per-profile map whose entries that do not parse (malformed, or written by
@@ -84,6 +127,7 @@ impl LaunchConfig {
             || self.vulkan_cache_runtime() != other.vulkan_cache_runtime()
             || self.performance_engine() != other.performance_engine()
             || self.performance_power() != other.performance_power()
+            || self.panel != other.panel
     }
 
     fn profile_key(&self) -> Option<PathBuf> {
@@ -197,6 +241,7 @@ impl LaunchConfig {
                 show_fps: true,
                 android_fps: false,
                 adaptive_video: false,
+                panel: PanelChoice::default(),
                 animate_mascot: true,
                 locale: Locale::default(),
             });
@@ -313,6 +358,44 @@ mod tests {
         saved.set_amd_uma_vulkan(false);
         assert!(!saved.amd_uma_vulkan());
         assert!(!saved.boot_changed(&old));
+    }
+
+    #[test]
+    fn the_panel_choice_defaults_to_automatic_and_old_or_unknown_values_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let older: LaunchConfig = serde_json::from_value(serde_json::json!({
+            "sdk": "",
+            "state": dir.path(),
+            "image": "",
+            "gpu": "Host",
+            "hardware": {"adapter": "", "camera": "Profile", "webcam_index": 0},
+            "show_fps": true,
+            "adaptive_video": true
+        }))
+        .unwrap();
+        assert_eq!(older.panel, PanelChoice::Automatic);
+        assert!(older.adaptive_video);
+        let mut json = serde_json::to_value(&older).unwrap();
+        assert_eq!(json["panel"], "automatic");
+        json["panel"] = serde_json::json!("engine_thumbnail");
+        let newer: LaunchConfig = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(newer.panel, PanelChoice::Automatic);
+        json["panel"] = serde_json::json!("copy_frames");
+        let copying: LaunchConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(copying.panel, PanelChoice::CopyFrames);
+        assert!(copying.boot_changed(&older));
+        let restored: LaunchConfig =
+            serde_json::from_value(serde_json::to_value(&copying).unwrap()).unwrap();
+        assert_eq!(restored.panel, PanelChoice::CopyFrames);
+        assert!(!restored.boot_changed(&copying));
+        for locale in Locale::ALL {
+            let labels = [PanelChoice::Automatic, PanelChoice::CopyFrames].map(|c| c.label(locale));
+            assert_ne!(labels[0], labels[1]);
+        }
+        assert_eq!(
+            PanelChoice::CopyFrames.label(Locale::PtBr),
+            "Sempre copiar os quadros"
+        );
     }
 
     #[test]
@@ -1360,6 +1443,18 @@ impl Launcher {
                         "Respects your system’s reduced-motion setting.",
                         "Respeta la preferencia de movimiento reducido del sistema.",
                     ));
+                    if cfg!(windows) {
+                        let label = theme::label(ui, locale.pick("Imagem do Android no painel", "Android picture in the panel", "Imagen de Android en el panel"));
+                        theme::select(ui, "panel-path", draft.panel.label(locale), |ui| {
+                            for choice in [PanelChoice::Automatic, PanelChoice::CopyFrames] {
+                                ui.selectable_value(&mut draft.panel, choice, choice.label(locale));
+                            }
+                        }).labelled_by(label.id).on_hover_text(locale.pick(
+                            "A automática é a mais rápida. Se ela não funcionar, o painel volta sozinho a copiar os quadros. Vale na próxima vez que o Android iniciar.",
+                            "Automatic is the fastest. If it does not work, the panel goes back to copying frames by itself. Applies the next time Android starts.",
+                            "La automática es la más rápida. Si no funciona, el panel vuelve solo a copiar los fotogramas. Se aplica la próxima vez que se inicie Android.",
+                        ));
+                    }
                     ui.add_space(6.);
                     ui.label(RichText::new(locale.pick("Câmera", "Camera", "Cámara")).strong());
                     ui.columns(2, |col| {

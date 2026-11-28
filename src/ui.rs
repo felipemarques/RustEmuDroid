@@ -28,7 +28,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::toolbar::consume_player_shortcut;
@@ -87,9 +87,14 @@ fn install_window(
     #[cfg(windows)]
     window_icon::install(creation);
     theme::install(&creation.egui_ctx);
-    creation
-        .egui_ctx
-        .load_texture("RustEmuDroid", brand, egui::TextureOptions::LINEAR)
+    let texture =
+        creation
+            .egui_ctx
+            .load_texture("RustEmuDroid", brand.clone(), egui::TextureOptions::LINEAR);
+    // Windows: the brand may be drawn over the engine's picture.
+    #[cfg(windows)]
+    crate::display::remember_texture(texture.id(), &brand);
+    texture
 }
 
 #[cfg(windows)]
@@ -271,6 +276,7 @@ impl Launcher {
             None
         };
         let performance_power = cfg!(windows) && self.config.performance_power();
+        let engine_panel = cfg!(windows) && self.config.panel == settings::PanelChoice::Automatic;
         let language = self.config.locale;
         let (events, receiver) = mpsc::channel();
         self.failed = false;
@@ -328,6 +334,7 @@ impl Launcher {
                         headless: check,
                         check,
                         embedded: !check,
+                        engine_panel,
                         timeout: Duration::from_secs(180),
                     },
                     &stop,
@@ -366,8 +373,8 @@ impl Launcher {
                     let mut display = Display::open(console, rpc, avd, ctx);
                     display.enable_native_texture(gl);
                     #[cfg(windows)]
-                    if let Some((launcher, child)) = engine_window {
-                        display.watch_engine_window(launcher, child);
+                    if let Some(launcher) = engine_window {
+                        display.watch_engine_window(launcher);
                     }
                     #[cfg(not(windows))]
                     let _ = engine_window;
@@ -493,22 +500,46 @@ impl Launcher {
     }
 }
 
-impl eframe::App for Launcher {
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        // The engine's own window shows through the unpainted part of the panel.
-        if self
-            .display
-            .as_ref()
-            .is_some_and(Display::panel_is_transparent)
-        {
-            [0.; 4]
-        } else {
-            // The default of eframe.
-            egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32()
-        }
+/// `RUSTEMUDROID_FRAME_STATS`: how many input events (and pointer button
+/// events among them) reached the client, at most four lines a second, for
+/// tests of its responsiveness.
+fn trace_input(ctx: &egui::Context) {
+    use std::cell::Cell;
+    thread_local! {
+        static SINCE: Cell<(Option<Instant>, usize, usize)> = const { Cell::new((None, 0, 0)) };
     }
+    if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_none() {
+        return;
+    }
+    let (events, buttons) = ctx.input(|input| {
+        let buttons = input
+            .events
+            .iter()
+            .filter(|event| matches!(event, egui::Event::PointerButton { .. }))
+            .count();
+        (input.events.len(), buttons)
+    });
+    SINCE.with(|since| {
+        let (last, count, pressed) = since.get();
+        let (count, pressed) = (count + events, pressed + buttons);
+        let now = Instant::now();
+        if count > 0
+            && last.is_none_or(|last| now.duration_since(last) >= Duration::from_millis(250))
+        {
+            println!(
+                "client_input at_ms={} events={count} buttons={pressed}",
+                crate::display::trace_clock_ms()
+            );
+            since.set((Some(now), 0, 0));
+        } else {
+            since.set((last, count, pressed));
+        }
+    });
+}
 
+impl eframe::App for Launcher {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        trace_input(ctx);
         let close_requested = ctx.input(|input| input.viewport().close_requested());
         if close_requested && !self.closing {
             self.closing = true;
@@ -786,18 +817,6 @@ impl Launcher {
                 || self.capture.replay_armed();
             let adapt_video = self.config.adaptive_video && !capturing;
             let turned = self.controls.as_mut().is_some_and(Controls::take_rotation);
-            // Windows: the panel stays unpainted where the engine's own window
-            // shows behind it, and paints its own background around it.
-            let fill = if self.home_ready
-                && self
-                    .display
-                    .as_ref()
-                    .is_some_and(Display::panel_is_transparent)
-            {
-                egui::Color32::TRANSPARENT
-            } else {
-                egui::Color32::BLACK
-            };
             #[cfg(windows)]
             if let Some(display) = &mut self.display {
                 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -808,7 +827,7 @@ impl Launcher {
                 }
             }
             egui::CentralPanel::default()
-                .frame(egui::Frame::NONE.fill(fill))
+                .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
                 .show(ctx, |ui| {
                     if self.home_ready
                         && let Some(display) = &mut self.display

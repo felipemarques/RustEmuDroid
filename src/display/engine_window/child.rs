@@ -4,28 +4,38 @@
 //! The surface is the engine's own `subWin` (a disabled child of its Qt
 //! window, presented by gfxstream's swapchain). It is moved into this window
 //! with `SetParent`; the engine keeps sizing it, and this window keeps it
-//! centred. The client's drawing over the panel is cut out of this window's
-//! region, which clips the surface as well.
+//! centred. What the client draws over the panel is shown above it by the
+//! overlay window.
+//!
+//! A child window of another thread joins the input queues of the two threads,
+//! as `AttachThreadInput` does. That is what sends a click on the disabled
+//! surface to the client's window (detached, the click goes to the engine's
+//! thread and is lost), so the queues stay joined while the surface is held.
+//! When the engine's window stops answering, the client detaches the queues
+//! at once (that call does not wait for the engine's thread) and gives the
+//! surface back from a thread of its own; nothing here waits for the
+//! engine's thread while it does not answer.
 
 use super::{Fault, window_rect};
 use crate::bluestacks::preview::PreviewRect;
-use std::ptr;
+use std::{ptr, thread};
 use windows_sys::Win32::{
-    Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
-    Graphics::Gdi::{
-        BLACK_BRUSH, CombineRgn, CreateRectRgn, DeleteObject, GetStockObject, MapWindowPoints,
-        RGN_DIFF, SetWindowRgn,
+    Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, WPARAM},
+    Graphics::Gdi::{BLACK_BRUSH, GetStockObject, MapWindowPoints},
+    System::{
+        LibraryLoader::GetModuleHandleW,
+        Threading::{AttachThreadInput, GetCurrentThreadId},
     },
-    System::LibraryLoader::GetModuleHandleW,
     UI::{
         HiDpi::{GetAwarenessFromDpiAwarenessContext, GetWindowDpiAwarenessContext},
         WindowsAndMessaging::{
             CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetParent,
             GetWindowThreadProcessId, HTTRANSPARENT, HWND_TOP, IsWindow, IsWindowVisible,
-            MA_NOACTIVATE, RegisterClassW, SW_HIDE, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOSIZE,
-            SWP_NOZORDER, SWP_SHOWWINDOW, SetParent, SetWindowPos, ShowWindow, ShowWindowAsync,
-            WM_MOUSEACTIVATE, WM_NCHITTEST, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
-            WS_DISABLED, WS_EX_NOACTIVATE, WS_EX_NOPARENTNOTIFY,
+            MA_NOACTIVATE, PostMessageW, RegisterClassW, SW_HIDE, SWP_ASYNCWINDOWPOS,
+            SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SetParent, SetWindowPos,
+            ShowWindow, ShowWindowAsync, WM_CLOSE, WM_MOUSEACTIVATE, WM_NCHITTEST, WNDCLASSW,
+            WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_DISABLED, WS_EX_NOACTIVATE,
+            WS_EX_NOPARENTNOTIFY,
         },
     },
 };
@@ -41,6 +51,8 @@ unsafe extern "system" fn holder_proc(
         // The pointer belongs to the panel under it. The window is disabled
         // too, which is what sends clicks on the engine's surface there.
         WM_NCHITTEST => HTTRANSPARENT as LRESULT,
+        // WM_CLOSE (posted after a surface was given back from another
+        // thread) destroys it on this thread, as DefWindowProc does.
         _ => unsafe { DefWindowProcW(window, message, wparam, lparam) },
     }
 }
@@ -49,10 +61,9 @@ pub(super) struct Holder {
     window: isize,
     /// Where it was put last (physical client pixels of the client's window).
     placed: Option<PreviewRect>,
-    /// The parts of the panel left to the client's own drawing, same pixels.
-    cut: Vec<PreviewRect>,
-    /// The render surface it holds, and the engine window to give it back to.
-    surface: Option<(isize, isize)>,
+    /// The render surface it holds, the engine window to give it back to,
+    /// and the thread of both.
+    surface: Option<(isize, isize, u32)>,
 }
 
 impl Holder {
@@ -92,7 +103,6 @@ impl Holder {
             Ok(Self {
                 window: window as isize,
                 placed: None,
-                cut: Vec::new(),
                 surface: None,
             })
         }
@@ -102,10 +112,6 @@ impl Holder {
         let window = self.window as HWND;
         if self.placed == Some(slot) && unsafe { IsWindowVisible(window) } != 0 {
             return;
-        }
-        if self.placed.is_some_and(|placed| placed != slot) {
-            // The cut-outs were relative to the old place.
-            self.apply_cut(Vec::new(), slot);
         }
         unsafe {
             SetWindowPos(
@@ -128,7 +134,7 @@ impl Holder {
 
     /// The surface held, while it is still a child of this window.
     pub(super) fn held(&mut self) -> Option<isize> {
-        let (surface, _) = self.surface?;
+        let (surface, ..) = self.surface?;
         let alive = unsafe {
             IsWindow(surface as HWND) != 0 && GetParent(surface as HWND) == self.window as HWND
         };
@@ -161,7 +167,7 @@ impl Holder {
                 std::io::Error::last_os_error()
             )));
         }
-        self.surface = Some((surface, main));
+        self.surface = Some((surface, main, surface_thread));
         if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some() {
             let awareness = |window: isize| unsafe {
                 GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(window as HWND))
@@ -173,6 +179,21 @@ impl Holder {
             );
         }
         Ok(())
+    }
+
+    /// Detaches the input queue of the client's thread from the engine's
+    /// thread; `true` when they were joined.
+    pub(super) fn detach(&mut self) -> bool {
+        let Some((.., thread)) = self.surface else {
+            return false;
+        };
+        let detached = unsafe { AttachThreadInput(GetCurrentThreadId(), thread, 0) } != 0;
+        if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some() {
+            println!("engine_child input_detached={detached} error={}", unsafe {
+                GetLastError()
+            });
+        }
+        detached
     }
 
     /// Centres the held surface in this window (the engine keeps the aspect
@@ -213,73 +234,66 @@ impl Holder {
         Some((width, height))
     }
 
-    /// Leaves `cut` (physical client pixels of the client's window) to the
-    /// client's own drawing.
-    pub(super) fn apply_cut(&mut self, cut: Vec<PreviewRect>, slot: PreviewRect) {
-        if cut == self.cut {
-            return;
-        }
-        let window = self.window as HWND;
-        unsafe {
-            if cut.is_empty() {
-                SetWindowRgn(window, ptr::null_mut(), 1);
-            } else {
-                let region = CreateRectRgn(0, 0, slot.right - slot.left, slot.bottom - slot.top);
-                for part in &cut {
-                    let hole = CreateRectRgn(
-                        part.left - slot.left,
-                        part.top - slot.top,
-                        part.right - slot.left,
-                        part.bottom - slot.top,
-                    );
-                    CombineRgn(region, region, hole, RGN_DIFF);
-                    DeleteObject(hole);
-                }
-                // On success the system owns the region.
-                if SetWindowRgn(window, region, 1) == 0 {
-                    DeleteObject(region);
-                }
-            }
-        }
-        self.cut = cut;
-    }
-
-    /// Gives the render surface back to the engine's window.
-    pub(super) fn release(&mut self) {
-        let Some((surface, main)) = self.surface.take() else {
+    /// Gives the render surface back to the engine's window: at once when the
+    /// engine answers, otherwise from a thread of its own, after which this
+    /// window is destroyed on its own thread.
+    pub(super) fn release(mut self, answering: bool) {
+        let Some((surface, main, _)) = self.surface.take() else {
             return;
         };
-        unsafe {
-            if IsWindow(surface as HWND) == 0 {
-                return;
-            }
-            if IsWindow(main as HWND) != 0 {
-                SetParent(surface as HWND, main as HWND);
-                SetWindowPos(
-                    surface as HWND,
-                    ptr::null_mut(),
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
-                );
-            } else {
-                ShowWindowAsync(surface as HWND, SW_HIDE);
-            }
+        if unsafe { IsWindow(surface as HWND) } == 0 {
+            return;
+        }
+        if answering {
+            give_back(surface, main);
+            return;
+        }
+        self.hide();
+        let holder = self.window;
+        // The window must outlive the surface it holds: destroying it now
+        // would wait for the engine's thread.
+        std::mem::forget(self);
+        let _ = thread::Builder::new()
+            .name("engine surface release".into())
+            .spawn(move || {
+                give_back(surface, main);
+                unsafe { PostMessageW(holder as HWND, WM_CLOSE, 0, 0) };
+            });
+    }
+}
+
+fn give_back(surface: isize, main: isize) {
+    unsafe {
+        if IsWindow(main as HWND) != 0 {
+            SetParent(surface as HWND, main as HWND);
+            SetWindowPos(
+                surface as HWND,
+                ptr::null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
+            );
+        } else {
+            ShowWindowAsync(surface as HWND, SW_HIDE);
         }
     }
 }
 
 impl Drop for Holder {
     fn drop(&mut self) {
-        self.release();
+        if let Some((surface, main, _)) = self.surface.take()
+            && unsafe { IsWindow(surface as HWND) } != 0
+        {
+            give_back(surface, main);
+        }
         unsafe { DestroyWindow(self.window as HWND) };
     }
 }
 
-/// The parts of `slot` that `shapes` cover, as whole pixels, merged where they
-/// overlap a lot so the region stays small.
+/// The parts of `slot` that `shapes` cover, as whole pixels, merged where one
+/// contains another.
 pub(super) fn cut_out(slot: PreviewRect, shapes: &[PreviewRect]) -> Vec<PreviewRect> {
     let mut cut: Vec<PreviewRect> = Vec::new();
     for shape in shapes {
@@ -335,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn only_what_is_drawn_over_the_panel_is_cut_out_of_it() {
+    fn only_what_is_drawn_over_the_panel_counts_as_covering_it() {
         let slot = rect(100, 50, 900, 500);
         assert!(cut_out(slot, &[]).is_empty());
         // Outside, inside, across an edge, inside another one.
@@ -361,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn a_holder_window_is_created_hidden_inside_its_parent_and_cut_without_a_surface() {
+    fn a_holder_window_is_created_hidden_inside_its_parent_and_placed_there() {
         use windows_sys::Win32::UI::WindowsAndMessaging::{CW_USEDEFAULT, WS_OVERLAPPEDWINDOW};
         let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
         let parent = unsafe {
@@ -386,13 +400,13 @@ mod tests {
         assert_eq!(unsafe { GetParent(window) }, parent);
         assert_eq!(unsafe { IsWindowVisible(window) }, 0);
         assert_eq!(holder.held(), None);
-        let slot = rect(10, 20, 330, 200);
-        holder.place(slot);
-        holder.apply_cut(vec![rect(20, 30, 60, 50)], slot);
-        assert_eq!(holder.cut, [rect(20, 30, 60, 50)]);
-        // A new place drops the cut-outs, which were relative to the old one.
-        holder.place(rect(0, 0, 320, 180));
-        assert!(holder.cut.is_empty());
+        // No surface: nothing to detach.
+        assert!(!holder.detach());
+        holder.place(rect(10, 20, 330, 200));
+        assert_eq!(
+            window_rect(window).map(|r| (r.right - r.left, r.bottom - r.top)),
+            Some((320, 180))
+        );
         holder.hide();
         assert_eq!(unsafe { IsWindowVisible(window) }, 0);
         drop(holder);

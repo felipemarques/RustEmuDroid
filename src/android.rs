@@ -793,6 +793,9 @@ pub struct BootOptions {
     pub headless: bool,
     pub check: bool,
     pub embedded: bool,
+    /// Windows: the engine presents into the client's window when it can
+    /// (Settings, "automatic"); `RUSTEMUDROID_PANEL` overrides it.
+    pub engine_panel: bool,
     pub timeout: Duration,
 }
 
@@ -806,34 +809,76 @@ pub enum BootEvent {
         avd: PathBuf,
         #[cfg(feature = "ui")]
         adb: PathBuf,
-        /// Windows: the engine keeps its own window, to be shown by the panel
-        /// through the desktop compositor, or (`true`) its render surface is
-        /// to be held by the client's window. The process ID of its launcher.
+        /// Windows: the engine keeps its own window, whose render surface is
+        /// to be held by the client's window: the process ID of its launcher.
         #[cfg(feature = "ui")]
-        engine_window: Option<(u32, bool)>,
+        engine_window: Option<u32>,
     },
 }
 
-/// `RUSTEMUDROID_PANEL=engine-window` (Windows, off by default): the engine
-/// runs with its own window and the panel shows that window through the
-/// desktop compositor instead of copying every frame.
-/// `RUSTEMUDROID_PANEL=engine-child` (Windows, off by default): the engine's
-/// render surface becomes a child of the client's window and presents there.
+/// `RUSTEMUDROID_PANEL=engine-child` makes the engine's render surface a
+/// child of the client's window (Windows) whatever Settings say;
+/// `RUSTEMUDROID_PANEL=frames` keeps the copied frames. For tests.
 pub(crate) const PANEL_ENV: &str = "RUSTEMUDROID_PANEL";
 
-/// `None`: copied frames; `Some(child)`: the engine's own picture.
-fn engine_window_panel(value: Option<&str>) -> Option<bool> {
+/// Whether the engine presents into the client's window: what Settings ask
+/// for (`chosen`) unless `RUSTEMUDROID_PANEL` (`value`) names a path.
+/// Only Windows has that path.
+fn engine_window_panel(value: Option<&str>, chosen: bool) -> bool {
     if !cfg!(windows) {
-        return None;
+        return false;
     }
-    let value = value?.trim();
-    if value.eq_ignore_ascii_case("engine-window") {
-        Some(false)
-    } else if value.eq_ignore_ascii_case("engine-child") {
-        Some(true)
-    } else {
-        None
+    match value.map(str::trim) {
+        Some(value) if value.eq_ignore_ascii_case("engine-child") => true,
+        Some(value) if value.eq_ignore_ascii_case("frames") => false,
+        _ => chosen,
     }
+}
+
+/// Where the engine's own window starts when the client holds its render
+/// surface: far off the desktop, as `engine_window` keeps it.
+const ENGINE_WINDOW_AT: (i32, i32) = (-25_000, -25_000);
+/// Its scale when it starts, so that it is small for the moment it is shown
+/// before it moves there.
+const ENGINE_WINDOW_SCALE: &str = "0.200000";
+
+/// Asks the engine (through its per-AVD UI settings, `emulator-user.ini`) to
+/// open its window off the desktop and small. Together with `-fixed-scale`,
+/// which skips the engine's check that moves a window back onto a monitor,
+/// the window leaves the desktop by itself right after it first shows. The
+/// other entries of the file are kept.
+fn prepare_engine_window(avd: &Path) -> io::Result<()> {
+    let path = avd.join("emulator-user.ini");
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error),
+    };
+    fs::write(&path, engine_window_settings(&text))
+}
+
+fn engine_window_settings(text: &str) -> String {
+    let wanted = [
+        ("window.x", ENGINE_WINDOW_AT.0.to_string()),
+        ("window.y", ENGINE_WINDOW_AT.1.to_string()),
+        ("window.scale", ENGINE_WINDOW_SCALE.to_string()),
+    ];
+    let mut lines: Vec<String> = text
+        .lines()
+        .filter(|line| {
+            let key = line.split('=').next().unwrap_or_default().trim();
+            !wanted
+                .iter()
+                .any(|(name, _)| key.eq_ignore_ascii_case(name))
+        })
+        .map(str::to_owned)
+        .collect();
+    for (index, (name, value)) in wanted.iter().enumerate() {
+        lines.insert(index, format!("{name} = {value}"));
+    }
+    let mut out = lines.join("\n");
+    out.push('\n');
+    out
 }
 
 impl std::fmt::Display for BootEvent {
@@ -973,6 +1018,7 @@ pub fn boot(
         headless,
         check,
         embedded,
+        engine_panel,
         timeout,
     } = options;
     if stop.load(Ordering::Acquire) {
@@ -1249,9 +1295,26 @@ pub fn boot(
     // The stock flag that hides the Qt window also keeps the engine from
     // creating its render surface, so the window stays and the panel keeps it
     // out of sight.
-    let engine_panel = engine_window_panel(env::var(PANEL_ENV).ok().as_deref())
-        .filter(|_| embedded && runtime.is_none());
-    let engine_window = engine_panel.is_some();
+    let engine_window = engine_window_panel(env::var(PANEL_ENV).ok().as_deref(), engine_panel)
+        && embedded
+        && runtime.is_none();
+    if engine_window {
+        let avd = profile.avd_home.join(format!("{AVD}.avd"));
+        match prepare_engine_window(&avd) {
+            Ok(()) => {
+                command.arg("-fixed-scale");
+            }
+            // The window is still moved off the desktop once it shows.
+            Err(error) => notify(BootEvent::Message(format!(
+                "{}: {error}",
+                sdk.locale.pick(
+                    "Não foi possível preparar a janela do motor",
+                    "Could not prepare the engine's window",
+                    "No se ha podido preparar la ventana del motor",
+                )
+            ))),
+        }
+    }
     let rpc_socket = if embedded {
         let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         let rpc = socket.local_addr()?.port();
@@ -1350,7 +1413,7 @@ pub fn boot(
             #[cfg(feature = "ui")]
             adb: sdk.adb.clone(),
             #[cfg(feature = "ui")]
-            engine_window: engine_panel.map(|child| (vm.0.id(), child)),
+            engine_window: engine_window.then(|| vm.0.id()),
         });
     }
     if let Some(applied) = amd_applied {
@@ -2270,28 +2333,45 @@ mod tests {
     }
 
     #[test]
-    fn the_engine_window_panel_is_asked_for_by_name_and_only_exists_on_windows() {
-        for off in [
-            None,
-            Some(""),
-            Some("frames"),
-            Some("engine window"),
-            Some("child"),
-        ] {
-            assert_eq!(super::engine_window_panel(off), None);
+    fn the_panel_path_follows_settings_unless_the_environment_names_one() {
+        for chosen in [false, true] {
+            for unnamed in [None, Some(""), Some("engine-window"), Some("child")] {
+                assert_eq!(
+                    super::engine_window_panel(unnamed, chosen),
+                    cfg!(windows) && chosen
+                );
+            }
+            for child in ["engine-child", " ENGINE-CHILD\n"] {
+                assert_eq!(
+                    super::engine_window_panel(Some(child), chosen),
+                    cfg!(windows)
+                );
+            }
+            for frames in ["frames", "Frames "] {
+                assert!(!super::engine_window_panel(Some(frames), chosen));
+            }
         }
-        for on in ["engine-window", " Engine-Window\n"] {
-            assert_eq!(
-                super::engine_window_panel(Some(on)),
-                cfg!(windows).then_some(false)
-            );
-        }
-        for on in ["engine-child", "ENGINE-CHILD "] {
-            assert_eq!(
-                super::engine_window_panel(Some(on)),
-                cfg!(windows).then_some(true)
-            );
-        }
+    }
+
+    #[test]
+    fn the_engine_window_is_asked_to_open_off_the_desktop_and_small() {
+        let saved = "window.x = 100\nwindow.y = 100\nwindow.scale = -1.000000\nresizable.config.id = -1\nposture = 0\nuuid = 1795717770811\n";
+        let wanted = "window.x = -25000\nwindow.y = -25000\nwindow.scale = 0.200000\nresizable.config.id = -1\nposture = 0\nuuid = 1795717770811\n";
+        assert_eq!(super::engine_window_settings(saved), wanted);
+        // Applied again, or to a file the engine has not written yet.
+        assert_eq!(super::engine_window_settings(wanted), wanted);
+        assert_eq!(
+            super::engine_window_settings(""),
+            "window.x = -25000\nwindow.y = -25000\nwindow.scale = 0.200000\n"
+        );
+        let dir = tempfile::tempdir().unwrap();
+        super::prepare_engine_window(dir.path()).unwrap();
+        std::fs::write(dir.path().join("emulator-user.ini"), saved).unwrap();
+        super::prepare_engine_window(dir.path()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("emulator-user.ini")).unwrap(),
+            wanted
+        );
     }
 
     #[test]

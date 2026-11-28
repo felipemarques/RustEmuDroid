@@ -446,7 +446,7 @@ impl ThumbnailPreview {
         )
     }
 
-    /// Bind to the render surface of an Android Emulator process with a Qt window.
+    #[cfg(test)]
     pub(crate) fn attach_qt_emulator(destination: HWND, pid: u32, creation: u64) -> Result<Self> {
         Self::attach_surface(
             destination,
@@ -455,12 +455,6 @@ impl ThumbnailPreview {
             "qemu-system-x86_64.exe",
             "subWin",
         )
-    }
-
-    /// Width and height of the source picture shown last, in its own pixels.
-    pub(crate) fn source_size(&self) -> Option<(i32, i32)> {
-        self.shown
-            .map(|(crop, _)| (crop.right - crop.left, crop.bottom - crop.top))
     }
 
     #[cfg(test)]

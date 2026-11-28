@@ -6,9 +6,8 @@
 //! samples on both sides, so counting the bytes that changed tells even a thin
 //! moving line apart from a still picture. A screen area
 //! that stays the same while the engine's frames change means the picture the
-//! user sees is not the engine's any more (a surface that stopped presenting,
-//! a thumbnail of a stale window, a black panel). Window structure is not
-//! looked at. Samples are taken only while nothing covers the panel and the
+//! user sees is not the engine's any more (a surface that stopped presenting
+//! or was hidden, a black panel). Window structure is not looked at. Samples are taken only while nothing covers the panel and the
 //! client draws over little of it.
 
 use std::time::{Duration, Instant};

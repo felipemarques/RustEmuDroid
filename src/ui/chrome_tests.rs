@@ -223,6 +223,7 @@ fn title_bar_layout_and_window_actions() {
             show_fps: true,
             android_fps: false,
             adaptive_video: false,
+            panel: Default::default(),
             animate_mascot: true,
             locale: Locale::default(),
         };
