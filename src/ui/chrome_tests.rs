@@ -1040,6 +1040,7 @@ fn closing_waits_for_vm_without_blocking_frames_or_restarting() {
             avd: dir.path().into(),
             adb: Default::default(),
             engine_window: None,
+            audio_output: None,
         })
         .unwrap();
 
@@ -1070,4 +1071,73 @@ fn closing_waits_for_vm_without_blocking_frames_or_restarting() {
     }
     assert!(app.task.is_none() && !app.play);
     assert!(!commands(&tick(&mut app, &mut frame, true)).contains(&ViewportCommand::CancelClose));
+}
+
+#[test]
+fn a_sound_notice_is_on_screen_while_android_starts_and_runs() {
+    let ctx = egui::Context::default();
+    let brand = ctx.load_texture(
+        "brand",
+        egui::ColorImage::filled([2, 2], INK),
+        Default::default(),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let prefs = dir.path().join("launcher.json");
+    let mut config = LaunchConfig::load(None, dir.path().into(), None, &prefs);
+    config.locale = Locale::EnUs;
+    let mut app = Launcher::new(brand, config, prefs, false);
+    let mut frame = eframe::Frame::_new_kittest();
+    let tick = |app: &mut Launcher, frame: &mut eframe::Frame| {
+        ctx.run(RawInput::default(), |ctx| app.update(ctx, frame))
+    };
+
+    app.playing = true;
+    let (events, receiver) = mpsc::channel();
+    let (release, gate) = mpsc::channel::<()>();
+    app.task = Some(Session {
+        events: receiver,
+        worker: thread::spawn(move || {
+            let _ = gate.recv();
+            Ok(())
+        }),
+    });
+    let detail = "Engine enabled Vulkan memory caching.";
+    let notice = "The saved audio output “Headphones” is not connected. Android uses the system default output.";
+    events.send(BootEvent::Message(detail.into())).unwrap();
+    events.send(BootEvent::SoundNotice(notice.into())).unwrap();
+
+    // While Android starts the notice is on screen, unlike the boot details,
+    // and its time has not begun.
+    tick(&mut app, &mut frame);
+    let out = tick(&mut app, &mut frame);
+    assert_eq!(labels(&out, notice).len(), 1);
+    assert!(labels(&out, detail).is_empty());
+    assert!(app.output.iter().any(|line| line == notice));
+    assert!(app.sound_notice.as_ref().unwrap().seen.is_none());
+
+    // With Android on screen it is still there, for a limited time.
+    app.home_ready = true;
+    let out = tick(&mut app, &mut frame);
+    assert_eq!(labels(&out, notice).len(), 1);
+    let shown = app.sound_notice.as_mut().unwrap();
+    assert!(shown.seen.is_some());
+    shown.seen = Some(std::time::Instant::now() - SOUND_NOTICE_TIME);
+    let out = tick(&mut app, &mut frame);
+    assert!(app.sound_notice.is_none());
+    assert!(labels(&out, notice).is_empty());
+
+    // A later notice replaces nothing that is still needed and ends with the session.
+    events
+        .send(BootEvent::SoundNotice("Another notice.".into()))
+        .unwrap();
+    let out = tick(&mut app, &mut frame);
+    assert_eq!(labels(&out, "Another notice.").len(), 1);
+    release.send(()).unwrap();
+    let until = std::time::Instant::now() + Duration::from_secs(3);
+    while app.task.is_some() {
+        tick(&mut app, &mut frame);
+        assert!(std::time::Instant::now() < until, "the session did not end");
+        thread::yield_now();
+    }
+    assert!(app.sound_notice.is_none());
 }

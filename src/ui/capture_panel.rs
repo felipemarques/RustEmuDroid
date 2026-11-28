@@ -442,7 +442,9 @@ impl Launcher {
             None => result_notice(self.capture_notice.as_ref(), locale, ctx),
         };
         let replay_notice = matches!(replay, ReplayState::Buffering | ReplayState::Saving);
-        if notice.is_none() && !replay_notice {
+        // Where Android's sound went shares the session's notice pop-up.
+        let sound = self.sound_notice.as_ref();
+        if notice.is_none() && !replay_notice && sound.is_none() {
             return;
         }
         egui::Area::new("capture-notice".into())
@@ -452,6 +454,13 @@ impl Launcher {
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).fill(PANEL).show(ui, |ui| {
                     ui.set_max_width(400.);
+                    if let Some(sound) = sound {
+                        let color = if sound.problem { ERROR } else { MINT };
+                        ui.label(RichText::new(&sound.text).color(color));
+                        if let Some(details) = &sound.details {
+                            ui.label(RichText::new(details).small().color(MUTED));
+                        }
+                    }
                     if let Some((message, details, color)) = notice {
                         ui.label(RichText::new(message).color(color));
                         if let Some(details) = details {

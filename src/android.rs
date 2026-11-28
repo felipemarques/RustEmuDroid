@@ -43,7 +43,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use crate::{Engine, Gpu, Result, locale::Locale};
+use crate::{Engine, Gpu, Result, audio_output, locale::Locale};
 
 const AVD: &str = "RustEmuDroid";
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -751,6 +751,25 @@ pub struct Hardware {
     #[arg(long, default_value_t = false)]
     #[cfg_attr(feature = "ui", serde(default))]
     pub arm_lite: bool,
+    /// Saída de áudio do Android: ID ou nome do dispositivo. Vazio segue o padrão do sistema.
+    #[arg(
+        long = "audio-output",
+        value_name = "ID",
+        default_value = "",
+        hide_default_value = true
+    )]
+    #[cfg_attr(
+        feature = "ui",
+        serde(default, skip_serializing_if = "String::is_empty")
+    )]
+    pub audio_output: String,
+    /// Nome mostrado para `audio_output` quando foi salvo, para as mensagens de boot.
+    #[arg(skip)]
+    #[cfg_attr(
+        feature = "ui",
+        serde(default, skip_serializing_if = "String::is_empty")
+    )]
+    pub audio_output_name: String,
 }
 
 impl Hardware {
@@ -803,6 +822,9 @@ pub enum BootEvent {
     Starting(String),
     Ready(String),
     Message(String),
+    /// The saved audio output is not in use. The window shows this where the
+    /// user sees it while Android is on screen.
+    SoundNotice(String),
     Display {
         console: u16,
         rpc: u16,
@@ -813,6 +835,9 @@ pub enum BootEvent {
         /// to be held by the client's window: the process ID of its launcher.
         #[cfg(feature = "ui")]
         engine_window: Option<u32>,
+        /// Windows endpoint the window plays the engine's sound to.
+        #[cfg(feature = "ui")]
+        audio_output: Option<audio_output::Device>,
     },
 }
 
@@ -940,9 +965,10 @@ fn with_window_entries<'a>(text: &str, entries: impl Iterator<Item = &'a str>) -
 impl std::fmt::Display for BootEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Starting(message) | Self::Ready(message) | Self::Message(message) => {
-                f.write_str(message)
-            }
+            Self::Starting(message)
+            | Self::Ready(message)
+            | Self::Message(message)
+            | Self::SoundNotice(message) => f.write_str(message),
             Self::Display {
                 console, rpc, avd, ..
             } => write!(
@@ -1048,6 +1074,42 @@ fn selected_vulkan_is_cpu(log: &str) -> bool {
         .peekable();
     matching_types.peek().is_some()
         && matching_types.all(|kind| kind == "VK_PHYSICAL_DEVICE_TYPE_CPU")
+}
+
+/// The window flag of the engine under the RustEmuDroid panel. `-no-window`
+/// selects the headless engine, which plays no sound on Linux; a hidden
+/// engine window keeps the engine's sound. On Windows the panel may instead
+/// hold the engine's own window (`engine_window`), which needs no flag.
+const fn panel_window_flag(engine_window: bool) -> Option<&'static str> {
+    if cfg!(target_os = "linux") {
+        Some("-no-window")
+    } else if engine_window {
+        None
+    } else {
+        Some("-qt-hide-window")
+    }
+}
+
+/// Whether an engine started with these arguments can play sound itself.
+fn engine_plays_sound<'a>(args: impl IntoIterator<Item = &'a OsStr>) -> bool {
+    !args.into_iter().any(|arg| arg == "-no-window")
+}
+
+/// Whether Android has the engine's sound in the RustEmuDroid panel. The
+/// settings read it so their text follows how the engine is really started.
+#[cfg(feature = "ui")]
+pub(crate) fn panel_engine_plays_sound() -> bool {
+    // Both Windows panels keep the engine's window, so the choice does not matter.
+    engine_plays_sound(panel_window_flag(false).map(OsStr::new))
+}
+
+fn apply_audio_plan(command: &mut Command, plan: &audio_output::Plan) {
+    for (variable, value) in &plan.set_env {
+        command.env(variable, value);
+    }
+    if plan.no_audio && !command.get_args().any(|arg| arg == "-no-audio") {
+        command.arg("-no-audio");
+    }
 }
 
 fn matching_kemu_image(root: &Path, system: &Path) -> bool {
@@ -1378,10 +1440,8 @@ pub fn boot(
     let rpc_socket = if embedded {
         let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         let rpc = socket.local_addr()?.port();
-        if cfg!(target_os = "linux") {
-            command.arg("-no-window");
-        } else if !engine_window {
-            command.arg("-qt-hide-window");
+        if let Some(flag) = panel_window_flag(engine_window) {
+            command.arg(flag);
         }
         command
             .args(["-grpc-use-token", "-grpc"])
@@ -1392,6 +1452,28 @@ pub fn boot(
     } else {
         None
     };
+    // After the window flags, before -qemu: everything after it goes to QEMU.
+    let audio = audio_output::plan(
+        &hardware.audio_output,
+        &hardware.audio_output_name,
+        || audio_output::inventory(sdk.locale),
+        audio_output::Mode {
+            windows: cfg!(windows),
+            embedded,
+            headless,
+            engine_sound: engine_plays_sound(command.get_args()),
+        },
+        sdk.locale,
+    );
+    apply_audio_plan(&mut command, &audio);
+    for message in &audio.messages {
+        notify(BootEvent::Message(message.clone()));
+    }
+    if let Some(notice) = &audio.notice {
+        notify(BootEvent::SoundNotice(notice.clone()));
+    }
+    #[cfg(feature = "ui")]
+    let audio_output = audio.client_endpoint;
     if compat_egl {
         command.args(["-qemu", "-append", "androidboot.hardwareegl=emulation"]);
     } else if amd_whpx {
@@ -1474,6 +1556,7 @@ pub fn boot(
             adb: sdk.adb.clone(),
             #[cfg(feature = "ui")]
             engine_window: engine_window.then(|| vm.0.id()),
+            audio_output: audio_output.clone(),
         });
     }
     if let Some(applied) = amd_applied {
@@ -1917,6 +2000,70 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     struct TestRoot(PathBuf);
+
+    #[test]
+    fn audio_plan_sets_the_engine_environment_and_flag_once() {
+        use super::{Command, apply_audio_plan, audio_output::Plan};
+        use std::ffi::OsStr;
+        let mut command = Command::new("emulator");
+        command.args(["-avd", "RustEmuDroid"]);
+        // The system default: the engine's arguments and environment stay as they are.
+        apply_audio_plan(&mut command, &Plan::default());
+        assert_eq!(command.get_envs().count(), 0);
+        assert_eq!(command.get_args().count(), 2);
+
+        apply_audio_plan(
+            &mut command,
+            &Plan {
+                set_env: vec![("QEMU_PA_SINK", "alsa_output.usb".into())],
+                ..Default::default()
+            },
+        );
+        let envs: Vec<_> = command.get_envs().collect();
+        assert_eq!(
+            envs,
+            [(
+                OsStr::new("QEMU_PA_SINK"),
+                Some(OsStr::new("alsa_output.usb"))
+            )]
+        );
+        assert!(!command.get_args().any(|arg| arg == "-no-audio"));
+
+        let windows = Plan {
+            no_audio: true,
+            client_endpoint: Some(super::audio_output::Device {
+                id: "{0.0.0.00000000}.{bbbb}".into(),
+                name: "Headphones (USB)".into(),
+            }),
+            ..Default::default()
+        };
+        let count =
+            |command: &Command| command.get_args().filter(|arg| *arg == "-no-audio").count();
+        apply_audio_plan(&mut command, &windows);
+        assert_eq!(count(&command), 1);
+        // A boot check already passes -no-audio; it is not repeated.
+        apply_audio_plan(&mut command, &windows);
+        assert_eq!(count(&command), 1);
+    }
+
+    #[test]
+    fn engine_sound_follows_the_window_flag_of_the_launch() {
+        use super::engine_plays_sound;
+        use std::ffi::OsStr;
+        let sound =
+            |args: &[&'static str]| engine_plays_sound(args.iter().map(|arg| OsStr::new(*arg)));
+        assert!(!sound(&["-avd", "x", "-no-window"]));
+        assert!(sound(&["-avd", "x", "-qt-hide-window"]));
+        assert!(sound(&["-avd", "x"]));
+        // The settings text reads the same decision as the panel's launch.
+        #[cfg(feature = "ui")]
+        for engine_window in [false, true] {
+            assert_eq!(
+                super::panel_engine_plays_sound(),
+                super::panel_window_flag(engine_window) != Some("-no-window")
+            );
+        }
+    }
 
     #[test]
     fn display_refresh_override_only_changes_the_selected_boot() {

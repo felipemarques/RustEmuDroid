@@ -327,6 +327,162 @@ mod tests {
     }
 
     #[test]
+    fn audio_output_defaults_to_the_system_and_round_trips() {
+        let temp = tempfile::tempdir().unwrap();
+        let prefs = temp.path().join("launcher.json");
+        // A launcher.json as a client without the setting wrote it.
+        let older = serde_json::json!({
+            "sdk": "",
+            "state": temp.path().join("older-profile"),
+            "image": "",
+            "gpu": "Software",
+            "hardware": {
+                "adapter": "Older GPU",
+                "refresh_rate": 90,
+                "camera": "WebcamBack",
+                "webcam_index": 2,
+                "arm_lite": true
+            },
+            "show_fps": false,
+            "android_fps": false,
+            "adaptive_video": true,
+            "animate_mascot": false,
+            "locale": "es-es"
+        });
+        fs::write(&prefs, serde_json::to_vec_pretty(&older).unwrap()).unwrap();
+        let legacy = LaunchConfig::load(None, temp.path().join("unused"), None, &prefs);
+        // The file was read, not replaced by the defaults of a missing one.
+        assert_eq!(
+            Path::new(&legacy.state),
+            temp.path().join("older-profile").as_path()
+        );
+        assert!(legacy.gpu == Gpu::Software && legacy.locale == Locale::EsEs);
+        assert!(!legacy.show_fps && legacy.adaptive_video && !legacy.animate_mascot);
+        assert_eq!(legacy.hardware.adapter, "Older GPU");
+        assert_eq!(legacy.hardware.refresh_rate.map(|hz| hz.get()), Some(90));
+        assert!(legacy.hardware.camera == Camera::WebcamBack && legacy.hardware.arm_lite);
+        assert_eq!(legacy.hardware.webcam_index, 2);
+        // The new setting starts at the system default.
+        assert!(legacy.hardware.audio_output.is_empty());
+        assert!(legacy.hardware.audio_output_name.is_empty());
+        // The system default writes nothing, so that client reads the file back unchanged.
+        assert_eq!(serde_json::to_value(&legacy).unwrap(), older);
+
+        let mut chosen = legacy.clone();
+        chosen.hardware.audio_output = "{0.0.0.00000000}.{bbbb}".into();
+        chosen.hardware.audio_output_name = "Headphones (USB)".into();
+        assert!(
+            chosen.boot_changed(&legacy),
+            "a new output restarts Android"
+        );
+        write_json(&prefs, &chosen).unwrap();
+        let restored = LaunchConfig::load(None, temp.path().into(), None, &prefs);
+        assert_eq!(restored.hardware.audio_output, "{0.0.0.00000000}.{bbbb}");
+        assert_eq!(restored.hardware.audio_output_name, "Headphones (USB)");
+        assert!(!restored.boot_changed(&chosen));
+    }
+
+    #[test]
+    fn audio_output_labels_follow_the_listed_devices() {
+        use crate::audio_output::{Device, Inventory};
+        let inventory = Inventory {
+            devices: vec![Device {
+                id: "a".into(),
+                name: "Speakers".into(),
+            }],
+            default: Some("a".into()),
+        };
+        let mut hardware = Hardware::default();
+        assert_eq!(
+            audio_output_label(&hardware, Some(&inventory), Locale::EnUs),
+            ("System default · Speakers".to_string(), false)
+        );
+        assert_eq!(
+            audio_output_label(&hardware, None, Locale::PtBr),
+            ("Padrão do sistema".to_string(), false)
+        );
+        hardware.audio_output = "a".into();
+        assert_eq!(
+            audio_output_label(&hardware, Some(&inventory), Locale::EnUs).0,
+            "Speakers"
+        );
+        hardware.audio_output = "gone".into();
+        hardware.audio_output_name = "Headset".into();
+        assert_eq!(
+            audio_output_label(&hardware, Some(&inventory), Locale::EsEs),
+            ("Headset (no conectada)".to_string(), true)
+        );
+        // Not listed yet: show the saved name without calling it missing.
+        assert_eq!(
+            audio_output_label(&hardware, None, Locale::EnUs),
+            ("Headset".to_string(), false)
+        );
+    }
+
+    #[test]
+    fn audio_output_hint_promises_only_what_the_engine_launch_delivers() {
+        let chosen = AudioRoute {
+            default: false,
+            missing: false,
+            client_player: false,
+            engine_sound: true,
+        };
+        let default = AudioRoute {
+            default: true,
+            ..chosen
+        };
+        let missing = AudioRoute {
+            missing: true,
+            ..chosen
+        };
+        assert_eq!(
+            audio_output_hint(chosen, Locale::EnUs),
+            "The engine sends Android sound to this device. Save and restart Android to apply."
+        );
+        let window = AudioRoute {
+            client_player: true,
+            ..chosen
+        };
+        assert!(
+            audio_output_hint(window, Locale::EnUs)
+                .starts_with("RustEmuDroid plays Android sound on this device")
+        );
+        assert!(audio_output_hint(default, Locale::EnUs).starts_with("Follows the system default"));
+        assert!(audio_output_hint(missing, Locale::EnUs).starts_with("While this device"));
+        // Started with -no-window the engine has no sound: every entry that
+        // plays through the engine says so, in each language, instead of
+        // promising a device.
+        let without_sound = |route: AudioRoute, locale| {
+            audio_output_hint(
+                AudioRoute {
+                    engine_sound: false,
+                    ..route
+                },
+                locale,
+            )
+        };
+        let mut silent = Vec::new();
+        for locale in Locale::ALL {
+            let texts = [chosen, default, missing].map(|route| without_sound(route, locale));
+            assert!(texts[0].contains("-no-window"), "{locale:?}");
+            assert!(texts.iter().all(|text| *text == texts[0]), "{locale:?}");
+            assert_ne!(texts[0], audio_output_hint(chosen, locale));
+            silent.push(texts[0]);
+        }
+        assert!(silent[0] != silent[1] && silent[1] != silent[2] && silent[0] != silent[2]);
+        // A device the window plays itself does not depend on the engine's sound.
+        assert_eq!(
+            without_sound(window, Locale::EnUs),
+            audio_output_hint(window, Locale::EnUs)
+        );
+        let window_default = AudioRoute {
+            default: true,
+            ..window
+        };
+        assert_eq!(without_sound(window_default, Locale::EnUs), silent[1]);
+    }
+
+    #[test]
     fn amd_uma_vulkan_pref_defaults_off_and_is_scoped_to_the_selected_profile() {
         let dir = tempfile::tempdir().unwrap();
         let mut original: LaunchConfig = serde_json::from_value(serde_json::json!({
@@ -708,6 +864,213 @@ impl Drop for AdapterList {
             let _ = child.kill();
             let _ = child.wait();
         }
+    }
+}
+
+/// The computer's audio outputs, listed off the UI thread when Settings opens.
+#[derive(Default)]
+pub(super) struct AudioOutputList {
+    inventory: Option<crate::audio_output::Inventory>,
+    pending: Option<std::sync::mpsc::Receiver<Result<crate::audio_output::Inventory, String>>>,
+    error: bool,
+}
+
+impl AudioOutputList {
+    fn request(&mut self, locale: Locale) {
+        if self.pending.is_some() {
+            return;
+        }
+        // Listed again on every open: devices come and go.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(crate::audio_output::inventory(locale));
+        });
+        self.pending = Some(receiver);
+    }
+
+    pub(super) fn poll(&mut self, ctx: &egui::Context) {
+        let Some(pending) = &self.pending else {
+            return;
+        };
+        match pending.try_recv() {
+            Ok(result) => {
+                self.error = result.is_err();
+                self.inventory = result.ok().or(self.inventory.take());
+                self.pending = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint_after(Duration::from_millis(50));
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.error = true;
+                self.pending = None;
+            }
+        }
+    }
+}
+
+fn system_default_label(
+    inventory: Option<&crate::audio_output::Inventory>,
+    locale: Locale,
+) -> String {
+    let label = locale.pick(
+        "Padrão do sistema",
+        "System default",
+        "Predeterminada del sistema",
+    );
+    match inventory.and_then(|inventory| inventory.default_device()) {
+        Some(device) => format!("{label} · {}", device.name),
+        None => label.into(),
+    }
+}
+
+/// The label of the saved choice, and whether it is a device not present now.
+fn audio_output_label(
+    hardware: &Hardware,
+    inventory: Option<&crate::audio_output::Inventory>,
+    locale: Locale,
+) -> (String, bool) {
+    if hardware.audio_output.is_empty() {
+        return (system_default_label(inventory, locale), false);
+    }
+    if let Some(device) = inventory.and_then(|inventory| inventory.find(&hardware.audio_output)) {
+        return (device.name.clone(), false);
+    }
+    let name = if hardware.audio_output_name.is_empty() {
+        &hardware.audio_output
+    } else {
+        &hardware.audio_output_name
+    };
+    match inventory {
+        Some(_) => (
+            format!(
+                "{name} ({})",
+                locale.pick("não conectada", "not connected", "no conectada")
+            ),
+            true,
+        ),
+        None => (name.clone(), false),
+    }
+}
+
+/// What the selector says below the list about the selected entry.
+#[derive(Clone, Copy)]
+struct AudioRoute {
+    /// "System default" is selected.
+    default: bool,
+    /// The selected device is not connected now.
+    missing: bool,
+    /// A chosen device is played by the RustEmuDroid window (Windows).
+    client_player: bool,
+    /// The engine under the panel plays sound at all (`-no-window` does not).
+    engine_sound: bool,
+}
+
+fn audio_output_hint(route: AudioRoute, locale: Locale) -> &'static str {
+    // Every entry plays through the engine, except a connected device that
+    // the window plays itself.
+    let through_engine = route.default || route.missing || !route.client_player;
+    if through_engine && !route.engine_sound {
+        // No promise where the engine is started without sound.
+        locale.pick(
+            "Aqui o motor roda no modo sem janela (-no-window), que não reproduz som: com esta escolha o Android fica sem som. Ela passa a valer quando o motor tiver som.",
+            "Here the engine runs in its windowless mode (-no-window), which plays no sound: with this choice Android stays silent. It applies once the engine has sound.",
+            "Aquí el motor se ejecuta en su modo sin ventana (-no-window), que no reproduce sonido: con esta elección Android se queda sin sonido. Se aplicará cuando el motor tenga sonido.",
+        )
+    } else if route.missing {
+        locale.pick(
+            "Enquanto esse dispositivo estiver desconectado, o Android usa a saída padrão do sistema.",
+            "While this device is disconnected, Android uses the system default output.",
+            "Mientras ese dispositivo esté desconectado, Android usa la salida predeterminada del sistema.",
+        )
+    } else if route.default {
+        locale.pick(
+            "Acompanha a saída padrão do sistema, também quando ela muda com o Android aberto.",
+            "Follows the system default output, also when it changes while Android is open.",
+            "Sigue la salida predeterminada del sistema, también cuando cambia con Android abierto.",
+        )
+    } else if route.client_player {
+        locale.pick(
+            "O RustEmuDroid reproduz o som do Android nesse dispositivo, com um pequeno atraso extra. Salve e reinicie o Android para aplicar.",
+            "RustEmuDroid plays Android sound on this device, with a little extra delay. Save and restart Android to apply.",
+            "RustEmuDroid reproduce el sonido de Android en ese dispositivo, con un pequeño retraso adicional. Guarda y reinicia Android para aplicar el cambio.",
+        )
+    } else {
+        locale.pick(
+            "O motor envia o som do Android para esse dispositivo. Salve e reinicie o Android para aplicar.",
+            "The engine sends Android sound to this device. Save and restart Android to apply.",
+            "El motor envía el sonido de Android a ese dispositivo. Guarda y reinicia Android para aplicar el cambio.",
+        )
+    }
+}
+
+/// `session` is where the sound of the running Android is right now, when
+/// the RustEmuDroid window plays it.
+fn audio_output_section(
+    ui: &mut egui::Ui,
+    draft: &mut LaunchConfig,
+    outputs: &AudioOutputList,
+    session: Option<&str>,
+    locale: Locale,
+) {
+    ui.label(RichText::new(locale.pick("Som", "Sound", "Sonido")).strong());
+    let inventory = outputs.inventory.as_ref();
+    let (selected, missing) = audio_output_label(&draft.hardware, inventory, locale);
+    let label = theme::label(
+        ui,
+        locale.pick("Saída de áudio", "Audio output", "Salida de audio"),
+    );
+    theme::select(ui, "audio-output", &selected, |ui| {
+        if ui
+            .selectable_label(
+                draft.hardware.audio_output.is_empty(),
+                system_default_label(inventory, locale),
+            )
+            .clicked()
+        {
+            draft.hardware.audio_output.clear();
+            draft.hardware.audio_output_name.clear();
+        }
+        if missing {
+            let _ = ui.selectable_label(true, &selected);
+        }
+        for device in inventory
+            .map(|inventory| inventory.devices.as_slice())
+            .unwrap_or_default()
+        {
+            if ui
+                .selectable_label(draft.hardware.audio_output == device.id, &device.name)
+                .clicked()
+            {
+                draft.hardware.audio_output = device.id.clone();
+                draft.hardware.audio_output_name = device.name.clone();
+            }
+        }
+    })
+    .labelled_by(label.id);
+    if outputs.pending.is_some() {
+        ui.weak(locale.pick(
+            "Consultando saídas de áudio…",
+            "Searching for audio outputs…",
+            "Buscando salidas de audio…",
+        ));
+    } else if outputs.error {
+        ui.weak(locale.pick(
+            "Consulta às saídas de áudio indisponível. O padrão do sistema continua disponível.",
+            "Audio output detection failed. The system default is still available.",
+            "No se han detectado las salidas de audio. La predeterminada del sistema sigue disponible.",
+        ));
+    }
+    let route = AudioRoute {
+        default: draft.hardware.audio_output.is_empty(),
+        missing,
+        client_player: cfg!(windows),
+        // How the panel really starts the engine, not the system's name.
+        engine_sound: crate::android::panel_engine_plays_sound(),
+    };
+    theme::label(ui, audio_output_hint(route, locale));
+    if let Some(session) = session {
+        theme::label(ui, session);
     }
 }
 
@@ -1286,6 +1649,7 @@ fn performance_engine_picker(
 impl Launcher {
     pub(super) fn open_settings(&mut self) {
         self.adapters.request();
+        self.audio_outputs.request(self.config.locale);
         self.images.sdk = None;
         self.settings = Some(self.config.clone());
     }
@@ -1296,6 +1660,11 @@ impl Launcher {
         };
         let locale = self.config.locale;
         let running = self.playing;
+        // Where the sound of the running Android is, when this window plays it.
+        let audio_session = self
+            .display
+            .as_ref()
+            .and_then(|display| display.audio_status(locale));
         let mut apply = false;
         let mut android_settings = false;
         let mut check_boot = false;
@@ -1455,6 +1824,8 @@ impl Launcher {
                             "La automática es la más rápida. Si no funciona, el panel vuelve solo a copiar los fotogramas. Se aplica la próxima vez que se inicie Android.",
                         ));
                     }
+                    ui.add_space(6.);
+                    audio_output_section(ui, draft, &self.audio_outputs, audio_session.as_deref(), locale);
                     ui.add_space(6.);
                     ui.label(RichText::new(locale.pick("Câmera", "Camera", "Cámara")).strong());
                     ui.columns(2, |col| {

@@ -1,5 +1,7 @@
 //! Android Emulator's EmulatorController protocol (the subset used by this view).
 mod adaptive_video;
+#[cfg(windows)]
+mod audio;
 #[cfg(all(test, windows))]
 mod dwm_input_lab;
 #[cfg(windows)]
@@ -586,6 +588,16 @@ async fn stream(
     result
 }
 
+/// A change of Android's sound that the window tells the user about. Only
+/// the Windows player raises them.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) struct AudioNotice {
+    pub text: String,
+    pub details: Option<String>,
+    /// The sound stopped or left the chosen device.
+    pub problem: bool,
+}
+
 pub struct Display {
     pub(crate) mapping: mapping::Mapping,
     state: Arc<Mutex<Shared>>,
@@ -629,6 +641,8 @@ pub struct Display {
     since: Instant,
     fps: f32,
     tilt: Option<tilt::Tilt>,
+    #[cfg(windows)]
+    audio: Option<audio::Audio>,
 }
 impl Display {
     pub fn open(console: u16, rpc: u16, avd: PathBuf, ctx: &egui::Context) -> Self {
@@ -701,7 +715,52 @@ impl Display {
             since: Instant::now(),
             fps: 0.0,
             tilt: None,
+            #[cfg(windows)]
+            audio: None,
         }
+    }
+
+    /// Plays Android's sound on a chosen Windows endpoint (the engine runs
+    /// with `-no-audio`). No-op elsewhere and for the system default.
+    pub(crate) fn play_audio(
+        &mut self,
+        console: u16,
+        rpc: u16,
+        avd: PathBuf,
+        endpoint: Option<crate::audio_output::Device>,
+    ) {
+        #[cfg(windows)]
+        if let Some(endpoint) = endpoint {
+            self.audio = Some(audio::start(console, rpc, avd, endpoint));
+        }
+        #[cfg(not(windows))]
+        let _ = (console, rpc, avd, endpoint);
+    }
+
+    /// Where the sound played by this window is right now: on the chosen
+    /// device, on the system default while that device is unavailable, or
+    /// nowhere. `None` when the engine plays its own sound.
+    pub(crate) fn audio_status(&self, locale: Locale) -> Option<String> {
+        #[cfg(windows)]
+        return Some(self.audio.as_ref()?.status(locale));
+        #[cfg(not(windows))]
+        let _ = locale;
+        #[cfg(not(windows))]
+        None
+    }
+
+    /// Changes of the sound played by this window since the last call.
+    pub(crate) fn take_audio_notices(&mut self, locale: Locale) -> Vec<AudioNotice> {
+        #[cfg(windows)]
+        return self
+            .audio
+            .as_ref()
+            .map(|audio| audio.take_notices(locale))
+            .unwrap_or_default();
+        #[cfg(not(windows))]
+        let _ = locale;
+        #[cfg(not(windows))]
+        Vec::new()
     }
 
     #[cfg(test)]
