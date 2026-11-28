@@ -365,8 +365,11 @@ mod tests {
         // The new setting starts at the system default.
         assert!(legacy.hardware.audio_output.is_empty());
         assert!(legacy.hardware.audio_output_name.is_empty());
-        // The system default writes nothing, so that client reads the file back unchanged.
-        assert_eq!(serde_json::to_value(&legacy).unwrap(), older);
+        // The system default writes nothing, so that client reads the file back
+        // unchanged but for the panel choice of v0.26.0, which is always written.
+        let mut expected = older.clone();
+        expected["panel"] = serde_json::json!("automatic");
+        assert_eq!(serde_json::to_value(&legacy).unwrap(), expected);
 
         let mut chosen = legacy.clone();
         chosen.hardware.audio_output = "{0.0.0.00000000}.{bbbb}".into();
