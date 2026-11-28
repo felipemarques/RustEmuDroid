@@ -34,9 +34,12 @@ const NOISE: u8 = 3;
 const FLAT: u8 = 12;
 /// An engine frame whose colour channels span more than this has a picture.
 const DETAIL: u8 = 48;
-/// A blank screen counts only when its colour is this far (on some channel)
-/// from the average colour of the engine's frame.
-const OTHER_COLOUR: u8 = 40;
+/// A blank screen counts only when at least [`AWAY_SHARE`] of the engine's
+/// pixels are this far (on some channel) from its colour...
+const AWAY: u8 = 24;
+const AWAY_SHARE: f32 = 0.5;
+/// ...and the average colour of the engine's frame is this far from it.
+const OTHER_COLOUR: u8 = 16;
 /// Consecutive periods with evidence against the picture on the screen.
 const STRIKES: u8 = 3;
 
@@ -109,21 +112,42 @@ fn colours(sample: &[u8], channels: usize) -> Option<[(u8, u8, f32); 3]> {
 }
 
 /// The screen sample is one flat colour while the engine's frame has a
-/// picture whose average colour is clearly another.
+/// picture that is mostly of other colours: most of its pixels and its
+/// average are clearly away from the screen's colour. A small light detail
+/// on a dark picture, which the screen's averaging may hide, or a fine
+/// pattern that averages to the screen's colour, is not enough.
 pub(crate) fn blank(engine: &[u8], shown: &[u8]) -> bool {
-    let (Some(engine), Some(shown)) = (
+    let (Some(colours_engine), Some(colours_shown)) = (
         colours(engine, ENGINE_CHANNELS),
         colours(shown, SCREEN_CHANNELS),
     ) else {
         return false;
     };
-    let flat = shown.iter().all(|(low, high, _)| high - low <= FLAT);
-    let detailed = engine.iter().any(|(low, high, _)| high - low > DETAIL);
-    let other = engine
+    let flat = colours_shown
         .iter()
-        .zip(&shown)
-        .any(|((_, _, a), (_, _, b))| (a - b).abs() > f32::from(OTHER_COLOUR));
-    flat && detailed && other
+        .all(|(low, high, _)| high - low <= FLAT);
+    let detailed = colours_engine
+        .iter()
+        .any(|(low, high, _)| high - low > DETAIL);
+    if !flat || !detailed {
+        return false;
+    }
+    let screen = colours_shown.map(|(_, _, mean)| mean);
+    let away = engine
+        .chunks_exact(ENGINE_CHANNELS)
+        .filter(|pixel| {
+            pixel[..3]
+                .iter()
+                .zip(screen)
+                .any(|(value, colour)| (f32::from(*value) - colour).abs() > f32::from(AWAY))
+        })
+        .count();
+    let pixels = engine.len() / ENGINE_CHANNELS;
+    let other = colours_engine
+        .iter()
+        .zip(screen)
+        .any(|((_, _, mean), colour)| (mean - colour).abs() > f32::from(OTHER_COLOUR));
+    away as f32 >= AWAY_SHARE * pixels as f32 && other
 }
 
 /// What a period with the samples `now` (engine, screen) says, given the
@@ -357,6 +381,47 @@ mod tests {
             .map(|step| seen(frame(240, step * 5), flat_screen(0)))
             .collect();
         assert_eq!(run(moving), [2]);
+    }
+
+    #[test]
+    fn a_black_panel_over_a_dark_android_screen_is_stale() {
+        // A dark navy Home with a few light details, over a black panel.
+        let mut home = vec![255u8; PIXELS * 4];
+        for (index, pixel) in home.chunks_exact_mut(4).enumerate() {
+            let colour = if index % 97 == 0 {
+                [255, 140, 100]
+            } else {
+                [17, 24, 33]
+            };
+            pixel[..3].copy_from_slice(&colour);
+        }
+        let steps = (0..3).map(|_| seen(home.clone(), flat_screen(0))).collect();
+        assert_eq!(run(steps), [2]);
+        // The same Home on the screen, averaged to its own colour, is fine.
+        let steps = (0..6)
+            .map(|_| {
+                let shown: Vec<u8> = (0..PIXELS).flat_map(|_| [18, 25, 34]).collect();
+                seen(home.clone(), shown)
+            })
+            .collect();
+        assert!(run(steps).is_empty());
+    }
+
+    #[test]
+    fn a_fine_pattern_averaged_on_the_screen_is_no_evidence() {
+        // Black and white pixels in turn read as one grey on the screen.
+        let mut pattern = vec![255u8; PIXELS * 4];
+        for (index, pixel) in pattern.chunks_exact_mut(4).enumerate() {
+            pixel[..3].fill(if (index + index / 32) % 2 == 0 {
+                0
+            } else {
+                255
+            });
+        }
+        let steps = (0..6)
+            .map(|_| seen(pattern.clone(), flat_screen(128)))
+            .collect();
+        assert!(run(steps).is_empty());
     }
 
     #[test]
