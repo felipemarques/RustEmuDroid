@@ -16,7 +16,8 @@
 //!
 //! The panel copies frames instead, with the reason in the boot details, when
 //! the surface does not appear, stops being usable, its picture on the screen
-//! stands still while the engine's frames change (tried again later), or the
+//! stands still while the engine's frames change or stays one flat colour
+//! while the engine's frame has a picture (both tried again later), or the
 //! engine's window stops answering. The client's UI thread never waits for
 //! the engine's thread (see `child` and `keeper`).
 
@@ -106,8 +107,18 @@ pub(crate) enum Fault {
     /// The picture on the screen stood still while the engine's frames
     /// changed: tried again later.
     Stale,
+    /// The panel's area of the screen stayed one flat colour while the
+    /// engine's frame had a picture: tried again later.
+    Blank,
     /// The engine's window stopped answering messages.
     Hung,
+}
+
+impl Fault {
+    /// Faults found by the content check: the surface is tried again later.
+    fn retried(&self) -> bool {
+        matches!(self, Self::Stale | Self::Blank)
+    }
 }
 
 /// What the panel shows, for the boot details.
@@ -181,6 +192,20 @@ impl PanelPath {
                     RETRY_AFTER.as_secs()
                 ),
             },
+            Fault::Blank => match locale {
+                Locale::PtBr => format!(
+                    "a área dela na tela ficou de uma cor só enquanto o Android mostrava uma imagem. O painel tenta de novo em {} segundos.",
+                    RETRY_AFTER.as_secs()
+                ),
+                Locale::EnUs => format!(
+                    "its area of the screen stayed one flat colour while Android showed a picture. The panel tries again in {} seconds.",
+                    RETRY_AFTER.as_secs()
+                ),
+                Locale::EsEs => format!(
+                    "su área de la pantalla se quedó de un solo color mientras Android mostraba una imagen. El panel lo vuelve a intentar en {} segundos.",
+                    RETRY_AFTER.as_secs()
+                ),
+            },
             Fault::Hung => match locale {
                 Locale::PtBr => format!(
                     "a janela do motor parou de responder por {} segundos.",
@@ -234,13 +259,34 @@ fn on_screen(host: HWND, rect: PreviewRect) -> Option<RECT> {
     })
 }
 
-/// Nothing covers the client's window at the middle and the corners of
-/// `rect` (screen pixels).
-fn sees(host: HWND, rect: RECT) -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GA_ROOT, GA_ROOTOWNER, GetAncestor, WindowFromPoint,
+/// The compositor keeps `window` out of sight (another virtual desktop, an
+/// app being suspended).
+fn cloaked(window: HWND) -> bool {
+    use windows_sys::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
+    let mut cloaked = 0u32;
+    let read = unsafe {
+        DwmGetWindowAttribute(
+            window,
+            DWMWA_CLOAKED as u32,
+            (&mut cloaked as *mut u32).cast(),
+            size_of::<u32>() as u32,
+        )
     };
-    if host.is_null() || unsafe { IsIconic(host) } != 0 {
+    read == 0 && cloaked != 0
+}
+
+/// The client's window is shown, and the middle and the corners of `rect`
+/// (screen pixels) are on a monitor with nothing covering the window there.
+fn sees(host: HWND, rect: RECT) -> bool {
+    use windows_sys::Win32::{
+        Graphics::Gdi::{MONITOR_DEFAULTTONULL, MonitorFromPoint},
+        UI::WindowsAndMessaging::{GA_ROOT, GA_ROOTOWNER, GetAncestor, WindowFromPoint},
+    };
+    if host.is_null()
+        || unsafe { IsIconic(host) } != 0
+        || unsafe { IsWindowVisible(host) } == 0
+        || cloaked(host)
+    {
         return false;
     }
     let inset = |a: i32, b: i32| (a + 2).min(b - 1);
@@ -252,7 +298,13 @@ fn sees(host: HWND, rect: RECT) -> bool {
         (rect.right - 3, inset(rect.top, rect.bottom)),
     ];
     points.into_iter().all(|(x, y)| {
-        let under = unsafe { WindowFromPoint(POINT { x, y }) };
+        // A part of the panel off every monitor is not on the screen at all,
+        // though the window is still found there.
+        let point = POINT { x, y };
+        if unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONULL) }.is_null() {
+            return false;
+        }
+        let under = unsafe { WindowFromPoint(point) };
         // The overlay is owned by the client's window and takes no input.
         !under.is_null()
             && (unsafe { GetAncestor(under, GA_ROOT) } == host
@@ -554,10 +606,15 @@ impl EngineWindow {
         let stale = self
             .liveness
             .poll(now, can_sample, sample, || place.and_then(screen_sample));
+        let stats = std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some();
         if self.liveness.judged != judged
-            && self.liveness.judged % 20 == 1
-            && std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some()
+            && stats
+            && let Some(found @ (liveness::Evidence::StoodStill | liveness::Evidence::Blank)) =
+                self.liveness.last_evidence
         {
+            println!("engine_liveness evidence={found:?}");
+        }
+        if self.liveness.judged != judged && self.liveness.judged % 20 == 1 && stats {
             println!(
                 "engine_liveness judged={} followed={} overlay_redrawn={}",
                 self.liveness.judged,
@@ -566,13 +623,18 @@ impl EngineWindow {
             );
         }
         if stale {
-            if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some() {
+            if stats {
                 println!(
                     "engine_liveness stale judged={} followed={}",
                     self.liveness.judged, self.liveness.followed
                 );
             }
-            self.fail(Fault::Stale, now);
+            let fault = if self.liveness.last_evidence == Some(liveness::Evidence::Blank) {
+                Fault::Blank
+            } else {
+                Fault::Stale
+            };
+            self.fail(fault, now);
         }
         stale
     }
@@ -614,8 +676,7 @@ impl EngineWindow {
         self.hook = None;
         // The engine's own picture is not wanted while frames are copied.
         self.keeper.quiet.store(true, Ordering::Release);
-        self.retry_at =
-            (fault == Fault::Stale && self.retries < RETRIES).then(|| now + RETRY_AFTER);
+        self.retry_at = (fault.retried() && self.retries < RETRIES).then(|| now + RETRY_AFTER);
         self.report(PanelPath::Frames(fault.clone()));
         self.fault = Some(fault);
         Shown::Frames
@@ -894,6 +955,7 @@ mod tests {
             PanelPath::Frames(Fault::Stale),
             PanelPath::Frames(Fault::Hung),
             PanelPath::Frames(Fault::Lost(Lost::OtherThread)),
+            PanelPath::Frames(Fault::Blank),
         ];
         for locale in [Locale::PtBr, Locale::EnUs, Locale::EsEs] {
             let texts: Vec<_> = paths.iter().map(|path| path.describe(locale)).collect();
@@ -909,6 +971,7 @@ mod tests {
             assert!(texts[1].contains("30"));
             assert!(texts[4].contains("60"));
             assert!(texts[5].contains('3'));
+            assert!(texts[7].contains("60"));
         }
         assert_eq!(
             paths[0].describe(Locale::EnUs),
@@ -1003,6 +1066,23 @@ mod tests {
     /// A surface given up by the content check comes back after a while,
     /// a limited number of times; meanwhile the engine's window is quiet.
     #[test]
+    fn a_client_window_that_is_not_shown_is_not_sampled() {
+        let host = child::tests::window(WS_OVERLAPPEDWINDOW, ptr::null_mut());
+        let rect = RECT {
+            left: 0,
+            top: 0,
+            right: 320,
+            bottom: 180,
+        };
+        // Created without being shown: nothing of it is on the screen.
+        assert!(!cloaked(host));
+        assert!(!sees(host, rect));
+        assert!(!sees(ptr::null_mut(), rect));
+        assert!(!Fault::Hung.retried() && Fault::Stale.retried() && Fault::Blank.retried());
+        unsafe { DestroyWindow(host) };
+    }
+
+    #[test]
     fn a_stale_surface_is_tried_again_later_a_few_times() {
         let host = child::tests::window(WS_OVERLAPPEDWINDOW, ptr::null_mut());
         let engine = child::tests::Engine::start();
@@ -1032,12 +1112,15 @@ mod tests {
                 "attempt {attempt}: {shown:?}"
             );
             assert_eq!(panel.take_path_change(), Some(PanelPath::EngineChild));
-            assert_eq!(panel.fail(Fault::Stale, clock), Shown::Frames);
+            // Both findings of the content check are tried again.
+            let fault = if attempt % 2 == 0 {
+                Fault::Stale
+            } else {
+                Fault::Blank
+            };
+            assert_eq!(panel.fail(fault.clone(), clock), Shown::Frames);
             assert!(panel.keeper.quiet.load(Ordering::Acquire));
-            assert_eq!(
-                panel.take_path_change(),
-                Some(PanelPath::Frames(Fault::Stale))
-            );
+            assert_eq!(panel.take_path_change(), Some(PanelPath::Frames(fault)));
             // The surface goes home (the keeper would report it there again).
             child::tests::pump_until(
                 || unsafe {
