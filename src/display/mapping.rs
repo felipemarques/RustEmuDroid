@@ -1450,7 +1450,10 @@ mod tests {
 
     #[test]
     fn edge_scroll_repeats_bounded_touch_drags_only_over_the_active_guest() {
-        use crate::display::{Display, Format, Frame, Input, Touch};
+        use crate::display::{
+            Display, Input,
+            engine_rpc::{Format, Frame, Touch},
+        };
         use egui::{Event, pos2};
 
         let (input, mut received) = tokio::sync::mpsc::unbounded_channel();
@@ -1607,7 +1610,10 @@ mod tests {
 
     #[test]
     fn dpad_taps_in_one_frame_send_ordered_android_contacts() {
-        use crate::display::{Display, Format, Frame, Input};
+        use crate::display::{
+            Display, Input,
+            engine_rpc::{Format, Frame},
+        };
 
         let (input, mut received) = tokio::sync::mpsc::unbounded_channel();
         let mut display = Display::new(Default::default(), input);

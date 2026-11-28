@@ -34,7 +34,7 @@
 //! not allocated. Its writes are one plain copy from the first byte to the
 //! last; the engine's come out of a GPU readback.
 #![allow(clippy::result_large_err)]
-use super::super::{Format, Frame, Rotation, Transport};
+use crate::display::engine_rpc::{Format, Frame, Rotation, Transport};
 use crate::display::shared_frames::MMAP;
 use hyper_util::rt::TokioIo;
 use std::{

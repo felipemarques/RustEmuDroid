@@ -3,6 +3,7 @@ use egui::{CentralPanel, Event, Modifiers, RawInput, vec2};
 use std::{
     collections::BTreeMap,
     ffi::OsString,
+    path::Path,
     process::{Command, Output, Stdio},
     thread,
 };

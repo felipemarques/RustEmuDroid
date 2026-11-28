@@ -3,10 +3,10 @@ use super::*;
 use crate::bluestacks::preview::{PreviewRect, ThumbnailPreview};
 use crate::controls::Controls;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use std::collections::BTreeSet;
 use std::io;
 use std::sync::mpsc as sync;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{collections::BTreeSet, fs, path::Path};
 use windows_sys::Win32::UI::{HiDpi::GetDpiForWindow, WindowsAndMessaging::GetForegroundWindow};
 use winit::platform::windows::EventLoopBuilderExtWindows;
 

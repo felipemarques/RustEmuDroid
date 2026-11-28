@@ -1,5 +1,5 @@
 //! Hold a relative physical rotation through the EmulatorController sensor model.
-use super::{Empty, authorized};
+use super::engine_rpc::{Empty, authorized};
 use prost::Message;
 use std::{
     sync::{
@@ -440,7 +440,7 @@ mod tests {
                 .contains("org.rustemudroid.home")
         );
 
-        let token = super::super::credentials(console, rpc, &avd).unwrap();
+        let token = super::super::engine_rpc::credentials(console, rpc, &avd).unwrap();
         let channel = Endpoint::from_shared(format!("http://127.0.0.1:{rpc}"))
             .unwrap()
             .connect_timeout(Duration::from_secs(2))

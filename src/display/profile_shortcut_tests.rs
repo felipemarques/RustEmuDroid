@@ -1,6 +1,7 @@
 use super::*;
 use crate::toolbar::{PLAYER_MODIFIERS, PROFILE_KEY};
 use egui::{Event, Modifiers};
+use std::fs;
 
 fn key(key: Key, pressed: bool, modifiers: Modifiers) -> Event {
     Event::Key {

@@ -5,7 +5,8 @@ pub(super) mod fake_engine;
 mod shared;
 
 use super::{
-    DisplayResult, Fallback, Format, Frame, Shared, StreamEnded, VideoTransport, authorized,
+    DisplayResult, Fallback, Shared, StreamEnded, VideoTransport,
+    engine_rpc::{Format, Frame, authorized},
     shared_frames::{self, SharedFrames},
 };
 use eframe::egui::{self, Rect};
@@ -629,7 +630,10 @@ pub(super) async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::display::{Display, Empty, Input, Rotation};
+    use crate::display::{
+        Display, Input,
+        engine_rpc::{Empty, Rotation},
+    };
     use eframe::egui::{pos2, vec2};
     use tokio::sync::mpsc;
 
@@ -876,7 +880,7 @@ mod tests {
     #[test]
     fn the_shared_transport_request_and_reply_have_the_emulators_wire_format() {
         use super::shared::shared_frame_len;
-        use crate::display::{Transport, shared_frames::MMAP};
+        use crate::display::{engine_rpc::Transport, shared_frames::MMAP};
         use prost::Message;
         let request = Format {
             format: 1,

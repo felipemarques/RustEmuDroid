@@ -1,7 +1,9 @@
-//! Android Emulator's EmulatorController protocol (the subset used by this view).
+//! The Android panel: the engine's picture, and touch and keys sent through
+//! its control API.
 mod adaptive_video;
 #[cfg(all(test, windows))]
 mod dwm_input_lab;
+pub(crate) mod engine_rpc;
 #[cfg(windows)]
 mod engine_window;
 #[cfg(test)]
@@ -19,21 +21,22 @@ mod tilt;
 
 use crate::{capture::Shot, ui::i18n::Locale};
 use eframe::egui::{self, ColorImage, Key, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
-use prost::Message;
+use engine_rpc::{
+    Empty, Format, Frame, Keyboard, Touch, TouchEvent, authorized, normalized_to_engine,
+    open_controller,
+};
 use std::{
-    fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tokio::sync::{mpsc, watch};
 use tonic::{
-    Request,
     client::Grpc,
     codec::ProstCodec,
     codegen::http::uri::PathAndQuery,
     metadata::{Ascii, MetadataValue},
-    transport::{Channel, Endpoint},
+    transport::Channel,
 };
 
 pub(crate) const TILT_RESTORE_TIMEOUT: Duration = tilt::RESTORE_TIMEOUT;
@@ -77,71 +80,6 @@ type PanelSlot = crate::bluestacks::preview::PreviewRect;
 #[cfg(not(windows))]
 type PanelSlot = ();
 
-#[derive(Clone, PartialEq, Message)]
-struct Format {
-    #[prost(int32, tag = "1")]
-    format: i32,
-    #[prost(message, optional, tag = "2")]
-    rotation: Option<Rotation>,
-    #[prost(uint32, tag = "3")]
-    width: u32,
-    #[prost(uint32, tag = "4")]
-    height: u32,
-    #[prost(uint32, tag = "5")]
-    display: u32,
-    // Folded geometry and a resizable mode disqualify the display from reduction.
-    #[prost(message, optional, tag = "7")]
-    folded_display: Option<Empty>,
-    #[prost(int32, optional, tag = "8")]
-    display_mode: Option<i32>,
-    // Requests and reports where the pixels travel (inline or a shared file).
-    #[prost(message, optional, tag = "6")]
-    transport: Option<Transport>,
-}
-#[derive(Clone, PartialEq, Message)]
-struct Transport {
-    #[prost(int32, tag = "1")]
-    channel: i32,
-    #[prost(string, tag = "2")]
-    handle: String,
-}
-#[derive(Clone, PartialEq, Message)]
-struct Rotation {
-    #[prost(int32, tag = "1")]
-    value: i32,
-}
-#[derive(Clone, PartialEq, Message)]
-struct Frame {
-    #[prost(message, optional, tag = "1")]
-    format: Option<Format>,
-    #[prost(bytes = "bytes", tag = "4")]
-    pixels: prost::bytes::Bytes,
-}
-#[derive(Clone, PartialEq, Message)]
-struct Touch {
-    #[prost(int32, tag = "1")]
-    x: i32,
-    #[prost(int32, tag = "2")]
-    y: i32,
-    #[prost(int32, tag = "3")]
-    identifier: i32,
-    #[prost(int32, tag = "4")]
-    pressure: i32,
-}
-#[derive(Clone, PartialEq, Message)]
-struct TouchEvent {
-    #[prost(message, repeated, tag = "1")]
-    touches: Vec<Touch>,
-}
-#[derive(Clone, PartialEq, Message)]
-struct Keyboard {
-    #[prost(int32, tag = "2")]
-    event: i32,
-    #[prost(string, tag = "4")]
-    key: String,
-}
-#[derive(Clone, PartialEq, Message)]
-struct Empty {}
 enum Input {
     Touch(TouchEvent),
     Key(Keyboard),
@@ -151,59 +89,6 @@ enum Input {
     Sample(tokio::sync::oneshot::Sender<Option<Vec<u8>>>, [u32; 2]),
 }
 
-fn credentials(console: u16, rpc: u16, avd: &Path) -> Option<MetadataValue<Ascii>> {
-    let roots = if cfg!(windows) {
-        vec![PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("Temp")]
-    } else {
-        let mut roots = vec![avd.parent()?.parent()?.join("home")];
-        roots.extend(std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from));
-        #[cfg(target_os = "linux")]
-        {
-            use std::os::unix::fs::MetadataExt;
-            if let Ok(info) = fs::metadata("/proc/self") {
-                roots.push(PathBuf::from(format!("/run/user/{}", info.uid())));
-            }
-        }
-        roots
-    };
-    for entry in roots
-        .iter()
-        .filter_map(|r| fs::read_dir(r.join("avd/running")).ok())
-        .flatten()
-        .flatten()
-    {
-        if entry.path().extension().and_then(|e| e.to_str()) != Some("ini") {
-            continue;
-        }
-        let Ok(data) = fs::read_to_string(entry.path()) else {
-            continue;
-        };
-        let value = |k: &str| {
-            data.lines()
-                .filter_map(|l| l.split_once('='))
-                .find(|(name, _)| name.trim() == k)
-                .map(|(_, v)| v.trim())
-        };
-        if value("port.serial").and_then(|v| v.parse().ok()) == Some(console)
-            && value("grpc.port").and_then(|v| v.parse().ok()) == Some(rpc)
-            && value("avd.dir").map(Path::new) == Some(avd)
-        {
-            let mut token: MetadataValue<Ascii> =
-                format!("Bearer {}", value("grpc.token")?).parse().ok()?;
-            token.set_sensitive(true);
-            return Some(token);
-        }
-    }
-    None
-}
-
-fn authorized<T>(body: T, token: &MetadataValue<Ascii>) -> Request<T> {
-    let mut request = Request::new(body);
-    request
-        .metadata_mut()
-        .insert("authorization", token.clone());
-    request
-}
 async fn deliver(
     input: Input,
     client: &mut Grpc<Channel>,
@@ -487,42 +372,6 @@ impl Shared {
             self.video_transport_epoch += 1;
         }
     }
-}
-
-async fn open_controller(
-    console: u16,
-    rpc: u16,
-    avd: &Path,
-    input: &mpsc::UnboundedReceiver<Input>,
-) -> DisplayResult<Option<(Channel, MetadataValue<Ascii>)>> {
-    let deadline = Instant::now() + Duration::from_secs(90);
-    let token = loop {
-        if input.is_closed() {
-            return Ok(None);
-        }
-        if let Some(token) = credentials(console, rpc, avd) {
-            break token;
-        }
-        if Instant::now() >= deadline {
-            return Err("O motor não anunciou o canal de vídeo autenticado.".into());
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    };
-    let endpoint = Endpoint::from_shared(format!("http://127.0.0.1:{rpc}"))?
-        .initial_stream_window_size(16 * 1024 * 1024)
-        .initial_connection_window_size(32 * 1024 * 1024)
-        .connect_timeout(Duration::from_secs(5));
-    let channel = loop {
-        if input.is_closed() {
-            return Ok(None);
-        }
-        match endpoint.connect().await {
-            Ok(channel) => break channel,
-            Err(error) if Instant::now() >= deadline => return Err(error.into()),
-            Err(_) => tokio::time::sleep(Duration::from_millis(150)).await,
-        }
-    };
-    Ok(Some((channel, token)))
 }
 
 async fn stream(
@@ -844,10 +693,8 @@ impl Display {
         }));
     }
     fn mapped(&self, contacts: Vec<mapping::Contact>) {
-        let unit = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
         let mut touches: Vec<Touch> = vec![];
         for contact in contacts {
-            let pos = Pos2::new(contact.pos[0], contact.pos[1]);
             // A repeated ID indicates another phase of the same contact. Distinct
             // fingers from the same phase travel in one event.
             if touches.iter().any(|t| t.identifier == contact.id) {
@@ -855,7 +702,7 @@ impl Display {
                     touches: std::mem::take(&mut touches),
                 }));
             }
-            let (x, y) = self.coordinates(pos, unit);
+            let (x, y) = normalized_to_engine(contact.pos, self.size, self.rotation);
             touches.push(Touch {
                 x,
                 y,
@@ -1409,17 +1256,11 @@ impl Display {
         std::mem::take(&mut self.library_wheel)
     }
     fn coordinates(&self, p: Pos2, rect: Rect) -> (i32, i32) {
-        let max_x = self.size[0] as i32 - 1;
-        let max_y = self.size[1] as i32 - 1;
-        let x = (((p.x - rect.left()) / rect.width()) * self.size[0] as f32) as i32;
-        let y = (((p.y - rect.top()) / rect.height()) * self.size[1] as f32) as i32;
-        let (x, y) = (x.clamp(0, max_x), y.clamp(0, max_y));
-        match self.rotation {
-            1 => (max_y - y, x),
-            2 => (max_x - x, max_y - y),
-            3 => (y, max_x - x),
-            _ => (x, y),
-        }
+        let point = [
+            (p.x - rect.left()) / rect.width(),
+            (p.y - rect.top()) / rect.height(),
+        ];
+        normalized_to_engine(point, self.size, self.rotation)
     }
 }
 
@@ -1503,6 +1344,7 @@ fn key_name(k: Key) -> Option<String> {
 mod tests {
     use super::*;
     use egui::{Event, Modifiers, PointerButton, RawInput, pos2, vec2};
+    use std::path::Path;
 
     #[test]
     #[ignore = "requires a running selected test AVD with RustEmuDroid Home in the foreground"]

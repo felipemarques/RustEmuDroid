@@ -48,7 +48,10 @@
 //! subscription exactly as in-band (normally the VM stopping) and nothing is
 //! reported.
 use super::{
-    super::{Fallback, Format, Frame, Shared, StreamEnded, Transport, VideoTransport, authorized},
+    super::{
+        Fallback, Shared, StreamEnded, VideoTransport,
+        engine_rpc::{Format, Frame, Transport, authorized},
+    },
     DisplayResult, FIRST_REDUCED_FRAME, NativeDisplay, Request, Source,
 };
 use crate::display::shared_frames::{CopyError, MMAP, SharedFrames, UNWRITTEN_FRAMES};

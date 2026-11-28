@@ -1,4 +1,4 @@
-use super::*;
+use super::{engine_rpc::Rotation, *};
 use egui::{Color32, ViewportCommand};
 use std::{cell::Cell, rc::Rc};
 use winit::platform::windows::EventLoopBuilderExtWindows;
