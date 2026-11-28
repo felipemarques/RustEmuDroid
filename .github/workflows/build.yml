@@ -325,6 +325,26 @@ jobs:
             ${{ runner.temp }}/profile/boot-*.log
           if-no-files-found: ignore
 
+  dependency-policy:
+    name: Check dependency licenses and advisories
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_DENY_VERSION: 0.18.3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Install the pinned dependency checker
+        run: cargo +stable install cargo-deny --version "$CARGO_DENY_VERSION" --locked
+
+      - name: Check licenses and security advisories against deny.toml
+        run: cargo +stable deny check licenses advisories
+
   release-plan:
     name: Resolve release target
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref_type == 'tag')

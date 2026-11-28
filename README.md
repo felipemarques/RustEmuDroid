@@ -413,3 +413,7 @@ For a repeatable graphics test on Windows, try **FPS WW2 URP → Start Game → 
 Run `cargo test --locked --features ui` for the offline tests. On Linux they also build and run the AMD protection library's own test, which needs a C compiler. [GitHub Actions](.github/workflows/build.yml) tests and builds release binaries for Windows and Ubuntu x86-64 on pushes, pull requests and manual runs. Guest tests require a local AVD. To repeat the native Windows close test, set `RUSTEMUDROID_TEST_STATE` to the absolute directory of an idle launcher profile, then run `cargo test --locked --features ui real_window_paints_until_android_exits -- --ignored --nocapture`.
 
 To rebuild Android Home, install a JDK, a platform `android.jar` and Android Build-Tools. Run `python android/home/build.py <android.jar> <build-tools-dir>`. The script uses `~/.android/debug.keystore` by default and supports `--keystore` and `--alias`. To upgrade existing installations, retain the signing identity and update the version code in the manifest and [installation check](src/controls.rs).
+
+## License
+
+RustEmuDroid is free software under the GNU Affero General Public License, version 3 only (`AGPL-3.0-only`). The full text is in [LICENSE](LICENSE). If you modify RustEmuDroid and let other people use your version over a network, you must offer them its source code. The Rust dependencies keep their own licenses; [deny.toml](deny.toml) lists the licenses they may use, and the build workflow checks them.
