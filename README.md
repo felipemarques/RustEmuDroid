@@ -332,7 +332,27 @@ On Windows, `RUSTEMUDROID_PANEL` overrides **Settings → Graphics → Android p
 
 ### Latest benchmark
 
-**SuperTuxKart 1.5 in uncapped Vulkan on the RTX 5070 Ti · November 27, 2026 · a pre-release build of the v0.25.0 client, not the published executable.** One session compared the panel's new shared memory path with the path of v0.24 and with BlueStacks. It does not establish a lead over BlueStacks; the reason follows the table.
+**SuperTuxKart 1.5 in uncapped Vulkan on the RTX 5070 Ti · November 28, 2026 · the v0.26.0 release candidate, built from the release branch before publication.** In one session that alternated the players, RustEmuDroid measured more than BlueStacks, Kemu and LDPlayer 14 in this replay on this PC, both at a 1600 × 900 panel and with the window maximised.
+
+| Player | Window not maximised | Window maximised |
+|---|---:|---:|
+| **RustEmuDroid v0.26.0 candidate**, the engine's surface in the panel | **443.7 FPS** (3 boots, 6 laps) | **432.1 FPS** (3 boots, 6 laps) |
+| BlueStacks 5 Pie64 · Android 9 | 364.9 FPS (1 boot) | 330.0 FPS (1 boot) |
+| Kemu 0.7.1 · Android 16 | 331.1 FPS (1 boot) | not maximised: 329.6 FPS in a second boot at its usual window |
+| LDPlayer 14 · Android 14 | 302.1 FPS (2 boots) | not run |
+| RustEmuDroid, frames copied (the path of v0.25.0) | 305.1 FPS (2 boots) | not run |
+
+All players ran the game's built-in Black Forest replay at High with Vulkan and game VSync off (Mailbox, uncapped), at 1600 × 900 in Android (90 Hz; LDPlayer sets 240 Hz), on the Windows test PC (Ryzen 9 8945HS; GeForce RTX 5070 Ti, connected as an external GPU over Thunderbolt 3), with the Windows Best performance power mode. FPS comes from the game's own frame report. The players took turns in one session between 07:15 and 08:37, with two timed laps per boot after a warm-up lap and no other test work running. The owner's LDPlayer 14 instance stayed open in the background for every step, and other programs used 0.95–1.38 host core during the sampled laps. RustEmuDroid ran the official Android 17 Google Play image on the separately built performance engine, with its panel showing the engine's own render surface in a child window, the Windows default of v0.26.0. BlueStacks, Kemu and LDPlayer ran in their own players.
+
+At 1600 × 900 RustEmuDroid measured 21.6% more than BlueStacks, 34.0% more than Kemu and 46.9% more than LDPlayer 14, and maximised 30.9% more than BlueStacks. Its slowest lap (391.4) was above the fastest lap of any other player (384.4), and it measured 45.4% more than the frames-copied path of v0.25.0 in the same session. **The limits:** one game and one replay on one PC. BlueStacks and Kemu have one boot per condition here: in the third cycle the owner's everyday Android VM, which their operators close and reopen, did not finish booting in time, so those operators refused to run. Kemu's window was never maximised, so its second figure is a second boot at its usual size. An earlier session the same night, with a pre-release build of the same feature, points the same way with smaller margins and overlapping laps: 417.9 against BlueStacks' 392.0 at 1600 × 900 and 422.4 against 348.5 maximised.
+
+The Rust window was the v0.26.0 candidate executable (SHA-256 `26559c35…6f48`), built from the release branch; the published download is built separately by the release workflow and was not timed. A lab harness started it on a disposable Android 17 Google Play profile and set the engine's environment. The v0.25.0 arm is a build made before that release with its display code, not the published executable. The performance engine is built from the published source kit and is not part of the download; the default engine was not measured in this series. BlueStacks ran the debuggable variant of the game package, the others the same base package. The two BlueStacks steps completed their laps and then ended with exit status 1 while closing the player, as in the earlier series. [Full record: per-lap values, window sizes, host load, identities and what failed](benchmarks/stk-1.5/windows-rtx-child-window-panel-peers.md)
+
+### Earlier measurements
+
+The figures below were measured on earlier releases and stay here as history. Where a report names the client version, it is given. [Performance history from the first prototype](docs/performance-history.md)
+
+**November 27, 2026 · SuperTuxKart 1.5 in uncapped Vulkan on the RTX 5070 Ti · a pre-release build of the v0.25.0 client, not the published executable.** One session compared the panel's shared memory path with the path of v0.24 and with BlueStacks. It did not establish a lead over BlueStacks.
 
 | Arm | Game FPS | Laps |
 |---|---:|---:|
@@ -341,15 +361,7 @@ On Windows, `RUSTEMUDROID_PANEL` overrides **Settings → Graphics → Android p
 | RustEmuDroid, panel through shared memory, default 1040 × 585 panel | 401.0 | 4 |
 | RustEmuDroid, frames inside the messages (the v0.24 path), 800 × 450 panel | 372.4 | 4 |
 
-All arms ran the game's built-in Black Forest replay at High with Vulkan and game VSync off (Mailbox, uncapped), at 1600 × 900 and 90 Hz in Android, on the Windows test PC (Ryzen 9 8945HS, GeForce RTX 5070 Ti), with the Windows Best performance power mode only. FPS comes from the game's own frame report. The arms took turns in one session between 10:23 and 11:07, with two timed laps per boot after a warm-up lap and other programs using 0.74–1.09 host core during the timed laps. RustEmuDroid ran the official Android 17 Google Play image on the separately built performance engine, with **Fit video frames to the window** on. BlueStacks ran Android 9 in its own player.
-
-In this session the three RustEmuDroid arms measured more than BlueStacks, and shared memory measured 6.8% more than the frames inside the messages at the same panel size. **That does not establish a lead over BlueStacks.** BlueStacks measured 361.0 here against 419.3 on November 26 on the same PC and workload, about 14% lower, and the cause is not known. The desktop was in use, and each BlueStacks step began 25 seconds after the owner's everyday Android VM had been booted; the BlueStacks operator then closed that VM for its timed boot. RustEmuDroid's v0.24 path was 2–5% below its own figures of November 26. A repeat on an idle desktop, in both power modes and with Kemu, is pending.
-
-The Rust window was a build made before the release at commit `a7efd99`: the first two feature commits of v0.25.0 on the v0.24.0 source. A lab harness started it on a disposable Android 17 Google Play profile and set the engine's environment. The published v0.25.0 executable, the feature commits made after that build and a client applying the engine settings from its own preferences were not timed. The v0.24 arm is the same build with `RUSTEMUDROID_VIDEO_TRANSPORT=inline`. The performance engine is built from the published source kit and is not part of the download. The default engine and Kemu were not measured in this series. The three BlueStacks steps completed their laps and then ended with exit status 1 while closing the player, as in the earlier series. [Full record: per-lap values, host load, identities and what failed](benchmarks/stk-1.5/windows-rtx-mailbox-shared-memory-panel-bluestacks.md)
-
-### Earlier measurements
-
-The figures below were measured on earlier releases and stay here as history. Where a report names the client version, it is given. [Performance history from the first prototype](docs/performance-history.md)
+The workload, PC and power mode were as above, with the arms alternated between 10:23 and 11:07 and other programs using 0.74–1.09 host core during the timed laps, and **Fit video frames to the window** on. BlueStacks measured 361.0 there against 419.3 on November 26, about 14% lower, with the cause unknown, so that session did not establish a lead. The Rust window was a build of commit `a7efd99`, the first two feature commits of v0.25.0 on the v0.24.0 source, started by a lab harness; Kemu and the default engine were not measured. [Full record: per-lap values, host load, identities and what failed](benchmarks/stk-1.5/windows-rtx-mailbox-shared-memory-panel-bluestacks.md)
 
 **November 26, 2026 · SuperTuxKart 1.5 in uncapped Vulkan on the RTX 5070 Ti · RustEmuDroid client v0.22.0.** In the alternated series of that day BlueStacks was ahead in both Windows power modes.
 
