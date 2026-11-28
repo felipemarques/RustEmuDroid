@@ -288,6 +288,7 @@ fn run(cli: Cli) -> Result<()> {
                 headless,
                 check,
                 embedded: false,
+                engine_panel: false,
                 timeout: Duration::from_secs(timeout),
             },
             &std::sync::atomic::AtomicBool::new(false),

@@ -28,7 +28,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::toolbar::consume_player_shortcut;
@@ -87,9 +87,14 @@ fn install_window(
     #[cfg(windows)]
     window_icon::install(creation);
     theme::install(&creation.egui_ctx);
-    creation
-        .egui_ctx
-        .load_texture("RustEmuDroid", brand, egui::TextureOptions::LINEAR)
+    let texture =
+        creation
+            .egui_ctx
+            .load_texture("RustEmuDroid", brand.clone(), egui::TextureOptions::LINEAR);
+    // Windows: the brand may be drawn over the engine's picture.
+    #[cfg(windows)]
+    crate::display::remember_texture(texture.id(), &brand);
+    texture
 }
 
 #[cfg(windows)]
@@ -271,6 +276,7 @@ impl Launcher {
             None
         };
         let performance_power = cfg!(windows) && self.config.performance_power();
+        let engine_panel = cfg!(windows) && self.config.panel == settings::PanelChoice::Automatic;
         let language = self.config.locale;
         let (events, receiver) = mpsc::channel();
         self.failed = false;
@@ -328,6 +334,7 @@ impl Launcher {
                         headless: check,
                         check,
                         embedded: !check,
+                        engine_panel,
                         timeout: Duration::from_secs(180),
                     },
                     &stop,
@@ -355,6 +362,7 @@ impl Launcher {
                     rpc,
                     avd,
                     adb,
+                    engine_window,
                 } => {
                     if self.stop.load(Ordering::Acquire) {
                         continue;
@@ -364,6 +372,12 @@ impl Launcher {
                     self.controls = Some(controls);
                     let mut display = Display::open(console, rpc, avd, ctx);
                     display.enable_native_texture(gl);
+                    #[cfg(windows)]
+                    if let Some(launcher) = engine_window {
+                        display.watch_engine_window(launcher);
+                    }
+                    #[cfg(not(windows))]
+                    let _ = engine_window;
                     self.display = Some(display);
                 }
                 event => {
@@ -394,6 +408,19 @@ impl Launcher {
         {
             self.output
                 .push_back(transport.describe(self.config.locale));
+            if self.output.len() > 30 {
+                self.output.pop_front();
+            }
+        }
+        // So does what the panel shows: the engine's own window or copied frames.
+        if let Some(path) = self
+            .display
+            .as_mut()
+            .and_then(Display::take_panel_path_change)
+        {
+            let line = path.describe(self.config.locale);
+            println!("{line}");
+            self.output.push_back(line);
             if self.output.len() > 30 {
                 self.output.pop_front();
             }
@@ -473,8 +500,70 @@ impl Launcher {
     }
 }
 
+/// `RUSTEMUDROID_FRAME_STATS`: how many input events (and pointer button
+/// events among them) reached the client, at most four lines a second, for
+/// tests of its responsiveness.
+fn trace_input(ctx: &egui::Context) {
+    use std::cell::Cell;
+    thread_local! {
+        static SINCE: Cell<(Option<Instant>, usize, usize, usize)> = const { Cell::new((None, 0, 0, 0)) };
+        static FRAMES: Cell<(Option<Instant>, u32)> = const { Cell::new((None, 0)) };
+    }
+    if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_none() {
+        return;
+    }
+    // How often the client repaints, and what asked for the last repaint.
+    FRAMES.with(|frames| {
+        let (since, count) = frames.get();
+        let now = Instant::now();
+        match since {
+            Some(since) if now.duration_since(since) >= Duration::from_secs(2) => {
+                let causes: Vec<String> = ctx
+                    .repaint_causes()
+                    .iter()
+                    .map(|cause| format!("{}:{}", cause.file, cause.line))
+                    .collect();
+                println!(
+                    "client_frames at_ms={} per_s={:.1} last_causes={causes:?}",
+                    crate::display::trace_clock_ms(),
+                    f64::from(count + 1) / now.duration_since(since).as_secs_f64()
+                );
+                frames.set((Some(now), 0));
+            }
+            Some(since) => frames.set((Some(since), count + 1)),
+            None => frames.set((Some(now), 0)),
+        }
+    });
+    let (events, buttons, keys) = ctx.input(|input| {
+        let count =
+            |wanted: fn(&egui::Event) -> bool| input.events.iter().filter(|e| wanted(e)).count();
+        (
+            input.events.len(),
+            count(|event| matches!(event, egui::Event::PointerButton { .. })),
+            count(|event| matches!(event, egui::Event::Key { .. })),
+        )
+    });
+    SINCE.with(|since| {
+        let (last, count, pressed, typed) = since.get();
+        let (count, pressed, typed) = (count + events, pressed + buttons, typed + keys);
+        let now = Instant::now();
+        if count > 0
+            && last.is_none_or(|last| now.duration_since(last) >= Duration::from_millis(250))
+        {
+            println!(
+                "client_input at_ms={} events={count} buttons={pressed} keys={typed}",
+                crate::display::trace_clock_ms()
+            );
+            since.set((Some(now), 0, 0, 0));
+        } else {
+            since.set((last, count, pressed, typed));
+        }
+    });
+}
+
 impl eframe::App for Launcher {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        trace_input(ctx);
         let close_requested = ctx.input(|input| input.viewport().close_requested());
         if close_requested && !self.closing {
             self.closing = true;
@@ -564,6 +653,11 @@ impl eframe::App for Launcher {
             self.show_help(ctx);
         }
         self.show_runtime_setup(ctx);
+        // Last: whatever this frame drew over the panel stays visible over
+        // an engine surface held by the client's window.
+        if let Some(display) = &mut self.display {
+            display.end_frame(ctx);
+        }
     }
 }
 
@@ -597,14 +691,18 @@ impl Launcher {
         {
             display.set_package(controls.foreground_package(ctx));
         }
-        let android_fps = self.config.show_fps && self.config.android_fps;
+        // A panel that shows the engine's own picture processes no frames to count.
+        let through = self.display.as_ref().is_some_and(Display::frames_bypassed);
+        let android_fps = self.config.show_fps && (self.config.android_fps || through);
         let native_fps = android_fps && self.playing && self.home_ready && !self.stopping();
         if let Some(controls) = &mut self.controls {
             controls.update_surface_fps(native_fps, ctx);
         }
         #[cfg(windows)]
-        self.blue_mirror
-            .update_surface_fps(android_fps && self.blue_mirror.active(), ctx);
+        self.blue_mirror.update_surface_fps(
+            self.config.show_fps && self.config.android_fps && self.blue_mirror.active(),
+            ctx,
+        );
         let toggling_fullscreen = (self.has_player_view() || fullscreen)
             && ctx.input(|i| {
                 i.events.iter().any(|e| {
@@ -738,10 +836,20 @@ impl Launcher {
                 && !egui::Popup::is_id_open(ctx, replay_popup_id())
                 && !self.stopping()
                 && !resizing;
-            let adapt_video = self.config.adaptive_video
-                && self.pending_captures.is_empty()
-                && self.capture.mode().is_none()
-                && !self.capture.replay_armed();
+            let capturing = !self.pending_captures.is_empty()
+                || self.capture.mode().is_some()
+                || self.capture.replay_armed();
+            let adapt_video = self.config.adaptive_video && !capturing;
+            let turned = self.controls.as_mut().is_some_and(Controls::take_rotation);
+            #[cfg(windows)]
+            if let Some(display) = &mut self.display {
+                use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                if let Ok(handle) = _frame.window_handle()
+                    && let RawWindowHandle::Win32(handle) = handle.as_raw()
+                {
+                    display.set_host_window(handle.hwnd.get());
+                }
+            }
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
                 .show(ctx, |ui| {
@@ -750,6 +858,10 @@ impl Launcher {
                     {
                         let rotation = display.rotation();
                         display.set_adaptive_video(adapt_video);
+                        display.set_frames_wanted(capturing);
+                        if turned {
+                            display.refresh_geometry();
+                        }
                         display.show(ui, interactive, locale);
                         if let Some(controls) = &mut self.controls {
                             controls.library_wheel(

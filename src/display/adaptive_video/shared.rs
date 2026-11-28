@@ -700,6 +700,15 @@ mod tests {
                 .send_modify(|request| request.generation += 1);
         }
 
+        /// The panel stops needing pixels, or needs them again.
+        fn pauses(&self, paused: bool) {
+            self.preference.sender.send_modify(|request| {
+                request.generation += 1;
+                request.reduction = None;
+                request.paused = paused;
+            });
+        }
+
         fn asks_for_a_reduction(&self, size: [u32; 2]) {
             self.preference.sender.send_modify(|request| {
                 request.generation += 1;
@@ -797,6 +806,44 @@ mod tests {
         );
         assert!(ended.is_none());
         // Every region was removed when the session ended.
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_paused_panel_holds_no_subscription_and_gets_the_screen_at_once_when_it_asks_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = Session::new(FakeEngine::new(NATIVE, Files::Posix, [dir.path().into()]));
+        let ended = session.play(
+            file_regions(dir.path().into()),
+            Some(NATIVE),
+            async |session| {
+                session.shows(1).await;
+                session.reports(VideoTransport::SharedMemory).await;
+                session.shows(2).await;
+                let streams = session.engine.subscriptions().len();
+                session.pauses(true);
+                // The stream ends in the emulator: what the guest draws now
+                // is announced to nobody.
+                time::sleep(Duration::from_millis(300)).await;
+                let announced = session.engine.announced();
+                for value in 3..8 {
+                    session.engine.post(value);
+                    time::sleep(Duration::from_millis(20)).await;
+                }
+                assert_eq!(session.engine.announced(), announced);
+                assert_eq!(session.engine.subscriptions().len(), streams);
+                // A feature needs pixels: the picture of this moment comes
+                // without a new frame of the guest, through a region again.
+                session.state.lock().unwrap().latest = None;
+                session.pauses(false);
+                session.has(7).await;
+                assert_eq!(session.engine.subscriptions().len(), streams + 1);
+                assert_eq!(session.engine.subscriptions().last(), Some(&true));
+                session.shows(8).await;
+                assert_eq!(session.transport(), Some(VideoTransport::SharedMemory));
+            },
+        );
+        assert!(ended.is_none());
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 

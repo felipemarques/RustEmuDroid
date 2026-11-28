@@ -464,6 +464,8 @@ pub struct Controls {
     next_foreground: std::time::Instant,
     library_delta: i32,
     library_scroll_worker: Option<thread::JoinHandle<Result<(), String>>>,
+    // Android was asked to turn since the last `take_rotation`.
+    rotated: bool,
 }
 
 impl Controls {
@@ -497,8 +499,15 @@ impl Controls {
             next_foreground: std::time::Instant::now(),
             library_delta: 0,
             library_scroll_worker: None,
+            rotated: false,
         }
     }
+
+    /// Whether a rotation was asked for since the last call.
+    pub(crate) fn take_rotation(&mut self) -> bool {
+        std::mem::take(&mut self.rotated)
+    }
+
     pub fn set_locale(&mut self, locale: Locale) {
         if self.guest.locale != locale {
             Arc::make_mut(&mut self.guest).locale = locale;
@@ -628,6 +637,7 @@ impl Controls {
     }
 
     pub fn send(&mut self, action: Action, ctx: &egui::Context) {
+        self.rotated |= matches!(action, Action::Rotate);
         if self.busy() {
             self.queue.push_back(action);
             return;

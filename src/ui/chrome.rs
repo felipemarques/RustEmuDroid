@@ -78,7 +78,12 @@ impl Launcher {
                         });
                     }
                     if self.config.show_fps && self.has_player_view() {
-                        if self.config.android_fps {
+                        // A panel that shows the engine's own window processes no frames.
+                        let through = self
+                            .display
+                            .as_ref()
+                            .is_some_and(crate::display::Display::frames_bypassed);
+                        if self.config.android_fps || through {
                             let fps = self.controls.as_ref().and_then(|c| c.surface_fps.value());
                             #[cfg(windows)]
                             let fps = if self.blue_mirror.active() { self.blue_mirror.surface_fps() } else { fps };

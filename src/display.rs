@@ -2,6 +2,8 @@
 mod adaptive_video;
 #[cfg(all(test, windows))]
 mod dwm_input_lab;
+#[cfg(windows)]
+mod engine_window;
 #[cfg(test)]
 mod live_input_test;
 pub(crate) mod mapping;
@@ -35,8 +37,45 @@ use tonic::{
 };
 
 pub(crate) const TILT_RESTORE_TIMEOUT: Duration = tilt::RESTORE_TIMEOUT;
+/// After a rotation is asked for, frames are requested this long so the panel
+/// learns the new geometry while it shows the engine's own picture.
+const GEOMETRY_REFRESH: Duration = Duration::from_secs(3);
+
+#[cfg(windows)]
+pub(crate) use engine_window::PanelPath;
+/// Windows: lets the overlay over the engine's picture draw this texture.
+#[cfg(windows)]
+pub(crate) use engine_window::remember_texture;
+
+/// What the panel shows, for the boot details. Only Windows has another path
+/// than the copied frames.
+#[cfg(not(windows))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PanelPath {}
+
+#[cfg(not(windows))]
+impl PanelPath {
+    pub(crate) fn describe(&self, _: Locale) -> String {
+        match *self {}
+    }
+}
 
 type DisplayResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// Milliseconds since the Unix epoch, for diagnostic lines that tests line
+/// up with their own clock.
+pub(crate) fn trace_clock_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis())
+}
+
+/// The panel's place in physical client pixels (Windows: the engine's own
+/// picture is put there).
+#[cfg(windows)]
+type PanelSlot = crate::bluestacks::preview::PreviewRect;
+#[cfg(not(windows))]
+type PanelSlot = ();
 
 #[derive(Clone, PartialEq, Message)]
 struct Format {
@@ -106,6 +145,10 @@ struct Empty {}
 enum Input {
     Touch(TouchEvent),
     Key(Keyboard),
+    /// The current frame at a tiny size (RGB), for the liveness check of a
+    /// panel that shows the engine's own picture; `None` when it failed.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Sample(tokio::sync::oneshot::Sender<Option<Vec<u8>>>, [u32; 2]),
 }
 
 fn credentials(console: u16, rpc: u16, avd: &Path) -> Option<MetadataValue<Ascii>> {
@@ -168,6 +211,32 @@ async fn deliver(
 ) -> DisplayResult<()> {
     client.ready().await?;
     let _: tonic::Response<Empty> = match input {
+        Input::Sample(reply, [width, height]) => {
+            // A failed sample is no reason to end the session.
+            let frame: Result<tonic::Response<Frame>, _> = client
+                .unary(
+                    authorized(
+                        Format {
+                            format: 1,
+                            width,
+                            height,
+                            ..Default::default()
+                        },
+                        token,
+                    ),
+                    PathAndQuery::from_static(
+                        "/android.emulation.control.EmulatorController/getScreenshot",
+                    ),
+                    ProstCodec::default(),
+                )
+                .await;
+            let pixels = frame
+                .ok()
+                .map(|frame| frame.into_inner().pixels.to_vec())
+                .filter(|pixels| !pixels.is_empty());
+            let _ = reply.send(pixels);
+            return Ok(());
+        }
         Input::Touch(event) => {
             client
                 .unary(
@@ -470,13 +539,32 @@ async fn stream(
         return Ok(());
     };
     let mut control = Grpc::new(channel.clone());
+    let mut sampler = Grpc::new(channel.clone());
     let sensor = channel.clone();
     let video = Grpc::new(channel).max_decoding_message_size(64 * 1024 * 1024);
+    // Liveness samples take their own way to the engine, so a screenshot
+    // never holds back a touch or a key.
+    let (samples, mut sample_requests) = mpsc::unbounded_channel();
     let inputs = async {
         while let Some(event) = input.recv().await {
+            if let Input::Sample(..) = event {
+                let _ = samples.send(event);
+                continue;
+            }
             deliver(event, &mut control, &token).await?
         }
-        Ok(())
+        drop(samples);
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    };
+    let sampling = async {
+        while let Some(event) = sample_requests.recv().await {
+            // A failed sample is no reason to end the session.
+            let _ = deliver(event, &mut sampler, &token).await;
+        }
+    };
+    let inputs = async {
+        let (result, ()) = tokio::join!(inputs, sampling);
+        result
     };
     let fixed_raster = adaptive_video::fixed_raster(&avd);
     let video = adaptive_video::run(
@@ -511,6 +599,24 @@ pub struct Display {
     native_display: Option<adaptive_video::NativeDisplay>,
     stream_failed: bool,
     video_transport_seen: u64,
+    // Windows: the engine's render surface held over the panel.
+    #[cfg(windows)]
+    engine_window: Option<engine_window::EngineWindow>,
+    // The font atlas as the overlay last copied it.
+    #[cfg(windows)]
+    overlay_font: engine_window::FontCopy,
+    // The engine's own picture is at this part of the panel (points, and
+    // physical client pixels) in the frame being drawn, and it was in the
+    // last one.
+    covered: Option<(Rect, PanelSlot)>,
+    covering: bool,
+    // The texture is older than the last pause of the frame stream.
+    stale: bool,
+    // A capture feature needs pixels although the panel does not.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    frames_wanted: bool,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    geometry_until: Option<Instant>,
     // The input coordinate space, independent of the Shot's transport raster.
     size: [usize; 2],
     rotation: i32,
@@ -575,6 +681,15 @@ impl Display {
             native_display: None,
             stream_failed: false,
             video_transport_seen: 0,
+            #[cfg(windows)]
+            engine_window: None,
+            #[cfg(windows)]
+            overlay_font: Default::default(),
+            covered: None,
+            covering: false,
+            stale: false,
+            frames_wanted: false,
+            geometry_until: None,
             size: [1, 1],
             rotation: 0,
             contact: None,
@@ -638,6 +753,43 @@ impl Display {
 
     pub(crate) fn stream_available(&self) -> bool {
         !self.stream_failed
+    }
+
+    /// Windows: show the picture of the engine started by the launcher
+    /// process `launcher` instead of copying its frames, for as long as that
+    /// works: its render surface becomes a child of the client's window.
+    #[cfg(windows)]
+    pub(crate) fn watch_engine_window(&mut self, launcher: u32) {
+        self.engine_window = Some(engine_window::EngineWindow::watch(launcher));
+    }
+
+    /// The client's own native window.
+    #[cfg(windows)]
+    pub(crate) fn set_host_window(&mut self, host: isize) {
+        if let Some(engine) = &mut self.engine_window {
+            engine.set_host(host);
+        }
+    }
+
+    /// What the panel shows, once per change (for the boot details).
+    pub(crate) fn take_panel_path_change(&mut self) -> Option<PanelPath> {
+        #[cfg(windows)]
+        return self
+            .engine_window
+            .as_mut()
+            .and_then(engine_window::EngineWindow::take_path_change);
+        #[cfg(not(windows))]
+        None
+    }
+
+    /// Screenshot, recording and replay need pixels; the panel itself may not.
+    pub(crate) fn set_frames_wanted(&mut self, wanted: bool) {
+        self.frames_wanted = wanted;
+    }
+
+    /// Android was asked to turn: the frames tell the new geometry.
+    pub(crate) fn refresh_geometry(&mut self) {
+        self.geometry_until = Some(Instant::now() + GEOMETRY_REFRESH);
     }
 
     pub(crate) fn native_shot(&self) -> Option<&Shot> {
@@ -786,6 +938,7 @@ impl Display {
             self.native_display = adaptive_video::NativeDisplay::conventional(&format);
         }
         self.shot_source = source;
+        self.stale = false;
         // Capture the same pixels and orientation sent to the desktop texture.
         self.shot = Some(Shot {
             width: format.width,
@@ -896,6 +1049,12 @@ impl Display {
             self.upload(ui.ctx(), frame, source)
         }
         self.stream_failed = error.is_some();
+        if error.is_some() || self.texture.is_none() {
+            #[cfg(windows)]
+            if let Some(engine) = &mut self.engine_window {
+                engine.hide();
+            }
+        }
         if let Some(error) = error {
             ui.colored_label(
                 egui::Color32::LIGHT_RED,
@@ -930,7 +1089,12 @@ impl Display {
         });
         let scale = (viewport.width() / size.x).min(viewport.height() / size.y);
         let rect = Rect::from_center_size(viewport.center(), size * scale);
-        if let Some(preference) = &mut self.video_preference {
+        let texture = texture.id();
+        // Windows: where the engine's own picture shows over the panel.
+        let placed = self.place_engine_window(ui.ctx(), rect);
+        if placed.is_none()
+            && let Some(preference) = &mut self.video_preference
+        {
             preference.update(
                 ui.ctx(),
                 rect,
@@ -939,18 +1103,163 @@ impl Display {
                 self.shot_source,
             );
         }
-        if ui.is_rect_visible(rect)
-            && let (Some(native), Some(shot)) = (&self.native_texture, &self.shot)
-        {
-            native.queue(ui.painter(), rect, texture.id(), shot);
+        // Under the engine's surface nothing of the picture is drawn; a
+        // texture from before a pause of the frame stream is not the screen
+        // any more.
+        if placed.is_none() && !self.stale {
+            if ui.is_rect_visible(rect)
+                && let (Some(native), Some(shot)) = (&self.native_texture, &self.shot)
+            {
+                native.queue(ui.painter(), rect, texture, shot);
+            }
+            ui.painter().image(
+                texture,
+                rect,
+                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
         }
-        ui.painter().image(
-            texture.id(),
-            rect,
-            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-            egui::Color32::WHITE,
-        );
+        self.covered = placed;
         self.game_input(ui, rect, outer, interactive, locale);
+    }
+
+    /// Windows: after everything of this frame is drawn, shows what the
+    /// client drew over the panel on top of the engine's picture. A frame
+    /// that did not show the panel hides that picture.
+    pub(crate) fn end_frame(&mut self, ctx: &egui::Context) {
+        let covered = std::mem::take(&mut self.covered);
+        #[cfg(windows)]
+        if let Some(engine) = &mut self.engine_window {
+            use crate::bluestacks::preview::PreviewRect;
+            let Some((hole, slot)) = covered else {
+                if self.covering {
+                    engine.hide();
+                }
+                self.covering = false;
+                return;
+            };
+            self.covering = true;
+            let scale = ctx.pixels_per_point();
+            let shapes = drawn_over(ctx, hole);
+            // Whole pixels that cover each shape.
+            let rects: Vec<PreviewRect> = shapes
+                .iter()
+                .map(|shape| {
+                    let rect = shape
+                        .shape
+                        .visual_bounding_rect()
+                        .intersect(shape.clip_rect);
+                    PreviewRect {
+                        left: (rect.min.x * scale).floor() as i32,
+                        top: (rect.min.y * scale).floor() as i32,
+                        right: (rect.max.x * scale).ceil() as i32,
+                        bottom: (rect.max.y * scale).ceil() as i32,
+                    }
+                })
+                .collect();
+            let primitives = if shapes.is_empty() {
+                Vec::new()
+            } else {
+                ctx.tessellate(shapes, scale)
+            };
+            let fonts = &mut self.overlay_font;
+            let waiting = engine.draw_over(slot, &rects, &primitives, scale, || {
+                let (size, fill) =
+                    ctx.fonts(|fonts| (fonts.font_image_size(), fonts.font_atlas_fill_ratio()));
+                fonts.get(&primitives, size, fill, || ctx.fonts(|fonts| fonts.image()))
+            });
+            if waiting {
+                ctx.request_repaint_after(Duration::from_millis(35));
+            }
+        }
+        #[cfg(not(windows))]
+        let _ = (covered, ctx);
+    }
+
+    /// No frame passes through the panel (the engine's own picture shows).
+    pub(crate) fn frames_bypassed(&self) -> bool {
+        self.covering
+    }
+
+    /// Windows: puts the engine's render surface over `rect` and returns
+    /// where it shows (points, and physical client pixels). The frame stream
+    /// runs only while the panel or a capture feature needs pixels.
+    #[cfg(windows)]
+    fn place_engine_window(
+        &mut self,
+        ctx: &egui::Context,
+        rect: Rect,
+    ) -> Option<(Rect, PanelSlot)> {
+        use crate::bluestacks::preview::PreviewRect;
+        use engine_window::Shown;
+        let engine = self.engine_window.as_mut()?;
+        let scale = ctx.pixels_per_point();
+        let slot = PreviewRect::from_points(rect.min.into(), rect.max.into(), scale);
+        let now = Instant::now();
+        let mut shown = engine.show(slot, now);
+        if matches!(shown, Shown::Child(_)) {
+            // The picture on the screen must follow the engine's frames.
+            let input = &self.input;
+            let stale = engine.check_live(now, || {
+                let (reply, sample) = tokio::sync::oneshot::channel();
+                let size = [engine_window::SAMPLE.0, engine_window::SAMPLE.1];
+                input.send(Input::Sample(reply, size)).ok()?;
+                Some(sample)
+            });
+            if stale {
+                shown = Shown::Frames;
+            } else if engine.sampling() {
+                ctx.request_repaint_after(Duration::from_millis(50));
+            }
+        }
+        if engine.active() {
+            // No frame wakes the panel up: it follows the engine's window and
+            // notices a lost one by itself.
+            ctx.request_repaint_after(engine_window::CHECK_INTERVAL);
+        }
+        if engine.take_geometry_request() {
+            self.geometry_until = Some(now + GEOMETRY_REFRESH);
+        }
+        if self.geometry_until.is_some_and(|until| now >= until) {
+            self.geometry_until = None;
+        }
+        let needed = self.frames_wanted || self.geometry_until.is_some();
+        let paused = shown != Shown::Frames && !needed;
+        if let Some(preference) = &mut self.video_preference {
+            if paused && !preference.paused() {
+                self.stale = true;
+                if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some() {
+                    println!("frame_stream=paused");
+                }
+            } else if !paused && preference.paused() {
+                if std::env::var_os("RUSTEMUDROID_FRAME_STATS").is_some() {
+                    println!("frame_stream=resumed");
+                }
+            }
+            preference.set_paused(paused);
+            if !paused && !preference.is_current(self.shot_source) {
+                // The first frame of the new subscription is on its way.
+                ctx.request_repaint_after(Duration::from_millis(16));
+            }
+        }
+        if let Some(until) = self.geometry_until {
+            ctx.request_repaint_after(until.saturating_duration_since(now));
+        }
+        match shown {
+            Shown::Child(slot) => Some((
+                Rect::from_min_max(
+                    Pos2::new(slot.left as f32 / scale, slot.top as f32 / scale),
+                    Pos2::new(slot.right as f32 / scale, slot.bottom as f32 / scale),
+                ),
+                slot,
+            )),
+            Shown::Frames | Shown::Unseen => None,
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn place_engine_window(&mut self, _: &egui::Context, _: Rect) -> Option<(Rect, PanelSlot)> {
+        None
     }
 
     fn game_input(
@@ -1112,6 +1421,64 @@ impl Display {
             _ => (x, y),
         }
     }
+}
+
+/// What this frame drew over `hole` (points), in paint order and clipped to
+/// it, except the panel's own background: every shape of a layer above the
+/// background, and the shapes of the background layers other than an opaque
+/// fill of the whole hole (the panel's).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn drawn_over(ctx: &egui::Context, hole: Rect) -> Vec<egui::epaint::ClippedShape> {
+    let mut ids = vec![egui::LayerId::background()];
+    ctx.memory(|memory| {
+        ids.extend(
+            memory
+                .layer_ids()
+                .filter(|id| *id != egui::LayerId::background()),
+        )
+    });
+    // The order egui paints in: by order, then back to front within one.
+    ids.sort_by_key(|id| id.order);
+    let transforms: Vec<_> = ids
+        .iter()
+        .map(|id| ctx.layer_transform_to_global(*id))
+        .collect();
+    ctx.graphics(|layers| {
+        let mut found = Vec::new();
+        for (id, transform) in ids.iter().zip(transforms) {
+            let Some(layer) = layers.get(*id) else {
+                continue;
+            };
+            let background = id.order == egui::Order::Background;
+            for clipped in layer.all_entries() {
+                let mut clipped = clipped.clone();
+                if let Some(transform) = transform {
+                    clipped.transform(transform);
+                }
+                if matches!(clipped.shape, egui::Shape::Noop | egui::Shape::Callback(_)) {
+                    continue;
+                }
+                let rect = clipped
+                    .shape
+                    .visual_bounding_rect()
+                    .intersect(clipped.clip_rect);
+                if !rect.is_positive() || !rect.intersects(hole) {
+                    continue;
+                }
+                if background
+                    && rect.contains_rect(hole)
+                    && let egui::Shape::Rect(fill) = &clipped.shape
+                    && fill.fill.a() == 255
+                    && fill.stroke.is_empty()
+                {
+                    continue;
+                }
+                clipped.clip_rect = clipped.clip_rect.intersect(hole);
+                found.push(clipped);
+            }
+        }
+        found
+    })
 }
 
 fn key_name(k: Key) -> Option<String> {

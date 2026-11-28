@@ -223,6 +223,7 @@ fn title_bar_layout_and_window_actions() {
             show_fps: true,
             android_fps: false,
             adaptive_video: false,
+            panel: Default::default(),
             animate_mascot: true,
             locale: Locale::default(),
         };
@@ -1038,6 +1039,7 @@ fn closing_waits_for_vm_without_blocking_frames_or_restarting() {
             rpc: 0,
             avd: dir.path().into(),
             adb: Default::default(),
+            engine_window: None,
         })
         .unwrap();
 
