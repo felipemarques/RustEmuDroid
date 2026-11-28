@@ -505,6 +505,11 @@ pub(super) async fn run(
     loop {
         let mut request = *requests.borrow_and_update();
         if request.paused {
+            // An in-band look that a pause cut short proves nothing later: a
+            // picture after the pause may only mean that the screen came back.
+            if plan == Plan::Doubt {
+                plan = Plan::UntilFirstPicture;
+            }
             // Nothing is asked of the engine until a feature needs pixels.
             if requests.changed().await.is_err() {
                 return Ok(());

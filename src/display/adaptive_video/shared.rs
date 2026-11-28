@@ -974,6 +974,41 @@ mod tests {
     }
 
     #[test]
+    fn a_pause_during_the_in_band_look_after_a_silent_region_is_not_held_against_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = Session::new(FakeEngine::new(NATIVE, Files::Posix, [dir.path().into()]));
+        session.engine.darken_on_shared();
+        let ended = session.play(
+            file_regions(dir.path().into()),
+            Some(NATIVE),
+            async |session| {
+                session.shows(1).await;
+                // The region had nothing in its time and the panel looks
+                // in-band: the engine's surface takes the panel meanwhile.
+                session
+                    .until_engine("the look in-band", |engine| {
+                        engine.subscriptions() == [false, true, false]
+                    })
+                    .await;
+                session.pauses(true);
+                time::sleep(quick().first_picture * 2).await;
+                // The screen came back during the pause. A picture in-band now
+                // says nothing about the region, which has its turn again.
+                session.engine.screen(true);
+                session.state.lock().unwrap().latest = None;
+                session.pauses(false);
+                session.reports(VideoTransport::SharedMemory).await;
+                session.shows(2).await;
+                assert_eq!(
+                    session.engine.subscriptions(),
+                    [false, true, false, false, true]
+                );
+            },
+        );
+        assert!(ended.is_none());
+    }
+
+    #[test]
     fn an_emulator_that_writes_colours_and_no_alpha_keeps_shared_memory_on_a_still_screen_too() {
         let dir = tempfile::tempdir().unwrap();
         for (files, setup) in [
