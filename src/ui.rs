@@ -497,10 +497,13 @@ impl Launcher {
         // While Android shuts down, the engine's stream ends by design.
         if !self.stopping() {
             for notice in notices {
-                self.output.push_back(match &notice.details {
+                let line = match &notice.details {
                     Some(details) => format!("{} {details}", notice.text),
                     None => notice.text.clone(),
-                });
+                };
+                // On the console too, as the panel's path is: a session's log shows it.
+                println!("{line}");
+                self.output.push_back(line);
                 if self.output.len() > 30 {
                     self.output.pop_front();
                 }

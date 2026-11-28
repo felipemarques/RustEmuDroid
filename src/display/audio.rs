@@ -1,5 +1,5 @@
 //! Android's sound through a chosen Windows output: the engine runs with
-//! `-no-audio` and this session plays its `streamAudio` gRPC stream.
+//! `-no-audio` and this session plays its `streamAudio` stream.
 
 use super::{AudioNotice, authorized, credentials};
 use crate::{
@@ -56,11 +56,11 @@ const STREAM_NOTICE: Duration = Duration::from_secs(5);
 /// Why the engine's stream does not arrive.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum StreamFault {
-    /// The engine never published its authenticated gRPC channel.
+    /// The engine never published its authenticated control channel.
     NoChannel,
     /// The engine ended the stream.
     Ended,
-    /// The connection or the call failed: the gRPC client's own words.
+    /// The connection or the call failed: the client library's own words.
     Call(String),
 }
 
@@ -76,7 +76,7 @@ impl StreamFault {
     }
 
     fn status(status: tonic::Status) -> Self {
-        Self::Call(format!("gRPC {:?}: {}", status.code(), status.message()))
+        Self::Call(format!("{:?}: {}", status.code(), status.message()))
     }
 
     fn text(&self, locale: Locale) -> String {

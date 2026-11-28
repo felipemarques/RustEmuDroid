@@ -1,4 +1,4 @@
-//! PulseAudio sinks through `pactl`, which PipeWire also provides (pipewire-pulse).
+//! The Linux sound server's outputs, listed through its command-line client.
 
 use super::{Device, Inventory};
 use crate::locale::Locale;
@@ -9,23 +9,24 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// `pactl` answers in milliseconds; a server that hangs must not hold the boot.
+/// The listing takes milliseconds; a server that hangs must not hold the boot.
 const LIMIT: Duration = Duration::from_secs(5);
 
 pub(super) fn inventory(locale: Locale) -> Result<Inventory, String> {
-    let sinks = pactl(&["list", "sinks"], locale)?;
+    let sinks = server(&["list", "sinks"], locale)?;
     let mut inventory = Inventory {
         devices: parse_sinks(&sinks),
         default: None,
     };
     // Older servers lack get-default-sink; `info` has carried the line for long.
-    inventory.default = pactl(&["info"], locale)
+    inventory.default = server(&["info"], locale)
         .ok()
         .and_then(|info| default_sink(&info));
     Ok(inventory)
 }
 
-fn pactl(args: &[&str], locale: Locale) -> Result<String, String> {
+/// Asks the sound server through its command-line client.
+fn server(args: &[&str], locale: Locale) -> Result<String, String> {
     let mut command = Command::new("pactl");
     // Field labels are translated; the parser reads the untranslated ones.
     command.args(args).env("LC_ALL", "C");
@@ -46,34 +47,41 @@ enum Failure {
 impl Failure {
     fn text(&self, locale: Locale) -> String {
         match self {
-            Self::Start(error) => format!("pactl: {error}"),
+            Self::Start(error) => format!(
+                "{}: {error}",
+                locale.pick(
+                    "o comando do servidor de som não pôde ser iniciado",
+                    "the sound server's command could not be started",
+                    "no se pudo iniciar el comando del servidor de sonido",
+                )
+            ),
             Self::Exit(Some(code)) => format!(
                 "{} {code}",
                 locale.pick(
-                    "o pactl terminou com o código",
-                    "pactl exited with code",
-                    "pactl terminó con el código",
+                    "o comando do servidor de som terminou com o código",
+                    "the sound server's command exited with code",
+                    "el comando del servidor de sonido terminó con el código",
                 )
             ),
             Self::Exit(None) => locale
                 .pick(
-                    "o pactl foi interrompido",
-                    "pactl was interrupted",
-                    "pactl fue interrumpido",
+                    "o comando do servidor de som foi interrompido",
+                    "the sound server's command was interrupted",
+                    "el comando del servidor de sonido fue interrumpido",
                 )
                 .into(),
             Self::Timeout => locale
                 .pick(
-                    "o pactl não respondeu a tempo",
-                    "pactl did not answer in time",
-                    "pactl no respondió a tiempo",
+                    "o servidor de som não respondeu a tempo",
+                    "the sound server did not answer in time",
+                    "el servidor de sonido no respondió a tiempo",
                 )
                 .into(),
             Self::Output => locale
                 .pick(
-                    "a saída do pactl não pôde ser lida",
-                    "the output of pactl could not be read",
-                    "no se pudo leer la salida de pactl",
+                    "a resposta do servidor de som não pôde ser lida",
+                    "the sound server's answer could not be read",
+                    "no se pudo leer la respuesta del servidor de sonido",
                 )
                 .into(),
         }
@@ -178,26 +186,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_sinks_and_the_default_from_pactl() {
-        let sinks = "Sink #47\n\tState: SUSPENDED\n\tName: alsa_output.pci-0000_00_1f.3.analog-stereo\n\tDescription: Built-in Audio Analog Stereo\n\tDriver: PipeWire\n\tProperties:\n\t\tdevice.description = \"Other\"\n\t\tName: nested\n\nSink #52\n\tName: bluez_output.00_11_22.1\n\tDescription: \n";
+    fn reads_the_outputs_and_the_default_of_the_sound_server() {
+        let sinks = "Sink #47\n\tState: SUSPENDED\n\tName: output.pci-0000_00_1f.3.analog-stereo\n\tDescription: Built-in Audio Analog Stereo\n\tDriver: sound-server\n\tProperties:\n\t\tdevice.description = \"Other\"\n\t\tName: nested\n\nSink #52\n\tName: wireless_output.00_11_22.1\n\tDescription: \n";
         assert_eq!(
             parse_sinks(sinks),
             [
                 Device {
-                    id: "alsa_output.pci-0000_00_1f.3.analog-stereo".into(),
+                    id: "output.pci-0000_00_1f.3.analog-stereo".into(),
                     name: "Built-in Audio Analog Stereo".into(),
                 },
                 Device {
-                    id: "bluez_output.00_11_22.1".into(),
-                    name: "bluez_output.00_11_22.1".into(),
+                    id: "wireless_output.00_11_22.1".into(),
+                    name: "wireless_output.00_11_22.1".into(),
                 },
             ]
         );
         assert!(parse_sinks("").is_empty());
-        let info = "Server Name: PulseAudio (on PipeWire 1.0.5)\nDefault Sink: bluez_output.00_11_22.1\nDefault Source: x\n";
+        let info = "Server Name: sound server 1.0.5\nDefault Sink: wireless_output.00_11_22.1\nDefault Source: x\n";
         assert_eq!(
             default_sink(info).as_deref(),
-            Some("bluez_output.00_11_22.1")
+            Some("wireless_output.00_11_22.1")
         );
         assert_eq!(default_sink("Default Sink: \n"), None);
     }

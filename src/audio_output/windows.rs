@@ -1,4 +1,4 @@
-//! Windows Core Audio (MMDevice API and WASAPI), called through their
+//! The Windows audio device and stream interfaces, called through their
 //! documented COM interfaces. Only the methods used here are declared.
 
 mod route;
@@ -42,7 +42,7 @@ const AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM: u32 = 0x8000_0000;
 const AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY: u32 = 0x0800_0000;
 const WAVE_FORMAT_PCM: u16 = 1;
 
-/// The format requested from the engine's `streamAudio` and given to WASAPI.
+/// The format requested from the engine's `streamAudio` and given to the device stream.
 pub(crate) const RATE: u32 = 48_000;
 pub(crate) const CHANNELS: u16 = 2;
 
@@ -97,7 +97,7 @@ impl Drop for Com {
 
 type Out = *mut *mut c_void;
 
-/// A failed Core Audio call: its name and HRESULT.
+/// A failed Windows audio call: its name and HRESULT.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Failure {
     what: &'static str,
@@ -1153,18 +1153,34 @@ mod tests {
         }
     }
 
-    /// Plays a 1 kHz tone through `play` on VB-Audio's "CABLE Input" and
-    /// records it back from "CABLE Output". Inaudible: the cable is virtual.
-    /// Run with --ignored --nocapture on a PC with VB-Audio Virtual Cable.
+    /// The two ends of a virtual audio cable on the test PC: part of the name
+    /// of its output (render) endpoint and of its recording (capture) endpoint,
+    /// from RUSTEMUDROID_TEST_CABLE_OUTPUT and RUSTEMUDROID_TEST_CABLE_RECORDING.
+    fn cable_names() -> (String, String) {
+        let name = |variable: &str| {
+            std::env::var(variable)
+                .unwrap_or_else(|_| panic!("{variable} names the cable's endpoint"))
+        };
+        (
+            name("RUSTEMUDROID_TEST_CABLE_OUTPUT"),
+            name("RUSTEMUDROID_TEST_CABLE_RECORDING"),
+        )
+    }
+
+    /// Plays a 1 kHz tone through `play` on the output end of a virtual audio
+    /// cable and records it back from its recording end. Inaudible: the cable
+    /// is virtual. Run with --ignored --nocapture on a PC with such a cable
+    /// (see `cable_names`).
     #[test]
     #[ignore]
     fn plays_on_the_chosen_endpoint_through_a_virtual_cable() {
+        let (output, recording) = cable_names();
         let inventory = inventory().unwrap();
         let cable = inventory
             .devices
             .iter()
-            .find(|d| d.name.starts_with("CABLE Input"))
-            .expect("VB-Audio CABLE Input")
+            .find(|d| d.name.contains(&output))
+            .expect("the cable's output endpoint")
             .clone();
         assert_ne!(
             inventory.default.as_deref(),
@@ -1207,7 +1223,7 @@ mod tests {
             })
         };
         std::thread::sleep(Duration::from_millis(500));
-        let recorded = record("CABLE Output", 2.0);
+        let recorded = record(&recording, 2.0);
         stop.store(true, Ordering::Release);
         player.join().unwrap();
         feeder.join().unwrap();
@@ -1227,9 +1243,10 @@ mod tests {
         assert!((hz - 1000.).abs() < 30., "1 kHz");
     }
 
-    /// Records VB-Audio's "CABLE Output" for RUSTEMUDROID_TEST_RECORD_SECONDS
-    /// (default 10) and prints the level per second. Used while a live VM plays
-    /// to "CABLE Input" through the window.
+    /// Records the recording end of the virtual cable (see `cable_names`) for
+    /// RUSTEMUDROID_TEST_RECORD_SECONDS (default 10) and prints the level per
+    /// second. Used while a live VM plays to the cable's output end through
+    /// the window.
     #[test]
     #[ignore]
     fn record_the_virtual_cable() {
@@ -1237,7 +1254,7 @@ mod tests {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(10.);
-        let recorded = record("CABLE Output", seconds);
+        let recorded = record(&cable_names().1, seconds);
         let per_second = RATE as usize * CHANNELS as usize;
         for (index, second) in recorded.chunks(per_second).enumerate() {
             let peak = second.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);

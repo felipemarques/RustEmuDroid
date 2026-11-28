@@ -1,5 +1,5 @@
 //! Which device the window's player uses and what the user is told about it,
-//! decided without touching Core Audio so it runs in tests without a sound
+//! decided without calling the Windows audio interfaces, so it runs in tests without a sound
 //! card. The chosen device plays while it works. While it does not, the
 //! system default plays and the chosen device is tried again every few
 //! seconds.
@@ -32,7 +32,7 @@ pub(crate) enum Fault {
     Gone,
     /// Another program holds it in exclusive mode.
     Busy,
-    /// Any other Core Audio failure: the call and its HRESULT.
+    /// Any other Windows audio failure: the call and its HRESULT.
     Call(&'static str, i32),
 }
 

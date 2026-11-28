@@ -1454,7 +1454,7 @@ pub fn boot(
     } else {
         None
     };
-    // After the window flags, before -qemu: everything after it goes to QEMU.
+    // After the window flags, before -qemu: everything after it goes to the engine core.
     let audio = audio_output::plan(
         &hardware.audio_output,
         &hardware.audio_output_name,
@@ -2016,17 +2016,14 @@ mod tests {
         apply_audio_plan(
             &mut command,
             &Plan {
-                set_env: vec![("QEMU_PA_SINK", "alsa_output.usb".into())],
+                set_env: vec![("QEMU_PA_SINK", "output.usb".into())],
                 ..Default::default()
             },
         );
         let envs: Vec<_> = command.get_envs().collect();
         assert_eq!(
             envs,
-            [(
-                OsStr::new("QEMU_PA_SINK"),
-                Some(OsStr::new("alsa_output.usb"))
-            )]
+            [(OsStr::new("QEMU_PA_SINK"), Some(OsStr::new("output.usb")))]
         );
         assert!(!command.get_args().any(|arg| arg == "-no-audio"));
 

@@ -1,14 +1,16 @@
 //! Where Android's sound goes on the computer.
 //!
-//! The default leaves the engine alone: its Windows back end opens the wave
-//! mapper (`WAVE_MAPPER`) and its PulseAudio back end opens a stream without a
-//! sink, so both follow the system default device, also when it changes while
-//! Android runs. A chosen device is routed per OS:
+//! The default leaves the engine alone: on Windows its output opens the
+//! system's default wave output (`WAVE_MAPPER`) and on Linux it opens a sound
+//! server stream without naming an output, so both follow the system default
+//! device, also when it changes while Android runs. A chosen device is routed
+//! per OS:
 //!
-//! - Linux: `QEMU_PA_SINK`, the PulseAudio sink option of the engine's QEMU.
+//! - Linux: `QEMU_PA_SINK`, the engine's variable that names the sound server
+//!   output it plays to.
 //! - Windows: the engine has no device option, so its own output is turned off
 //!   with `-no-audio` and the RustEmuDroid window plays the engine's
-//!   `streamAudio` gRPC stream through the chosen endpoint (WASAPI).
+//!   `streamAudio` stream on the chosen endpoint.
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -19,12 +21,12 @@ pub(crate) mod windows;
 
 use crate::locale::Locale;
 
-/// The QEMU option read by the engine's PulseAudio back end (`audio/paaudio.c`).
-pub(crate) const PULSE_SINK_VARIABLE: &str = "QEMU_PA_SINK";
+/// The variable the engine's Linux sound output reads for the output it plays to.
+pub(crate) const SINK_VARIABLE: &str = "QEMU_PA_SINK";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Device {
-    /// Windows endpoint ID or PulseAudio sink name.
+    /// Windows endpoint ID or the Linux sound server's output name.
     pub id: String,
     /// Friendly name shown by the system.
     pub name: String,
@@ -64,7 +66,7 @@ impl Inventory {
 pub(crate) fn inventory(locale: Locale) -> Result<Inventory, String> {
     #[cfg(windows)]
     {
-        // A Core Audio failure is a call and its code, the same in any language.
+        // A Windows audio failure is a call and its code, the same in any language.
         let _ = locale;
         return windows::inventory();
     }
@@ -84,12 +86,12 @@ pub(crate) fn inventory(locale: Locale) -> Result<Inventory, String> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Mode {
     pub windows: bool,
-    /// The RustEmuDroid window shows Android and holds the gRPC channel.
+    /// The RustEmuDroid window shows Android and holds the engine's control channel.
     pub embedded: bool,
     /// The boot check runs with `-no-audio` already.
     pub headless: bool,
     /// The engine binary can play sound at all. On Linux `-no-window` selects
-    /// the headless QEMU, whose PulseAudio library is a stub.
+    /// the engine's headless build, which has no sound output.
     pub engine_sound: bool,
 }
 
@@ -170,7 +172,7 @@ pub(crate) fn plan(
         device.name
     );
     if !mode.windows {
-        plan.set_env.push((PULSE_SINK_VARIABLE, device.id.clone()));
+        plan.set_env.push((SINK_VARIABLE, device.id.clone()));
         plan.messages.push(format!("{chosen}."));
         if !mode.engine_sound {
             plan.messages.push(
@@ -283,7 +285,7 @@ mod tests {
             devices: vec![
                 Device {
                     id: "{0.0.0.00000000}.{aaaa}".into(),
-                    name: "Speakers (Realtek(R) Audio)".into(),
+                    name: "Speakers (Built-in Audio)".into(),
                 },
                 Device {
                     id: "{0.0.0.00000000}.{bbbb}".into(),
@@ -321,7 +323,7 @@ mod tests {
         assert!(inventory.find("HDMI").is_none());
         assert_eq!(
             inventory.default_device().unwrap().name,
-            "Speakers (Realtek(R) Audio)"
+            "Speakers (Built-in Audio)"
         );
     }
 
@@ -401,13 +403,13 @@ mod tests {
     fn linux_routes_the_sink_through_the_engine() {
         let inventory = Inventory {
             devices: vec![Device {
-                id: "alsa_output.usb-headset.analog-stereo".into(),
+                id: "output.usb-headset.analog-stereo".into(),
                 name: "USB Headset Analog Stereo".into(),
             }],
             default: None,
         };
         let plan = plan(
-            "alsa_output.usb-headset.analog-stereo",
+            "output.usb-headset.analog-stereo",
             "USB Headset Analog Stereo",
             || Ok(inventory.clone()),
             LINUX_QT,
@@ -416,8 +418,8 @@ mod tests {
         assert_eq!(
             plan.set_env,
             [(
-                PULSE_SINK_VARIABLE,
-                "alsa_output.usb-headset.analog-stereo".to_string()
+                SINK_VARIABLE,
+                "output.usb-headset.analog-stereo".to_string()
             )]
         );
         assert!(!plan.no_audio && plan.client_endpoint.is_none() && plan.notice.is_none());
@@ -425,13 +427,13 @@ mod tests {
             plan.messages,
             ["Salida de audio: USB Headset Analog Stereo."]
         );
-        // The headless QEMU cannot play it; say so instead of failing quietly.
+        // The headless engine cannot play it; say so instead of failing quietly.
         let silent = Mode {
             engine_sound: false,
             ..LINUX_QT
         };
         let plan = super::plan(
-            "alsa_output.usb-headset.analog-stereo",
+            "output.usb-headset.analog-stereo",
             "",
             || Ok(inventory),
             silent,
@@ -464,7 +466,7 @@ mod tests {
         let plan = plan(
             "sink",
             "",
-            || Err("pactl: No such file or directory (os error 2)".into()),
+            || Err("No such file or directory (os error 2)".into()),
             LINUX_QT,
             Locale::PtBr,
         );
@@ -472,7 +474,7 @@ mod tests {
         assert_eq!(
             plan.notice.as_deref(),
             Some(
-                "Não foi possível listar as saídas de áudio (pactl: No such file or directory (os error 2)). O Android usa a saída padrão do sistema."
+                "Não foi possível listar as saídas de áudio (No such file or directory (os error 2)). O Android usa a saída padrão do sistema."
             )
         );
     }
@@ -512,7 +514,7 @@ mod tests {
         }
         assert_eq!(
             check_explicit("hedphones", || Ok(devices()), LINUX_BOOT, Locale::EnUs).unwrap_err(),
-            "--audio-output: no audio output has the ID or name “hedphones”. Available outputs (ID, name):\n  {0.0.0.00000000}.{aaaa}\tSpeakers (Realtek(R) Audio)\n  {0.0.0.00000000}.{bbbb}\tHeadphones (USB)"
+            "--audio-output: no audio output has the ID or name “hedphones”. Available outputs (ID, name):\n  {0.0.0.00000000}.{aaaa}\tSpeakers (Built-in Audio)\n  {0.0.0.00000000}.{bbbb}\tHeadphones (USB)"
         );
         assert!(
             check_explicit("x", || Ok(Inventory::default()), LINUX_BOOT, Locale::EsEs)
@@ -520,14 +522,8 @@ mod tests {
                 .ends_with("Salidas disponibles (ID, nombre):\n  (ninguna)")
         );
         assert_eq!(
-            check_explicit(
-                "x",
-                || Err("pactl: timeout".into()),
-                LINUX_BOOT,
-                Locale::PtBr
-            )
-            .unwrap_err(),
-            "--audio-output não pode ser atendido: não foi possível listar as saídas de áudio (pactl: timeout)."
+            check_explicit("x", || Err("timeout".into()), LINUX_BOOT, Locale::PtBr).unwrap_err(),
+            "--audio-output não pode ser atendido: não foi possível listar as saídas de áudio (timeout)."
         );
     }
 
