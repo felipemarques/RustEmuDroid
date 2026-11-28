@@ -4,6 +4,12 @@
 
 Last updated 2026-11-28. A fresh clone contains the test summaries and benchmark data linked below. On the original Windows test PC, open `.rustemudroid/LOCAL-HANDOFF.md` for the matching traces, build recipes, boot logs and private disk locations.
 
+### Handoff · 2026-11-28, content check of the engine's surface in the panel, v0.27.1
+
+| Work item | State | Where to continue |
+| --- | --- | --- |
+| The panel fell back to copied frames 4 times in the first v0.27.0 audio session (v0.27.1) | Branch `fix/panel-liveness` from `release/v0.27.0` (`514524c`): the fix commit (`src/display/engine_window/liveness.rs`: a flat screen while the engine's frame has a picture mostly of other colours is a strike, `Fault::Blank` with its own reason and the same retries; the screen is read when the engine's frame arrives; `sees()` also needs the panel's points on a monitor and the window shown and not cloaked) and the delivering commit (0.27.1, [notes](docs/releases/v0.27.1.md), READMEs: current release and the troubleshooting reason). Not a false alarm: on the test PC with the stock engine 37.3.10, a capture of the image sent to the monitor showed the engine's surface black over the whole panel from the moment the panel held it, with v0.27.0 and v0.26.0 builds, with either card for the engine's graphics and on both monitors; the held surface read back black too, while the same engine started alone showed Android in its own window on the same monitor. Every attempt of a session failed (4 = the first and 3 retries). The surface had shown Android in the panel in that morning's runs; the monitor arrangement changed at about 10:45 (the monitor of the card that runs the engine became the main one), the only change found, not proven to be the cause. The v0.27.0 check also missed a black panel over a still Home (no motion, no strike) and judged a panel partly off the desktop. | Why the held surface stays blank since the monitor change. Lab tools and evidence on the test PC: `C:/radev/claude-lab/liveness-fix/` (`tools/session.py`, `scen.py`, `matrix.sh`, the monitor capture tool `dda.cpp`, `standalone.py`; `results/`, timestamped client logs in `logs/`). |
+
 ### Handoff · 2026-11-28, audio output selector, v0.27.0
 
 | Work item | State | Where to continue |
